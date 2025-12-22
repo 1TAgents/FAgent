@@ -42,8 +42,12 @@ FAgent 是一款创新的 Android 应用，通过自然语言对话的方式帮�
 
 ### 后端服务
 - Python (策略回测引擎)
-- RESTful API
-- WebSocket (实时数据推送)
+- FastAPI (Web 框架)
+- Server-Sent Events (SSE) - 流式输出
+- RESTful API - 非流式接口
+- LangGraph + LangChain - 多智能体框架
+
+> 📖 详细的后端架构文档请查看 [backend/ARCHITECTURE.md](backend/ARCHITECTURE.md)
 
 ### AI/ML
 - 大语言模型 (LLM) 集成
@@ -81,6 +85,7 @@ FAgent/
 - JDK 11 或更高版本
 - Android SDK API Level 24+
 - Python 3.8+ (后端服务)
+- Python 虚拟环境：`fg`（用于本地开发和测试）
 
 ### 安装步骤
 
@@ -90,25 +95,40 @@ FAgent/
    cd FAgent
    ```
 
-2. **配置开发环境**
+2. **配置 Python 虚拟环境**
+   ```bash
+   # 方式一：使用 venv
+   python -m venv .venv --prompt fg
+   source .venv/bin/activate
+   
+   # 方式二：使用 conda
+   conda create -n fg python=3.10
+   conda activate fg
+   ```
+
+3. **配置开发环境**
    ```bash
    # 安装 Android 依赖
    cd android
    ./gradlew build
    
-   # 配置后端服务
+   # 配置后端服务（确保在 fg 虚拟环境中）
    cd ../backend
+   pip install -r requirements.txt
+   
+   # 配置测试依赖
+   cd ../tests
    pip install -r requirements.txt
    ```
 
-3. **配置环境变量**
+4. **配置环境变量**
    ```bash
    # 复制环境变量模板
    cp .env.example .env
    # 编辑 .env 文件，填入必要的 API 密钥和配置
    ```
 
-4. **运行应用**
+5. **运行应用**
    ```bash
    # 启动后端服务
    cd backend
@@ -201,7 +221,7 @@ FAgent: "策略已启用，将自动执行交易..."
 
 感谢所有为本项目做出贡献的开发者和用户！
 
----
+![1766414058739](image/README/1766414058739.png)---
 
 **注意**：本项目仍在积极开发中，功能可能随时更新。使用前请查看最新版本说明。
 
