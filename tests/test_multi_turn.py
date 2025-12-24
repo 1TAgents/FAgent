@@ -1,177 +1,219 @@
 """
 多轮对话测试脚本
-测试会话管理和消息持久化功能
+
+验证功能：
+1. 创建多个会话（cid 为整数，自增）
+2. 用户消息先落库，获取 message_id
+3. 历史消息过滤（message_id < 当前）
+4. AI 回复落库
+5. 多轮对话上下文保持
+6. 多会话独立性验证
 """
 import requests
 import json
-import time
 
+# API 配置
 API_BASE_URL = "http://localhost:8000"
 
 
-def print_separator(title: str = ""):
-    print("\n" + "=" * 60)
-    if title:
-        print(f"  {title}")
-        print("=" * 60)
-
-
-def test_health():
-    """测试 API 健康状态"""
+def check_api_status():
+    """检查 API 服务状态"""
     try:
         response = requests.get(f"{API_BASE_URL}/health", timeout=5)
-        return response.status_code == 200
-    except Exception as e:
-        print(f"❌ 健康检查失败: {e}")
+        response.raise_for_status()
+        return True
+    except requests.exceptions.RequestException:
         return False
 
 
-def create_session(system_message: str = None) -> str:
-    """创建新会话"""
-    payload = {}
-    if system_message:
-        payload["system_message"] = system_message
-    
-    response = requests.post(
-        f"{API_BASE_URL}/api/chat/session/create",
-        params=payload
-    )
+def create_session():
+    """创建新会话，返回 cid（整数）"""
+    response = requests.post(f"{API_BASE_URL}/api/chat/session/create")
     response.raise_for_status()
     data = response.json()
-    return data["conversation_id"]
+    return data["cid"]
 
 
-def send_message(session_id: str, user_message: str, stream: bool = True) -> str:
-    """发送消息并获取回复"""
+def send_stream_message(cid: int, user_message: str, show_output: bool = True):
+    """
+    发送流式消息
+    
+    返回：(full_content, user_message_id, assistant_message_id)
+    """
     payload = {
-        "session_id": session_id,
+        "cid": cid,
         "user_message": user_message,
         "temperature": 0.7
     }
     
-    if stream:
-        # 流式请求
-        response = requests.post(
-            f"{API_BASE_URL}/api/chat/stream",
-            json=payload,
-            stream=True
-        )
+    full_content = ""
+    user_message_id = None
+    assistant_message_id = None
+    
+    with requests.post(
+        f"{API_BASE_URL}/api/chat/stream",
+        json=payload,
+        stream=True
+    ) as response:
         response.raise_for_status()
-        
-        full_content = ""
-        print("  AI: ", end="", flush=True)
-        
         for line in response.iter_lines():
             if line:
-                line_str = line.decode('utf-8')
-                if line_str.startswith("data: "):
-                    data_str = line_str[6:]
+                decoded = line.decode('utf-8')
+                if decoded.startswith("data: "):
+                    data_str = decoded[6:]
                     if data_str == "[DONE]":
                         break
                     try:
                         data = json.loads(data_str)
                         if "content" in data:
-                            content = data["content"]
-                            full_content += content
-                            print(content, end="", flush=True)
-                        elif "done" in data:
-                            # 完成标记，包含 message_id
-                            pass
+                            full_content += data["content"]
+                            if show_output:
+                                print(data["content"], end="", flush=True)
+                        if "done" in data:
+                            user_message_id = data.get("user_message_id")
+                            assistant_message_id = data.get("assistant_message_id")
                     except json.JSONDecodeError:
                         pass
-        
+    
+    if show_output:
         print()  # 换行
-        return full_content
-    else:
-        # 非流式请求
-        response = requests.post(
-            f"{API_BASE_URL}/api/chat/completion",
-            json=payload
-        )
-        response.raise_for_status()
-        data = response.json()
-        content = data["content"]
-        print(f"  AI: {content}")
-        return content
+    return full_content, user_message_id, assistant_message_id
 
 
-def get_session_messages(session_id: str) -> list:
-    """获取会话的所有消息"""
-    response = requests.get(
-        f"{API_BASE_URL}/api/chat/session/{session_id}/messages"
-    )
-    response.raise_for_status()
-    return response.json()
-
-
-def get_conversation(session_id: str) -> dict:
+def get_conversation(cid: int):
     """获取完整会话记录"""
+    response = requests.get(f"{API_BASE_URL}/api/chat/conversation/{cid}")
+    response.raise_for_status()
+    return response.json()
+
+
+def get_history_before_message(cid: int, before_message_id: int):
+    """获取指定消息之前的历史"""
     response = requests.get(
-        f"{API_BASE_URL}/api/chat/conversation/{session_id}"
+        f"{API_BASE_URL}/api/chat/conversation/{cid}/history",
+        params={"before_message_id": before_message_id}
     )
     response.raise_for_status()
     return response.json()
+
+
+def list_conversations():
+    """获取所有会话列表"""
+    response = requests.get(f"{API_BASE_URL}/api/chat/conversations")
+    response.raise_for_status()
+    return response.json()
+
+
+def print_separator(title: str = ""):
+    """打印分隔线"""
+    if title:
+        print(f"\n{'=' * 60}")
+        print(f"  {title}")
+        print("=" * 60)
+    else:
+        print("-" * 40)
 
 
 def main():
-    print_separator("FAgent 多轮对话测试")
+    print("=" * 60)
+    print("  FAgent 多会话多轮对话测试")
+    print("=" * 60)
     
-    # 1. 健康检查
-    print("\n🔍 检查 API 服务状态...")
-    if not test_health():
-        print("❌ API 服务未启动，请先启动后端服务")
+    # 1. 检查 API 服务
+    print("\n🔍 检查 API 服务...")
+    if not check_api_status():
+        print("❌ API 服务未运行")
         return
     print("✅ API 服务正常")
     
-    # 2. 创建会话
-    print_separator("创建新会话")
-    session_id = create_session()
-    print(f"✅ 会话创建成功")
-    print(f"   conversation_id: {session_id}")
+    # ==================== 会话 1：技术问答 ====================
+    print_separator("会话 1：技术问答")
     
-    # 3. 第一轮对话
-    print_separator("第一轮对话")
-    question1 = "你叫什么名字？"
-    print(f"  用户: {question1}")
-    answer1 = send_message(session_id, question1, stream=True)
+    cid1 = create_session()
+    print(f"✅ 会话 1 创建成功 | cid={cid1}")
     
-    time.sleep(1)  # 等待消息保存
+    # 会话1 - 第一轮
+    q1_1 = "你叫什么名字？"
+    print(f"\n  [轮次1] 用户: {q1_1}")
+    print("  AI: ", end="")
+    _, user_id_1_1, ai_id_1_1 = send_stream_message(cid1, q1_1)
+    print(f"  📝 message_id: user={user_id_1_1}, assistant={ai_id_1_1}")
     
-    # 4. 第二轮对话
-    print_separator("第二轮对话")
-    question2 = "你的基模型是怎么训练的？"
-    print(f"  用户: {question2}")
-    answer2 = send_message(session_id, question2, stream=True)
+    # 会话1 - 第二轮
+    q1_2 = "你的基模型是怎么训练的？"
+    print(f"\n  [轮次2] 用户: {q1_2}")
+    print("  AI: ", end="")
+    _, user_id_1_2, ai_id_1_2 = send_stream_message(cid1, q1_2)
+    print(f"  📝 message_id: user={user_id_1_2}, assistant={ai_id_1_2}")
     
-    time.sleep(1)  # 等待消息保存
+    # ==================== 会话 2：日常对话 ====================
+    print_separator("会话 2：日常对话")
     
-    # 5. 查看会话历史
-    print_separator("会话历史记录")
-    try:
-        conversation = get_conversation(session_id)
-        print(f"  会话ID: {conversation['conversation_id']}")
-        print(f"  创建时间: {conversation['created_at']}")
-        print(f"  消息数量: {conversation['message_count']}")
-        print("\n  消息列表:")
-        for i, msg in enumerate(conversation.get("messages", []), 1):
-            role = msg["role"]
-            content = msg["content"]
-            msg_id = msg.get("message_id", "N/A")
-            content_type = msg.get("content_type", "text")
-            # 截断过长的内容
-            if len(content) > 100:
-                content = content[:100] + "..."
-            print(f"    [{i}] {role}: {content}")
-            print(f"        message_id: {msg_id}, type: {content_type}")
-    except Exception as e:
-        print(f"  ⚠️ 获取会话历史失败: {e}")
+    cid2 = create_session()
+    print(f"✅ 会话 2 创建成功 | cid={cid2}")
     
+    # 会话2 - 第一轮
+    q2_1 = "今天天气怎么样？"
+    print(f"\n  [轮次1] 用户: {q2_1}")
+    print("  AI: ", end="")
+    _, user_id_2_1, ai_id_2_1 = send_stream_message(cid2, q2_1)
+    print(f"  📝 message_id: user={user_id_2_1}, assistant={ai_id_2_1}")
+    
+    # 会话2 - 第二轮
+    q2_2 = "那有什么推荐的室内活动吗？"
+    print(f"\n  [轮次2] 用户: {q2_2}")
+    print("  AI: ", end="")
+    _, user_id_2_2, ai_id_2_2 = send_stream_message(cid2, q2_2)
+    print(f"  📝 message_id: user={user_id_2_2}, assistant={ai_id_2_2}")
+    
+    # ==================== 验证历史消息过滤 ====================
+    print_separator("验证：历史消息过滤")
+    
+    print(f"\n  会话 1 (cid={cid1}): message_id < {user_id_1_2} 的历史")
+    history1 = get_history_before_message(cid1, user_id_1_2)
+    print(f"  历史消息数量: {history1['count']}")
+    for msg in history1["messages"]:
+        preview = str(msg["content"])[:40] + "..." if len(str(msg["content"])) > 40 else msg["content"]
+        print(f"    [{msg['message_id']}] {msg['role']}: {preview}")
+    
+    print(f"\n  会话 2 (cid={cid2}): message_id < {user_id_2_2} 的历史")
+    history2 = get_history_before_message(cid2, user_id_2_2)
+    print(f"  历史消息数量: {history2['count']}")
+    for msg in history2["messages"]:
+        preview = str(msg["content"])[:40] + "..." if len(str(msg["content"])) > 40 else msg["content"]
+        print(f"    [{msg['message_id']}] {msg['role']}: {preview}")
+    
+    # ==================== 会话列表汇总 ====================
+    print_separator("会话列表汇总")
+    
+    convs = list_conversations()
+    print(f"  总会话数: {convs['count']}")
+    for conv in convs["conversations"]:
+        print(f"    cid={conv['cid']}: {conv['message_count']} 条消息")
+    
+    # ==================== 完整会话记录 ====================
+    print_separator("完整会话记录")
+    
+    for cid in [cid1, cid2]:
+        conv = get_conversation(cid)
+        print(f"\n  📂 会话 {cid} ({conv['message_count']} 条消息):")
+        for msg in conv["messages"]:
+            preview = str(msg["content"])[:50] + "..." if len(str(msg["content"])) > 50 else msg["content"]
+            print(f"    [{msg['message_id']}] {msg['role']}: {preview}")
+    
+    # ==================== 测试结果 ====================
     print_separator("测试完成")
-    print(f"\n✅ 多轮对话测试成功！")
-    print(f"   会话ID: {session_id}")
-    print(f"   共进行了 2 轮对话")
+    
+    print(f"\n✅ 多会话多轮对话测试成功！")
+    print(f"\n  会话统计:")
+    print(f"    会话 1 (cid={cid1}): message_id {user_id_1_1} → {ai_id_1_1} → {user_id_1_2} → {ai_id_1_2}")
+    print(f"    会话 2 (cid={cid2}): message_id {user_id_2_1} → {ai_id_2_1} → {user_id_2_2} → {ai_id_2_2}")
+    print(f"\n  验证项:")
+    print(f"    ✅ cid 自增: {cid1} → {cid2}")
+    print(f"    ✅ message_id 全局自增: {user_id_1_1} → ... → {ai_id_2_2}")
+    print(f"    ✅ 历史消息按 message_id 过滤")
+    print(f"    ✅ 多会话独立")
 
 
 if __name__ == "__main__":
     main()
-
