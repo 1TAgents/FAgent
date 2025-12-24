@@ -62,18 +62,17 @@ FAgent 是一款创新的 Android 应用，通过自然语言对话的方式帮�
 
 ```
 FAgent/
-├── android/                 # Android 应用代码
-│   ├── app/                # 主应用模块
-│   ├── core/               # 核心功能模块
-│   ├── ui/                 # UI 组件
-│   └── data/               # 数据层
 ├── backend/                # 后端服务
-│   ├── api/                # API 服务
-│   ├── strategy/           # 策略引擎
-│   ├── backtest/           # 回测引擎
-│   └── trading/           # 交易执行模块
-├── docs/                   # 项目文档
+│   ├── api/                # FastAPI 接口
+│   ├── core/               # 核心组件（日志、上下文）
+│   ├── services/           # 业务服务（LLM、会话、存储）
+│   ├── API_USAGE.md        # API 使用文档
+│   └── ARCHITECTURE.md     # 架构文档
 ├── tests/                  # 测试代码
+│   ├── test_multi_turn.py  # 多轮对话测试
+│   └── streamlit_test.py   # Streamlit 测试界面
+├── docs/                   # 项目文档
+├── android/                # Android 应用代码（待开发）
 └── README.md               # 项目说明文档
 ```
 
@@ -81,11 +80,8 @@ FAgent/
 
 ### 环境要求
 
-- Android Studio Arctic Fox 或更高版本
-- JDK 11 或更高版本
-- Android SDK API Level 24+
-- Python 3.8+ (后端服务)
-- Python 虚拟环境：`fg`（用于本地开发和测试）
+- Python 3.12（后端服务）
+- Android Studio Arctic Fox+（Android 开发，待开发）
 
 ### 安装步骤
 
@@ -97,45 +93,33 @@ FAgent/
 
 2. **配置 Python 虚拟环境**
    ```bash
-   # 方式一：使用 venv
-   python -m venv .venv --prompt fg
+   python3.12 -m venv .venv
    source .venv/bin/activate
-   
-   # 方式二：使用 conda
-   conda create -n fg python=3.10
-   conda activate fg
    ```
 
-3. **配置开发环境**
+3. **安装依赖**
    ```bash
-   # 安装 Android 依赖
-   cd android
-   ./gradlew build
-   
-   # 配置后端服务（确保在 fg 虚拟环境中）
-   cd ../backend
-   pip install -r requirements.txt
-   
-   # 配置测试依赖
-   cd ../tests
-   pip install -r requirements.txt
+   pip install -r backend/requirements.txt
+   pip install -r tests/requirements.txt
    ```
 
 4. **配置环境变量**
+
+   在项目根目录创建 `.env` 文件：
    ```bash
-   # 复制环境变量模板
-   cp .env.example .env
-   # 编辑 .env 文件，填入必要的 API 密钥和配置
+   OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
+   openrounter_p=your_api_key
+   LLM_MODEL=xiaomi/mimo-v2-flash:free
    ```
 
-5. **运行应用**
+5. **启动后端服务**
    ```bash
-   # 启动后端服务
-   cd backend
-   python app.py
-   
-   # 在 Android Studio 中运行应用
+   uvicorn backend.api.main:app --reload --host 0.0.0.0 --port 8000
    ```
+
+6. **访问 API 文档**
+
+   http://localhost:8000/docs
 
 ## 📖 使用说明
 
@@ -171,27 +155,26 @@ FAgent: "策略已启用，将自动执行交易..."
 
 ## 📝 开发计划
 
-### Phase 1: 基础功能 (进行中)
+### Phase 1: 后端基础 ✅
 - [x] 项目初始化
-- [ ] 对话式交互界面
-- [ ] 基础行情查询功能
-- [ ] 策略制定框架
+- [x] FastAPI + SSE 流式接口
+- [x] 会话管理（多轮对话）
+- [x] 消息持久化（SQLite）
+- [x] 请求日志追踪（rid/cid）
 
-### Phase 2: 核心功能
+### Phase 2: 多智能体系统
+- [ ] LangGraph 工作流集成
+- [ ] 多智能体协作
+- [ ] 长期记忆
+
+### Phase 3: 核心功能
+- [ ] 行情查询 API
 - [ ] 策略回测引擎
-- [ ] 回测报告生成
-- [ ] 策略管理功能
-
-### Phase 3: 交易功能
 - [ ] 交易接口集成
-- [ ] 自动化交易执行
-- [ ] 风险控制机制
 
-### Phase 4: 优化与扩展
-- [ ] 性能优化
-- [ ] UI/UX 优化
-- [ ] 更多策略模板
-- [ ] 社区功能
+### Phase 4: Android 应用
+- [ ] 对话式交互界面
+- [ ] UI/UX 设计
 
 ## 🤝 贡献指南
 
@@ -221,7 +204,6 @@ FAgent: "策略已启用，将自动执行交易..."
 
 感谢所有为本项目做出贡献的开发者和用户！
 
-![1766414058739](image/README/1766414058739.png)---
+---
 
 **注意**：本项目仍在积极开发中，功能可能随时更新。使用前请查看最新版本说明。
-
