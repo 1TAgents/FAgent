@@ -5,7 +5,7 @@ import os
 from typing import Optional, Iterator
 from openai import OpenAI
 from dotenv import load_dotenv, find_dotenv
-from loguru import logger
+from ..core.context import ctx_logger as logger
 
 # Load environment variables
 load_dotenv(find_dotenv())

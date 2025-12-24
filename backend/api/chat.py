@@ -1,116 +1,139 @@
 """
 Chat API - 对话接口（流式和非流式）
-支持多轮对话和会话管理
 
-支持多种消息类型（与 OpenAI API 一致）：
-- text: 纯文本
-- image_url: 图片 URL
-- video_url: 视频 URL
-- multimodal: 多模态（混合内容）
+消息流程：
+1. 用户消息先落库，获取 message_id
+2. 用 message_id 过滤历史消息作为上下文
+3. 调用 LLM
+4. AI 回复落库
+
+ID 设计：
+- cid: 整数，会话ID
+- message_id: 整数，消息ID
+
+消息角色：
+- user: 用户消息
+- assistant: AI 回复
+- system: 系统消息
 """
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 from typing import List, Optional, Dict, Union, Any
 import json
-from loguru import logger
 
+from ..core.context import set_context, ctx_logger as logger
 from ..services.llm import llm_service
 from ..services.session import session_manager
-from ..services.storage import ContentType
 
 router = APIRouter(prefix="/api/chat", tags=["chat"])
 
 
+# ==================== 请求/响应模型 ====================
+
 class Message(BaseModel):
-    """
-    消息模型（与 OpenAI API 格式兼容）
-    
-    content 支持以下格式：
-    1. 纯文本: "Hello"
-    2. 多模态列表: [{"type": "text", "text": "..."}, {"type": "image_url", "image_url": {"url": "..."}}]
-    """
-    role: str  # "user", "assistant", "system"
-    content: Union[str, List[Dict[str, Any]]]  # 支持字符串或多模态列表
-    content_type: Optional[str] = None  # 可选：内容类型，不提供则自动检测
-    metadata: Optional[Dict[str, Any]] = None  # 可选：消息元数据
+    """消息模型（直接调用时使用）"""
+    role: str  # user, assistant, system
+    content: Union[str, List[Dict[str, Any]]]
 
 
 class ChatRequest(BaseModel):
     """聊天请求模型"""
-    messages: Optional[List[Message]] = None  # 可选：直接提供消息列表
-    session_id: Optional[str] = None  # 可选：会话ID（用于多轮对话）
-    user_message: Optional[Union[str, List[Dict[str, Any]]]] = None  # 可选：用户消息（配合 session_id 使用）
-    user_message_metadata: Optional[Dict[str, Any]] = None  # 可选：用户消息的元数据
-    temperature: Optional[float] = 0.7
-    max_tokens: Optional[int] = None
-    reasoning: Optional[bool] = False
-
-
-class ChatRequestWithSession(BaseModel):
-    """带会话的聊天请求模型（简化版）"""
-    session_id: str
-    user_message: Union[str, List[Dict[str, Any]]]
+    # 方式1：直接提供消息列表（无持久化）
+    messages: Optional[List[Message]] = None
+    
+    # 方式2：使用会话（推荐，有持久化）
+    cid: Optional[int] = None  # 会话ID
+    user_message: Optional[Union[str, List[Dict[str, Any]]]] = None
     user_message_metadata: Optional[Dict[str, Any]] = None
+    
+    # LLM 参数
     temperature: Optional[float] = 0.7
     max_tokens: Optional[int] = None
     reasoning: Optional[bool] = False
+    
+    # 历史消息限制
+    history_limit: Optional[int] = None  # 最多取多少条历史
 
 
 class ChatResponse(BaseModel):
     """聊天响应模型"""
     content: str
     model: str
-    message_id: Optional[str] = None  # 返回消息ID
+    cid: Optional[int] = None
+    user_message_id: Optional[int] = None
+    assistant_message_id: Optional[int] = None
     usage: Optional[dict] = None
 
 
-def _prepare_messages(request: ChatRequest) -> List[Dict]:
-    """
-    准备消息列表
-    支持两种方式：
-    1. 直接提供 messages 列表
-    2. 使用 session_id + user_message（自动附加历史）
-    """
-    if request.messages:
-        # 方式1: 直接提供消息列表
-        return [{"role": msg.role, "content": msg.content} for msg in request.messages]
-    elif request.session_id and request.user_message:
-        # 方式2: 使用会话ID，自动附加历史
-        session = session_manager.get_session(request.session_id)
-        if session is None:
-            raise HTTPException(status_code=404, detail=f"Session {request.session_id} not found")
-        
-        # 获取历史消息（格式化为 LLM 调用格式）
-        messages = session_manager.get_messages_for_llm(request.session_id)
-        # 添加当前用户消息
-        messages.append({"role": "user", "content": request.user_message})
-        return messages
-    else:
-        raise HTTPException(
-            status_code=400,
-            detail="Either 'messages' or both 'session_id' and 'user_message' must be provided"
-        )
+class CreateSessionRequest(BaseModel):
+    """创建会话请求"""
+    system_message: Optional[str] = None
+    metadata: Optional[Dict[str, Any]] = None
 
+
+class CreateSessionResponse(BaseModel):
+    """创建会话响应"""
+    cid: int
+    message: str = "Session created successfully"
+
+
+# ==================== 核心聊天接口 ====================
 
 @router.post("/completion", response_model=ChatResponse)
 async def chat_completion(request: ChatRequest):
     """
     非流式聊天接口
     
-    支持两种调用方式：
-    1. 直接提供消息列表（messages）
-    2. 使用会话ID + 用户消息（session_id + user_message），自动附加对话历史
-    
-    返回完整的聊天回复
+    消息流程（使用会话时）：
+    1. 用户消息先落库
+    2. 获取历史消息（message_id < 当前）
+    3. 调用 LLM
+    4. AI 回复落库
     """
-    logger.info(f"API: /completion 请求 | session_id={request.session_id}")
+    # 设置上下文
+    if request.cid:
+        set_context(cid=str(request.cid))
+    
+    logger.info("/completion 请求")
+    
     try:
-        # 准备消息列表
-        messages = _prepare_messages(request)
-        logger.debug(f"API: 准备消息完成 | messages_count={len(messages)}")
+        user_message_id = None
+        assistant_message_id = None
         
-        # 调用 LLM 服务
+        if request.cid and request.user_message:
+            # === 方式2：使用会话（有持久化）===
+            
+            # 1. 用户消息先落库
+            user_message_id = session_manager.add_message(
+                cid=request.cid,
+                role="user",
+                content=request.user_message,
+                metadata=request.user_message_metadata
+            )
+            logger.debug(f"用户消息已落库 | user_message_id={user_message_id}")
+            
+            # 2. 获取历史消息（message_id < 当前用户消息）
+            history_messages = session_manager.get_messages_for_llm(
+                cid=request.cid,
+                before_message_id=user_message_id,
+                limit=request.history_limit
+            )
+            
+            # 3. 构建完整消息列表
+            messages = history_messages + [{"role": "user", "content": request.user_message}]
+            logger.debug(f"构建消息列表 | history={len(history_messages)} | total={len(messages)}")
+            
+        elif request.messages:
+            # === 方式1：直接提供消息（无持久化）===
+            messages = [{"role": msg.role, "content": msg.content} for msg in request.messages]
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail="Either 'messages' or both 'cid' and 'user_message' must be provided"
+            )
+        
+        # 4. 调用 LLM
         kwargs = {}
         if request.reasoning:
             kwargs["reasoning"] = {"enabled": True}
@@ -122,25 +145,16 @@ async def chat_completion(request: ChatRequest):
             **kwargs
         )
         
-        # 提取回复内容
         content = response.choices[0].message.content
         
-        # 如果使用会话，保存消息到会话历史
-        assistant_message_id = None
-        if request.session_id:
-            # 保存用户消息（带 metadata）
-            session_manager.add_message(
-                request.session_id, 
-                "user", 
-                request.user_message,
-                metadata=request.user_message_metadata
-            )
-            # 保存助手回复
+        # 5. AI 回复落库
+        if request.cid:
             assistant_message_id = session_manager.add_message(
-                request.session_id, 
-                "assistant", 
-                content
+                cid=request.cid,
+                role="assistant",
+                content=content
             )
+            logger.debug(f"AI 回复已落库 | assistant_message_id={assistant_message_id}")
         
         usage = None
         if response.usage:
@@ -153,13 +167,15 @@ async def chat_completion(request: ChatRequest):
         return ChatResponse(
             content=content,
             model=response.model,
-            message_id=assistant_message_id,
+            cid=request.cid,
+            user_message_id=user_message_id,
+            assistant_message_id=assistant_message_id,
             usage=usage
         )
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"API: /completion 错误 | error={str(e)}")
+        logger.error(f"/completion 错误 | error={str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -168,64 +184,102 @@ async def chat_stream(request: ChatRequest):
     """
     流式聊天接口（SSE）
     
-    使用 Server-Sent Events 实时推送 AI 回复
-    
-    支持两种调用方式：
-    1. 直接提供消息列表（messages）
-    2. 使用会话ID + 用户消息（session_id + user_message），自动附加对话历史
+    消息流程（使用会话时）：
+    1. 用户消息先落库
+    2. 获取历史消息
+    3. 流式调用 LLM
+    4. 累积完成后，AI 回复落库
     """
-    logger.info(f"API: /stream 请求 | session_id={request.session_id}")
+    # 设置上下文
+    if request.cid:
+        set_context(cid=str(request.cid))
+    
+    logger.info("/stream 请求")
+    
     try:
-        # 准备消息列表
-        messages = _prepare_messages(request)
+        user_message_id = None
+        messages = None
         
-        # 准备流式生成器
+        if request.cid and request.user_message:
+            # === 方式2：使用会话 ===
+            
+            # 1. 用户消息先落库
+            user_message_id = session_manager.add_message(
+                cid=request.cid,
+                role="user",
+                content=request.user_message,
+                metadata=request.user_message_metadata
+            )
+            logger.debug(f"用户消息已落库 | user_message_id={user_message_id}")
+            
+            # 2. 获取历史消息
+            history_messages = session_manager.get_messages_for_llm(
+                cid=request.cid,
+                before_message_id=user_message_id,
+                limit=request.history_limit
+            )
+            
+            # 3. 构建消息列表
+            messages = history_messages + [{"role": "user", "content": request.user_message}]
+            logger.debug(f"构建消息列表 | history={len(history_messages)} | total={len(messages)}")
+            
+        elif request.messages:
+            # === 方式1：直接提供消息 ===
+            messages = [{"role": msg.role, "content": msg.content} for msg in request.messages]
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail="Either 'messages' or both 'cid' and 'user_message' must be provided"
+            )
+        
+        # 准备 LLM 参数
         kwargs = {}
         if request.reasoning:
             kwargs["reasoning"] = {"enabled": True}
         
-        # 记录完整回复（用于保存到会话）
-        full_content = ""
+        # 捕获请求参数供生成器使用
+        cid = request.cid
+        temperature = request.temperature
+        max_tokens = request.max_tokens
         
         def generate():
             """SSE 事件生成器"""
-            nonlocal full_content
+            full_content = ""
+            assistant_message_id = None
+            
             try:
+                # 流式调用 LLM
                 for chunk in llm_service.chat_completion_stream(
                     messages=messages,
-                    temperature=request.temperature,
-                    max_tokens=request.max_tokens,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
                     **kwargs
                 ):
-                    # 累积完整内容
                     full_content += chunk
-                    # SSE 格式：data: {content}\n\n
                     data = json.dumps({"content": chunk}, ensure_ascii=False)
                     yield f"data: {data}\n\n"
                 
-                # 如果使用会话，保存消息到会话历史
-                if request.session_id:
-                    # 保存用户消息（带 metadata）
-                    session_manager.add_message(
-                        request.session_id, 
-                        "user", 
-                        request.user_message,
-                        metadata=request.user_message_metadata
-                    )
-                    # 保存助手回复
+                # AI 回复落库
+                if cid:
                     assistant_message_id = session_manager.add_message(
-                        request.session_id, 
-                        "assistant", 
-                        full_content
+                        cid=cid,
+                        role="assistant",
+                        content=full_content
                     )
-                    # 发送包含 message_id 的结束标记
-                    done_data = json.dumps({"done": True, "message_id": assistant_message_id}, ensure_ascii=False)
-                    yield f"data: {done_data}\n\n"
+                    logger.debug(f"AI 回复已落库 | assistant_message_id={assistant_message_id}")
                 
-                # 发送结束标记
+                # 发送完成信息
+                done_data = json.dumps({
+                    "done": True,
+                    "cid": cid,
+                    "user_message_id": user_message_id,
+                    "assistant_message_id": assistant_message_id
+                }, ensure_ascii=False)
+                yield f"data: {done_data}\n\n"
                 yield "data: [DONE]\n\n"
+                
             except Exception as e:
-                # 发送错误信息
+                logger.error(f"/stream 生成错误 | error={str(e)}")
                 error_data = json.dumps({"error": str(e)}, ensure_ascii=False)
                 yield f"data: {error_data}\n\n"
         
@@ -235,139 +289,100 @@ async def chat_stream(request: ChatRequest):
             headers={
                 "Cache-Control": "no-cache",
                 "Connection": "keep-alive",
-                "X-Accel-Buffering": "no",  # 禁用 Nginx 缓冲
+                "X-Accel-Buffering": "no",
             }
         )
     except HTTPException:
         raise
     except Exception as e:
+        logger.error(f"/stream 请求错误 | error={str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
-# ========== 会话管理接口 ==========
+# ==================== 会话管理接口 ====================
 
-@router.post("/session/create")
-async def create_session(system_message: Optional[str] = None, metadata: Optional[Dict] = None):
-    """
-    创建新会话
+@router.post("/session/create", response_model=CreateSessionResponse)
+async def create_session(request: CreateSessionRequest = None):
+    """创建新会话"""
+    if request is None:
+        request = CreateSessionRequest()
     
-    返回 conversation_id（会话ID）
-    """
-    conversation_id = session_manager.create_session(
-        system_message=system_message,
-        metadata=metadata
+    cid = session_manager.create_session(
+        system_message=request.system_message,
+        metadata=request.metadata
     )
-    return {
-        "conversation_id": conversation_id,
-        "session_id": conversation_id,  # 向后兼容
-        "message": "Session created successfully"
-    }
+    return CreateSessionResponse(cid=cid)
 
 
-@router.get("/conversation/{conversation_id}")
-async def get_conversation(conversation_id: str):
-    """
-    根据 conversation_id 获取完整会话记录（包含所有消息）
-    
-    这是主要的查询接口，返回：
-    - conversation_id: 会话ID
-    - messages: 消息列表（每个消息包含 message_id）
-    - message_count: 消息数量
-    - created_at, updated_at: 时间戳
-    """
-    conversation = session_manager.get_conversation_with_messages(conversation_id)
+@router.get("/conversation/{cid}")
+async def get_conversation(cid: int):
+    """获取完整会话记录（包含所有消息）"""
+    conversation = session_manager.get_conversation_with_messages(cid)
     if conversation is None:
-        raise HTTPException(status_code=404, detail=f"Conversation {conversation_id} not found")
+        raise HTTPException(status_code=404, detail=f"Conversation {cid} not found")
     return conversation
 
 
-@router.get("/session/{session_id}/messages")
-async def get_session_messages(session_id: str):
-    """
-    获取会话的所有消息（向后兼容接口）
+@router.get("/conversation/{cid}/messages")
+async def get_conversation_messages(cid: int, limit: Optional[int] = None):
+    """获取会话的消息列表"""
+    session = session_manager.get_session(cid)
+    if session is None:
+        raise HTTPException(status_code=404, detail=f"Conversation {cid} not found")
     
-    使用 session_id（实际映射到 conversation_id）
-    """
-    messages = session_manager.get_messages(session_id)
-    if not messages:
-        # 检查会话是否存在
-        session = session_manager.get_session(session_id)
-        if session is None:
-            raise HTTPException(status_code=404, detail=f"Session {session_id} not found")
-    
+    messages = session_manager.get_messages(cid, limit=limit)
     return {
-        "conversation_id": session_id,
-        "session_id": session_id,  # 向后兼容
+        "cid": cid,
         "messages": messages,
         "count": len(messages)
     }
 
 
-@router.delete("/session/{session_id}")
-async def delete_session(session_id: str):
+@router.get("/conversation/{cid}/history")
+async def get_conversation_history(
+    cid: int,
+    before_message_id: int,
+    limit: Optional[int] = None
+):
     """
-    删除会话及其所有消息
+    获取指定消息之前的历史消息
     
-    使用 session_id（实际映射到 conversation_id）
+    用于调试和验证历史消息过滤
     """
-    success = session_manager.delete_session(session_id)
-    if not success:
-        raise HTTPException(status_code=404, detail=f"Session {session_id} not found")
-    return {"message": "Session deleted successfully"}
-
-
-@router.delete("/conversation/{conversation_id}")
-async def delete_conversation(conversation_id: str):
-    """
-    删除会话及其所有消息（使用 conversation_id）
-    """
-    success = session_manager.delete_session(conversation_id)
-    if not success:
-        raise HTTPException(status_code=404, detail=f"Conversation {conversation_id} not found")
-    return {"message": "Conversation deleted successfully"}
-
-
-@router.post("/session/{session_id}/clear")
-async def clear_session(session_id: str):
-    """
-    清空会话消息（保留会话）
-    
-    使用 session_id（实际映射到 conversation_id）
-    """
-    success = session_manager.clear_session(session_id)
-    if not success:
-        raise HTTPException(status_code=404, detail=f"Session {session_id} not found")
-    return {"message": "Session cleared successfully"}
-
-
-@router.get("/sessions")
-async def list_sessions(limit: Optional[int] = None, offset: int = 0):
-    """
-    列出所有会话
-    
-    Query Parameters:
-        limit: 可选的数量限制
-        offset: 偏移量
-    """
-    sessions = session_manager.list_sessions(limit=limit, offset=offset)
+    messages = session_manager.get_history_before_message(cid, before_message_id, limit)
     return {
-        "sessions": sessions,
-        "count": len(sessions)
+        "cid": cid,
+        "before_message_id": before_message_id,
+        "messages": messages,
+        "count": len(messages)
     }
+
+
+@router.delete("/conversation/{cid}")
+async def delete_conversation(cid: int):
+    """删除会话及其所有消息"""
+    success = session_manager.delete_session(cid)
+    if not success:
+        raise HTTPException(status_code=404, detail=f"Conversation {cid} not found")
+    return {"message": "Conversation deleted successfully", "cid": cid}
+
+
+@router.post("/conversation/{cid}/clear")
+async def clear_conversation(cid: int):
+    """清空会话消息（保留会话）"""
+    session = session_manager.get_session(cid)
+    if session is None:
+        raise HTTPException(status_code=404, detail=f"Conversation {cid} not found")
+    
+    session_manager.clear_session(cid)
+    return {"message": "Conversation cleared successfully", "cid": cid}
 
 
 @router.get("/conversations")
 async def list_conversations(limit: Optional[int] = None, offset: int = 0):
-    """
-    列出所有会话（使用 conversation_id）
-    
-    Query Parameters:
-        limit: 可选的数量限制
-        offset: 偏移量
-    """
+    """列出所有会话"""
     conversations = session_manager.list_sessions(limit=limit, offset=offset)
     return {
         "conversations": conversations,
         "count": len(conversations)
     }
-

@@ -125,8 +125,9 @@ docs/_build/
 docs/api/
 site/
 
-# 变更记录（本地记录，不上传）
+# 变更记录和需求记录（本地记录，不上传）
 docs/changelog/
+docs/REQUIREMENTS_LOG.md
 
 # 临时笔记（个人笔记不提交）
 *.draft.md
