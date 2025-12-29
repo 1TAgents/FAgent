@@ -32,7 +32,6 @@ class SessionManager:
     
     def create_session(
         self,
-        system_message: Optional[str] = None,
         metadata: Optional[Dict] = None
     ) -> int:
         """
@@ -41,10 +40,7 @@ class SessionManager:
         Returns:
             cid（整数）
         """
-        cid = message_storage.create_conversation(
-            system_message=system_message,
-            metadata=metadata
-        )
+        cid = message_storage.create_conversation(metadata=metadata)
         logger.info(f"SessionManager: 会话创建 | cid={cid}")
         return cid
     
@@ -106,7 +102,8 @@ class SessionManager:
         self,
         cid: int,
         before_message_id: Optional[int] = None,
-        limit: Optional[int] = None
+        limit: Optional[int] = None,
+        system_prompt: Optional[str] = None
     ) -> List[Dict]:
         """
         获取 LLM API 格式的消息列表
@@ -115,11 +112,12 @@ class SessionManager:
             cid: 会话ID
             before_message_id: 如果提供，获取此消息之前的历史
             limit: 最多返回条数
+            system_prompt: 自定义 system prompt，不提供则使用默认配置
             
         Returns:
-            [{"role": "...", "content": "..."}]
+            [{"role": "system", ...}, {"role": "user/assistant", ...}, ...]
         """
-        return message_storage.get_messages_for_llm(cid, before_message_id, limit)
+        return message_storage.get_messages_for_llm(cid, before_message_id, limit, system_prompt)
     
     def get_conversation_with_messages(self, cid: int) -> Optional[Dict]:
         """获取会话及其所有消息"""

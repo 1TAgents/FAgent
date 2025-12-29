@@ -68,7 +68,6 @@ class ChatResponse(BaseModel):
 
 class CreateSessionRequest(BaseModel):
     """创建会话请求"""
-    system_message: Optional[str] = None
     metadata: Optional[Dict[str, Any]] = None
 
 
@@ -113,14 +112,15 @@ async def chat_completion(request: ChatRequest):
             )
             logger.debug(f"用户消息已落库 | user_message_id={user_message_id}")
             
-            # 2. 获取历史消息（message_id < 当前用户消息）
+            # 2. 获取 LLM 消息列表（包含 system prompt + 历史消息）
             history_messages = session_manager.get_messages_for_llm(
                 cid=request.cid,
                 before_message_id=user_message_id,
                 limit=request.history_limit
             )
             
-            # 3. 构建完整消息列表
+            # 3. 追加当前用户消息
+            # history_messages = [system, 历史user/assistant...]
             messages = history_messages + [{"role": "user", "content": request.user_message}]
             logger.debug(f"构建消息列表 | history={len(history_messages)} | total={len(messages)}")
             
@@ -212,14 +212,14 @@ async def chat_stream(request: ChatRequest):
             )
             logger.debug(f"用户消息已落库 | user_message_id={user_message_id}")
             
-            # 2. 获取历史消息
+            # 2. 获取 LLM 消息列表（包含 system prompt + 历史消息）
             history_messages = session_manager.get_messages_for_llm(
                 cid=request.cid,
                 before_message_id=user_message_id,
                 limit=request.history_limit
             )
             
-            # 3. 构建消息列表
+            # 3. 追加当前用户消息
             messages = history_messages + [{"role": "user", "content": request.user_message}]
             logger.debug(f"构建消息列表 | history={len(history_messages)} | total={len(messages)}")
             
@@ -308,7 +308,6 @@ async def create_session(request: CreateSessionRequest = None):
         request = CreateSessionRequest()
     
     cid = session_manager.create_session(
-        system_message=request.system_message,
         metadata=request.metadata
     )
     return CreateSessionResponse(cid=cid)

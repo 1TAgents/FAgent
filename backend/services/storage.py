@@ -27,6 +27,7 @@ from datetime import datetime
 from pathlib import Path
 from enum import Enum
 from ..core.context import ctx_logger as logger
+from ..config.prompts import DEFAULT_SYSTEM_PROMPT
 
 
 class ContentType(str, Enum):
@@ -144,7 +145,6 @@ class MessageStorage:
     
     def create_conversation(
         self,
-        system_message: Optional[str] = None,
         metadata: Optional[Dict] = None
     ) -> int:
         """
@@ -161,18 +161,11 @@ class MessageStorage:
         
         try:
             cursor.execute("""
-                INSERT INTO conversations (created_at, updated_at, metadata, system_message)
-                VALUES (?, ?, ?, ?)
-            """, (now, now, metadata_json, system_message))
+                INSERT INTO conversations (created_at, updated_at, metadata)
+                VALUES (?, ?, ?)
+            """, (now, now, metadata_json))
             
             cid = cursor.lastrowid
-            
-            # 如果有系统消息，添加到消息表
-            if system_message:
-                cursor.execute("""
-                    INSERT INTO messages (cid, role, content_type, content, metadata, created_at)
-                    VALUES (?, ?, ?, ?, ?, ?)
-                """, (cid, "system", ContentType.TEXT.value, system_message, None, now))
             
             conn.commit()
             logger.info(f"会话创建成功 | cid={cid}")
@@ -191,7 +184,7 @@ class MessageStorage:
         
         try:
             cursor.execute("""
-                SELECT cid, created_at, updated_at, metadata, system_message
+                SELECT cid, created_at, updated_at, metadata
                 FROM conversations WHERE cid = ?
             """, (cid,))
             
@@ -210,8 +203,7 @@ class MessageStorage:
                 "cid": row["cid"],
                 "created_at": row["created_at"],
                 "updated_at": row["updated_at"],
-                "metadata": metadata,
-                "system_message": row["system_message"]
+                "metadata": metadata
             }
         finally:
             conn.close()
@@ -459,7 +451,8 @@ class MessageStorage:
         self,
         cid: int,
         before_message_id: Optional[int] = None,
-        limit: Optional[int] = None
+        limit: Optional[int] = None,
+        system_prompt: Optional[str] = None
     ) -> List[Dict]:
         """
         获取 LLM API 格式的消息列表
@@ -468,16 +461,29 @@ class MessageStorage:
             cid: 会话ID
             before_message_id: 如果提供，获取此消息之前的历史
             limit: 最多返回条数
+            system_prompt: 自定义 system prompt，不提供则使用默认配置
             
         Returns:
             LLM API 格式的消息列表 [{"role": "...", "content": "..."}]
+            包含 system prompt（如果有）+ 历史消息
         """
         if before_message_id:
             messages = self.get_history_before_message(cid, before_message_id, limit)
         else:
             messages = self.get_messages(cid, limit)
         
-        return [{"role": msg["role"], "content": msg["content"]} for msg in messages]
+        # 构建结果：system prompt + 历史消息
+        result = []
+        
+        # 添加 system prompt（优先使用传入的，否则使用默认配置）
+        prompt = system_prompt if system_prompt is not None else DEFAULT_SYSTEM_PROMPT
+        if prompt:
+            result.append({"role": "system", "content": prompt})
+        
+        # 添加历史消息（只有 user/assistant）
+        result.extend([{"role": msg["role"], "content": msg["content"]} for msg in messages])
+        
+        return result
     
     def update_message_content(
         self,
