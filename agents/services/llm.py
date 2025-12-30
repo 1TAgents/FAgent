@@ -1,14 +1,18 @@
 """
 LLM Service - 封装 OpenAI SDK 调用
+
+职责：纯 LLM 调用，不涉及存储
+
+注意：环境变量需要在启动服务前设置好（通过 .env 加载或 export）
 """
 import os
-from typing import Optional, Iterator
+import sys
+import logging
+from typing import Optional, Iterator, List, Dict
 from openai import OpenAI
-from dotenv import load_dotenv, find_dotenv
-from ..core.context import ctx_logger as logger
 
-# Load environment variables
-load_dotenv(find_dotenv())
+# 设置 logger
+logger = logging.getLogger(__name__)
 
 
 class LLMService:
@@ -31,7 +35,7 @@ class LLMService:
     
     def chat_completion(
         self,
-        messages: list,
+        messages: List[Dict],
         stream: bool = False,
         temperature: float = 0.7,
         max_tokens: Optional[int] = None,
@@ -85,7 +89,7 @@ class LLMService:
     
     def chat_completion_stream(
         self,
-        messages: list,
+        messages: List[Dict],
         temperature: float = 0.7,
         max_tokens: Optional[int] = None,
         **kwargs
@@ -135,3 +139,4 @@ class LLMService:
 
 # 全局实例
 llm_service = LLMService()
+

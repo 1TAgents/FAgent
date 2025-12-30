@@ -47,7 +47,7 @@ FAgent 是一款创新的 Android 应用，通过自然语言对话的方式帮�
 - RESTful API - 非流式接口
 - LangGraph + LangChain - 多智能体框架
 
-> 📖 详细的后端架构文档请查看 [backend/ARCHITECTURE.md](backend/ARCHITECTURE.md)
+> 📖 详细的架构文档请查看 [backend/docs/ARCHITECTURE.md](backend/docs/ARCHITECTURE.md)
 
 ### AI/ML
 - 大语言模型 (LLM) 集成
@@ -62,17 +62,22 @@ FAgent 是一款创新的 Android 应用，通过自然语言对话的方式帮�
 
 ```
 FAgent/
-├── backend/                # 后端服务
+├── backend/                # 后端服务（存储 + 业务）
 │   ├── api/                # FastAPI 接口
 │   ├── core/               # 核心组件（日志、上下文）
-│   ├── services/           # 业务服务（LLM、会话、存储）
-│   ├── API_USAGE.md        # API 使用文档
-│   └── ARCHITECTURE.md     # 架构文档
+│   ├── services/           # 业务服务（会话、存储）
+│   └── docs/               # 后端文档
+│       ├── API_USAGE.md    # API 使用文档
+│       ├── ARCHITECTURE.md # 架构文档
+│       └── DEBUG.md        # 调试指南
+├── agents/                 # 智能体服务（LLM 调用）
+│   ├── api/                # FastAPI 接口
+│   ├── core/               # System Prompt 配置
+│   └── services/           # LLM 服务、Chat Agent
 ├── tests/                  # 测试代码
-│   ├── test_multi_turn.py  # 多轮对话测试
-│   └── streamlit_test.py   # Streamlit 测试界面
+│   └── test_multi_turn.py  # 多轮对话测试
 ├── docs/                   # 项目文档
-├── android/                # Android 应用代码（待开发）
+├── frontend/               # 前端应用（Android）
 └── README.md               # 项目说明文档
 ```
 
@@ -112,14 +117,18 @@ FAgent/
    LLM_MODEL=xiaomi/mimo-v2-flash:free
    ```
 
-5. **启动后端服务**
+5. **启动服务**
    ```bash
+   # 终端 1：启动后端服务（存储 + 业务）
    uvicorn backend.api.main:app --reload --host 0.0.0.0 --port 8000
+
+   # 终端 2：启动 Agents 服务（LLM 调用）
+   uvicorn agents.api.main:app --reload --host 0.0.0.0 --port 8001
    ```
 
 6. **访问 API 文档**
-
-   http://localhost:8000/docs
+   - Backend: http://localhost:8000/docs
+   - Agents: http://localhost:8001/docs
 
 ## 📖 使用说明
 
@@ -161,6 +170,8 @@ FAgent: "策略已启用，将自动执行交易..."
 - [x] 会话管理（多轮对话）
 - [x] 消息持久化（SQLite）
 - [x] 请求日志追踪（rid/cid）
+- [x] 三层架构拆分（Frontend → Backend → Agents）
+- [x] System Prompt 动态管理（不存库）
 
 ### Phase 2: 多智能体系统
 - [ ] LangGraph 工作流集成

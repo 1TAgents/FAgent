@@ -1,0 +1,143 @@
+"""
+Agents Chat API - 对话接口（流式和非流式）
+
+Agents 服务对外接口，纯 LLM 调用，不涉及存储。
+
+接口：
+- POST /agent/chat/completion - 非流式
+- POST /agent/chat/stream - 流式
+"""
+from fastapi import APIRouter, HTTPException
+from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
+from typing import List, Optional, Dict, Union, Any
+import json
+
+from ..services.chat_agent import chat_agent
+from ..services.llm import llm_service
+from ..core.prompts import DEFAULT_SYSTEM_PROMPT
+
+router = APIRouter(prefix="/agent/chat", tags=["agent-chat"])
+
+
+# ==================== 请求/响应模型 ====================
+
+class Message(BaseModel):
+    """消息模型"""
+    role: str  # user, assistant, system
+    content: Union[str, List[Dict[str, Any]]]
+
+
+class AgentChatRequest(BaseModel):
+    """Agent 聊天请求模型"""
+    # 消息列表（必须提供）
+    messages: List[Message]
+    
+    # LLM 参数
+    temperature: Optional[float] = 0.7
+    max_tokens: Optional[int] = None
+    reasoning: Optional[bool] = False
+    
+    # 自定义 System Prompt（可选，覆盖默认）
+    system_prompt: Optional[str] = None
+
+
+class AgentChatResponse(BaseModel):
+    """Agent 聊天响应模型"""
+    content: str
+    model: Optional[str] = None
+
+
+# ==================== 核心接口 ====================
+
+@router.post("/completion", response_model=AgentChatResponse)
+async def agent_chat_completion(request: AgentChatRequest):
+    """
+    非流式聊天接口
+    
+    接收 messages 列表，返回 AI 回复。
+    纯 LLM 调用，不涉及存储。
+    """
+    try:
+        # 构建 messages
+        messages = [{"role": msg.role, "content": msg.content} for msg in request.messages]
+        
+        # 使用 system_prompt（默认使用 DEFAULT_SYSTEM_PROMPT）
+        system_prompt = request.system_prompt or DEFAULT_SYSTEM_PROMPT
+        messages.insert(0, {"role": "system", "content": system_prompt})
+        
+        # 调用 LLM
+        kwargs = {}
+        if request.reasoning:
+            kwargs["reasoning"] = {"enabled": True}
+        
+        response = llm_service.chat_completion(
+            messages=messages,
+            temperature=request.temperature,
+            max_tokens=request.max_tokens,
+            **kwargs
+        )
+        
+        return AgentChatResponse(
+            content=response.choices[0].message.content,
+            model=response.model
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/stream")
+async def agent_chat_stream(request: AgentChatRequest):
+    """
+    流式聊天接口（SSE）
+    
+    接收 messages 列表，返回流式 AI 回复。
+    纯 LLM 调用，不涉及存储。
+    """
+    try:
+        # 构建 messages
+        messages = [{"role": msg.role, "content": msg.content} for msg in request.messages]
+        
+        # 使用 system_prompt（默认使用 DEFAULT_SYSTEM_PROMPT）
+        system_prompt = request.system_prompt or DEFAULT_SYSTEM_PROMPT
+        messages.insert(0, {"role": "system", "content": system_prompt})
+        
+        # 准备 LLM 参数
+        kwargs = {}
+        if request.reasoning:
+            kwargs["reasoning"] = {"enabled": True}
+        
+        temperature = request.temperature
+        max_tokens = request.max_tokens
+        
+        def generate():
+            """SSE 事件生成器"""
+            try:
+                for chunk in llm_service.chat_completion_stream(
+                    messages=messages,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                    **kwargs
+                ):
+                    data = json.dumps({"content": chunk}, ensure_ascii=False)
+                    yield f"data: {data}\n\n"
+                
+                # 发送完成信号
+                yield "data: [DONE]\n\n"
+                
+            except Exception as e:
+                error_data = json.dumps({"error": str(e)}, ensure_ascii=False)
+                yield f"data: {error_data}\n\n"
+        
+        return StreamingResponse(
+            generate(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",
+            }
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+

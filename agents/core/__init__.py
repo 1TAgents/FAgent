@@ -1,5 +1,5 @@
 """
-配置模块
+Agent 核心组件
 """
 from .prompts import DEFAULT_SYSTEM_PROMPT
 

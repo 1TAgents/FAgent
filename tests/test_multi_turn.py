@@ -8,18 +8,33 @@
 4. AI 回复落库
 5. 多轮对话上下文保持
 6. 多会话独立性验证
+
+测试两个服务：
+- Backend: http://localhost:8000 (存储 + 业务)
+- Agents:  http://localhost:8001 (LLM 调用)
 """
 import requests
 import json
 
 # API 配置
-API_BASE_URL = "http://localhost:8000"
+BACKEND_BASE_URL = "http://localhost:8000"
+AGENTS_BASE_URL = "http://localhost:8001"
 
 
-def check_api_status():
-    """检查 API 服务状态"""
+def check_backend_status():
+    """检查后端服务状态"""
     try:
-        response = requests.get(f"{API_BASE_URL}/health", timeout=5)
+        response = requests.get(f"{BACKEND_BASE_URL}/health", timeout=5)
+        response.raise_for_status()
+        return True
+    except requests.exceptions.RequestException:
+        return False
+
+
+def check_agents_status():
+    """检查 Agents 服务状态"""
+    try:
+        response = requests.get(f"{AGENTS_BASE_URL}/health", timeout=5)
         response.raise_for_status()
         return True
     except requests.exceptions.RequestException:
@@ -28,7 +43,7 @@ def check_api_status():
 
 def create_session():
     """创建新会话，返回 cid（整数）"""
-    response = requests.post(f"{API_BASE_URL}/api/chat/session/create")
+    response = requests.post(f"{BACKEND_BASE_URL}/api/chat/session/create")
     response.raise_for_status()
     data = response.json()
     return data["cid"]
@@ -36,7 +51,7 @@ def create_session():
 
 def send_stream_message(cid: int, user_message: str, show_output: bool = True):
     """
-    发送流式消息
+    发送流式消息（通过后端接口）
     
     返回：(full_content, user_message_id, assistant_message_id)
     """
@@ -51,7 +66,7 @@ def send_stream_message(cid: int, user_message: str, show_output: bool = True):
     assistant_message_id = None
     
     with requests.post(
-        f"{API_BASE_URL}/api/chat/stream",
+        f"{BACKEND_BASE_URL}/api/chat/send/stream",
         json=payload,
         stream=True
     ) as response:
@@ -82,7 +97,7 @@ def send_stream_message(cid: int, user_message: str, show_output: bool = True):
 
 def get_conversation(cid: int):
     """获取完整会话记录"""
-    response = requests.get(f"{API_BASE_URL}/api/chat/conversation/{cid}")
+    response = requests.get(f"{BACKEND_BASE_URL}/api/chat/conversation/{cid}")
     response.raise_for_status()
     return response.json()
 
@@ -90,7 +105,7 @@ def get_conversation(cid: int):
 def get_history_before_message(cid: int, before_message_id: int):
     """获取指定消息之前的历史"""
     response = requests.get(
-        f"{API_BASE_URL}/api/chat/conversation/{cid}/history",
+        f"{BACKEND_BASE_URL}/api/chat/conversation/{cid}/history",
         params={"before_message_id": before_message_id}
     )
     response.raise_for_status()
@@ -99,7 +114,7 @@ def get_history_before_message(cid: int, before_message_id: int):
 
 def list_conversations():
     """获取所有会话列表"""
-    response = requests.get(f"{API_BASE_URL}/api/chat/conversations")
+    response = requests.get(f"{BACKEND_BASE_URL}/api/chat/conversations")
     response.raise_for_status()
     return response.json()
 
@@ -119,12 +134,27 @@ def main():
     print("  FAgent 多会话多轮对话测试")
     print("=" * 60)
     
-    # 1. 检查 API 服务
-    print("\n🔍 检查 API 服务...")
-    if not check_api_status():
-        print("❌ API 服务未运行")
+    # 1. 检查服务状态
+    print("\n🔍 检查服务状态...")
+    
+    backend_ok = check_backend_status()
+    agents_ok = check_agents_status()
+    
+    if backend_ok:
+        print("✅ Backend 服务正常 (port 8000)")
+    else:
+        print("❌ Backend 服务未运行 (port 8000)")
+    
+    if agents_ok:
+        print("✅ Agents 服务正常 (port 8001)")
+    else:
+        print("❌ Agents 服务未运行 (port 8001)")
+    
+    if not (backend_ok and agents_ok):
+        print("\n请确保两个服务都在运行:")
+        print("  Backend: uvicorn backend.api.main:app --port 8000")
+        print("  Agents:  uvicorn agents.api.main:app --port 8001")
         return
-    print("✅ API 服务正常")
     
     # ==================== 会话 1：技术问答 ====================
     print_separator("会话 1：技术问答")
@@ -213,6 +243,9 @@ def main():
     print(f"    ✅ message_id 全局自增: {user_id_1_1} → ... → {ai_id_2_2}")
     print(f"    ✅ 历史消息按 message_id 过滤")
     print(f"    ✅ 多会话独立")
+    print(f"\n  服务架构:")
+    print(f"    ✅ Backend (8000): 存储 + 业务")
+    print(f"    ✅ Agents (8001): LLM 调用")
 
 
 if __name__ == "__main__":
