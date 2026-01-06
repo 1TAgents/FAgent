@@ -35,30 +35,28 @@
 #### API 端点设计
 
 ```python
-# 流式输出 - SSE
-POST /api/chat/stream
-  → 返回 SSE 流，实时推送 AI 回复
-  → Content-Type: text/event-stream
+# Backend 服务（端口 8000）- 存储 + 业务
+POST /api/chat/session/create     # 创建会话
+POST /api/chat/send               # 发送消息（非流式）
+POST /api/chat/send/stream        # 发送消息（流式 SSE）
+GET  /api/chat/conversation/{cid} # 获取会话记录
+GET  /api/chat/conversations      # 获取会话列表
 
-# 非流式输出 - RESTful
-POST /api/chat/completion
-  → 返回完整回复（JSON）
+# Agents 服务（端口 8001）- LLM 调用
+POST /agent/chat/completion       # 非流式 LLM 调用
+POST /agent/chat/stream           # 流式 LLM 调用（SSE）
 
-POST /api/strategy/create
-  → 创建交易策略（可选流式）
-
-POST /api/strategy/backtest
-  → 执行策略回测，返回完整结果
-
-POST /api/trading/execute
-  → 执行交易，返回执行结果
+# 未来扩展
+POST /api/strategy/create         # 创建交易策略
+POST /api/strategy/backtest       # 执行策略回测
+POST /api/trading/execute         # 执行交易
 ```
 
-#### 架构图
+#### 架构图（三层架构）
 
 ```
 ┌─────────────────────────────────────────┐
-│          Android Client                  │
+│           Frontend (Android)            │
 └─────────────────────────────────────────┘
          │                    │
          │                    │
@@ -70,14 +68,18 @@ POST /api/trading/execute
          └────────┬───────────┘
                   │
          ┌────────▼────────┐
-         │   FastAPI Backend│
-         │   (SSE + REST)  │
-         └─────────────────┘
-                  │
+         │  Backend (8000) │
+         │  - 消息存储     │
+         │  - 会话管理     │
+         │  - 业务逻辑     │
+         └────────┬────────┘
+                  │ HTTP
          ┌────────▼────────┐
-         │   LangGraph     │
-         │   (工作流编排)   │
-         └─────────────────┘
+         │  Agents (8001)  │
+         │  - System Prompt│
+         │  - LLM 调用     │
+         │  - 对话处理     │
+         └────────┬────────┘
                   │
          ┌────────▼────────┐
          │   LLM API       │
@@ -202,44 +204,58 @@ FastAPI (Web 框架)
 
 ## 系统架构图
 
-### 完整架构
+### 完整架构（三层服务）
 
 ```
 ┌─────────────────────────────────────────────────────┐
-│                  Android Client                      │
+│                  Frontend (Android)                  │
 │              (Kotlin/Java + Material Design)        │
 └─────────────────────────────────────────────────────┘
                         │
                         │ HTTP/SSE
                         ▼
 ┌─────────────────────────────────────────────────────┐
-│              FastAPI Backend Server                 │
+│           Backend Server (Port 8000)                │
 │  ┌──────────────────────────────────────────────┐  │
 │  │         API Layer (FastAPI)                   │  │
-│  │  - /api/chat/stream (SSE)                    │  │
-│  │  - /api/chat/completion (POST)               │  │
-│  │  - /api/strategy/* (POST)                    │  │
-│  │  - /api/backtest/* (POST)                    │  │
-│  │  - /api/trading/* (POST)                     │  │
-│  └──────────────────────────────────────────────┘  │
-│                        │                            │
-│  ┌──────────────────────────────────────────────┐  │
-│  │      Agent Layer (LangGraph)                │  │
-│  │  ┌──────────┐  ┌──────────┐  ┌──────────┐   │  │
-│  │  │Supervisor│→ │  Chat    │  │ Strategy │   │  │
-│  │  │  Agent   │  │  Agent   │  │  Agent   │   │  │
-│  │  └──────────┘  └──────────┘  └──────────┘   │  │
-│  │  ┌──────────┐  ┌──────────┐                 │  │
-│  │  │ Backtest │  │ Trading  │                 │  │
-│  │  │  Agent   │  │  Agent   │                 │  │
-│  │  └──────────┘  └──────────┘                 │  │
+│  │  - POST /api/chat/session/create             │  │
+│  │  - POST /api/chat/send                       │  │
+│  │  - POST /api/chat/send/stream (SSE)          │  │
+│  │  - GET  /api/chat/conversation/{cid}         │  │
+│  │  - GET  /api/chat/conversations              │  │
 │  └──────────────────────────────────────────────┘  │
 │                        │                            │
 │  ┌──────────────────────────────────────────────┐  │
 │  │      Service Layer                           │  │
+│  │  - Session Manager (会话管理)                │  │
+│  │  - Message Storage (消息持久化)              │  │
+│  │  - Context Logger (日志追踪)                 │  │
+│  └──────────────────────────────────────────────┘  │
+└─────────────────────────────────────────────────────┘
+                        │
+                        │ HTTP (内部调用)
+                        ▼
+┌─────────────────────────────────────────────────────┐
+│           Agents Server (Port 8001)                 │
+│  ┌──────────────────────────────────────────────┐  │
+│  │         API Layer (FastAPI)                   │  │
+│  │  - POST /agent/chat/completion               │  │
+│  │  - POST /agent/chat/stream (SSE)             │  │
+│  └──────────────────────────────────────────────┘  │
+│                        │                            │
+│  ┌──────────────────────────────────────────────┐  │
+│  │      Core Layer                              │  │
+│  │  - System Prompt 配置                        │  │
+│  │  - Chat Agent (对话处理)                     │  │
 │  │  - LLM Service (OpenAI SDK)                 │  │
-│  │  - Data Service (行情数据)                  │  │
-│  │  - Storage Service (策略存储)                │  │
+│  └──────────────────────────────────────────────┘  │
+│                        │                            │
+│  ┌──────────────────────────────────────────────┐  │
+│  │      Future: Agent Layer (LangGraph)        │  │
+│  │  ┌──────────┐  ┌──────────┐  ┌──────────┐   │  │
+│  │  │Supervisor│→ │ Strategy │  │ Trading  │   │  │
+│  │  │  Agent   │  │  Agent   │  │  Agent   │   │  │
+│  │  └──────────┘  └──────────┘  └──────────┘   │  │
 │  └──────────────────────────────────────────────┘  │
 └─────────────────────────────────────────────────────┘
                         │
@@ -248,8 +264,8 @@ FastAPI (Web 框架)
 ┌─────────────────────────────────────────────────────┐
 │              External Services                      │
 │  - OpenRouter API (LLM)                            │
-│  - 股票行情 API                                     │
-│  - 交易接口 API                                     │
+│  - 股票行情 API (未来)                              │
+│  - 交易接口 API (未来)                              │
 └─────────────────────────────────────────────────────┘
 ```
 
@@ -263,10 +279,12 @@ FastAPI (Web 框架)
 - [x] 实现消息持久化（SQLite）
 - [x] 实现会话管理（整数自增 ID）
 - [x] 实现请求上下文日志（rid/cid）
+- [x] 三层架构拆分（Frontend → Backend → Agents）
+- [x] System Prompt 动态管理（不存库，便于调试）
 
 ### Phase 2: 多智能体系统
 
-- [ ] 拆分 LLM 层为独立模块
+- [x] 拆分 LLM 层为独立 Agents 服务
 - [ ] 使用 LangGraph 构建工作流
 - [ ] 实现 Supervisor Agent
 - [ ] 实现各功能 Agent（策略、回测、交易）
@@ -289,6 +307,6 @@ FastAPI (Web 框架)
 
 ---
 
-**最后更新：** 2025-12-24  
+**最后更新：** 2025-12-30  
 **维护者：** @doraemon235
 

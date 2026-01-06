@@ -1,74 +1,59 @@
 """
-Chat API - 对话接口（流式和非流式）
+Chat API - 后端业务接口
 
-消息流程：
-1. 用户消息先落库，获取 message_id
-2. 用 message_id 过滤历史消息作为上下文
-3. 调用 LLM
-4. AI 回复落库
+后端职责：
+1. 接收前端请求
+2. 存储用户消息
+3. 调用 Agents 服务（HTTP）
+4. 存储 AI 回复
+5. 返回给前端
 
 ID 设计：
 - cid: 整数，会话ID
 - message_id: 整数，消息ID
-
-消息角色：
-- user: 用户消息
-- assistant: AI 回复
-- system: 系统消息
 """
+import os
+import httpx
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from typing import List, Optional, Dict, Union, Any
+from typing import List, Optional, Dict, Any
 import json
 
 from ..core.context import set_context, ctx_logger as logger
-from ..services.llm import llm_service
 from ..services.session import session_manager
+from ..services.storage import message_storage
 
 router = APIRouter(prefix="/api/chat", tags=["chat"])
+
+# Agents 服务地址
+AGENTS_BASE_URL = os.getenv("AGENTS_BASE_URL", "http://localhost:8001")
 
 
 # ==================== 请求/响应模型 ====================
 
-class Message(BaseModel):
-    """消息模型（直接调用时使用）"""
-    role: str  # user, assistant, system
-    content: Union[str, List[Dict[str, Any]]]
-
-
-class ChatRequest(BaseModel):
+class ChatSendRequest(BaseModel):
     """聊天请求模型"""
-    # 方式1：直接提供消息列表（无持久化）
-    messages: Optional[List[Message]] = None
-    
-    # 方式2：使用会话（推荐，有持久化）
-    cid: Optional[int] = None  # 会话ID
-    user_message: Optional[Union[str, List[Dict[str, Any]]]] = None
+    cid: int  # 会话ID
+    user_message: str  # 用户消息
     user_message_metadata: Optional[Dict[str, Any]] = None
     
     # LLM 参数
     temperature: Optional[float] = 0.7
     max_tokens: Optional[int] = None
-    reasoning: Optional[bool] = False
-    
-    # 历史消息限制
-    history_limit: Optional[int] = None  # 最多取多少条历史
+    history_limit: Optional[int] = None
 
 
-class ChatResponse(BaseModel):
+class ChatSendResponse(BaseModel):
     """聊天响应模型"""
     content: str
-    model: str
-    cid: Optional[int] = None
-    user_message_id: Optional[int] = None
-    assistant_message_id: Optional[int] = None
-    usage: Optional[dict] = None
+    cid: int
+    user_message_id: int
+    assistant_message_id: int
 
 
 class CreateSessionRequest(BaseModel):
     """创建会话请求"""
-    system_message: Optional[str] = None
     metadata: Optional[Dict[str, Any]] = None
 
 
@@ -78,195 +63,158 @@ class CreateSessionResponse(BaseModel):
     message: str = "Session created successfully"
 
 
-# ==================== 核心聊天接口 ====================
+# ==================== 核心业务接口 ====================
 
-@router.post("/completion", response_model=ChatResponse)
-async def chat_completion(request: ChatRequest):
+@router.post("/send", response_model=ChatSendResponse)
+async def chat_send(request: ChatSendRequest):
     """
-    非流式聊天接口
+    发送消息接口（非流式）
     
-    消息流程（使用会话时）：
-    1. 用户消息先落库
-    2. 获取历史消息（message_id < 当前）
-    3. 调用 LLM
-    4. AI 回复落库
+    流程：
+    1. 后端：存储用户消息
+    2. 后端：构建 messages，调用 Agents 服务
+    3. 后端：存储 AI 回复
+    4. 返回给前端
     """
-    # 设置上下文
-    if request.cid:
-        set_context(cid=str(request.cid))
-    
-    logger.info("/completion 请求")
+    set_context(cid=str(request.cid))
+    logger.info("/send 请求")
     
     try:
-        user_message_id = None
-        assistant_message_id = None
-        
-        if request.cid and request.user_message:
-            # === 方式2：使用会话（有持久化）===
-            
-            # 1. 用户消息先落库
-            user_message_id = session_manager.add_message(
-                cid=request.cid,
-                role="user",
-                content=request.user_message,
-                metadata=request.user_message_metadata
-            )
-            logger.debug(f"用户消息已落库 | user_message_id={user_message_id}")
-            
-            # 2. 获取历史消息（message_id < 当前用户消息）
-            history_messages = session_manager.get_messages_for_llm(
-                cid=request.cid,
-                before_message_id=user_message_id,
-                limit=request.history_limit
-            )
-            
-            # 3. 构建完整消息列表
-            messages = history_messages + [{"role": "user", "content": request.user_message}]
-            logger.debug(f"构建消息列表 | history={len(history_messages)} | total={len(messages)}")
-            
-        elif request.messages:
-            # === 方式1：直接提供消息（无持久化）===
-            messages = [{"role": msg.role, "content": msg.content} for msg in request.messages]
-        else:
-            raise HTTPException(
-                status_code=400,
-                detail="Either 'messages' or both 'cid' and 'user_message' must be provided"
-            )
-        
-        # 4. 调用 LLM
-        kwargs = {}
-        if request.reasoning:
-            kwargs["reasoning"] = {"enabled": True}
-        
-        response = llm_service.chat_completion(
-            messages=messages,
-            temperature=request.temperature,
-            max_tokens=request.max_tokens,
-            **kwargs
+        # 1. 存储用户消息
+        user_message_id = session_manager.add_message(
+            cid=request.cid,
+            role="user",
+            content=request.user_message,
+            metadata=request.user_message_metadata
         )
+        logger.debug(f"用户消息已落库 | user_message_id={user_message_id}")
         
-        content = response.choices[0].message.content
+        # 2. 构建 messages 列表
+        history = message_storage.get_history_before_message(
+            cid=request.cid,
+            before_message_id=user_message_id,
+            limit=request.history_limit
+        )
+        messages = [{"role": msg["role"], "content": msg["content"]} for msg in history]
+        messages.append({"role": "user", "content": request.user_message})
         
-        # 5. AI 回复落库
-        if request.cid:
-            assistant_message_id = session_manager.add_message(
-                cid=request.cid,
-                role="assistant",
-                content=content
+        # 3. 调用 Agents 服务
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                f"{AGENTS_BASE_URL}/agent/chat/completion",
+                json={
+                    "messages": messages,
+                    "temperature": request.temperature,
+                    "max_tokens": request.max_tokens
+                },
+                timeout=60.0
             )
-            logger.debug(f"AI 回复已落库 | assistant_message_id={assistant_message_id}")
+            response.raise_for_status()
+            result = response.json()
         
-        usage = None
-        if response.usage:
-            usage = {
-                "prompt_tokens": response.usage.prompt_tokens,
-                "completion_tokens": response.usage.completion_tokens,
-                "total_tokens": response.usage.total_tokens,
-            }
+        content = result["content"]
         
-        return ChatResponse(
+        # 4. 存储 AI 回复
+        assistant_message_id = session_manager.add_message(
+            cid=request.cid,
+            role="assistant",
+            content=content
+        )
+        logger.debug(f"AI 回复已落库 | assistant_message_id={assistant_message_id}")
+        
+        return ChatSendResponse(
             content=content,
-            model=response.model,
             cid=request.cid,
             user_message_id=user_message_id,
-            assistant_message_id=assistant_message_id,
-            usage=usage
+            assistant_message_id=assistant_message_id
         )
-    except HTTPException:
-        raise
+    except httpx.HTTPError as e:
+        logger.error(f"调用 Agents 服务失败 | error={str(e)}")
+        raise HTTPException(status_code=502, detail=f"Agents service error: {str(e)}")
     except Exception as e:
-        logger.error(f"/completion 错误 | error={str(e)}")
+        logger.error(f"/send 错误 | error={str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/stream")
-async def chat_stream(request: ChatRequest):
+@router.post("/send/stream")
+async def chat_send_stream(request: ChatSendRequest):
     """
-    流式聊天接口（SSE）
+    发送消息接口（流式）
     
-    消息流程（使用会话时）：
-    1. 用户消息先落库
-    2. 获取历史消息
-    3. 流式调用 LLM
-    4. 累积完成后，AI 回复落库
+    流程：
+    1. 后端：存储用户消息
+    2. 后端：构建 messages，调用 Agents 服务（流式）
+    3. 后端：接收流式结果，转发给前端
+    4. 后端：存储 AI 回复
     """
-    # 设置上下文
-    if request.cid:
-        set_context(cid=str(request.cid))
-    
-    logger.info("/stream 请求")
+    set_context(cid=str(request.cid))
+    logger.info("/send/stream 请求")
     
     try:
-        user_message_id = None
-        messages = None
+        # 1. 存储用户消息
+        user_message_id = session_manager.add_message(
+            cid=request.cid,
+            role="user",
+            content=request.user_message,
+            metadata=request.user_message_metadata
+        )
+        logger.debug(f"用户消息已落库 | user_message_id={user_message_id}")
         
-        if request.cid and request.user_message:
-            # === 方式2：使用会话 ===
-            
-            # 1. 用户消息先落库
-            user_message_id = session_manager.add_message(
-                cid=request.cid,
-                role="user",
-                content=request.user_message,
-                metadata=request.user_message_metadata
-            )
-            logger.debug(f"用户消息已落库 | user_message_id={user_message_id}")
-            
-            # 2. 获取历史消息
-            history_messages = session_manager.get_messages_for_llm(
-                cid=request.cid,
-                before_message_id=user_message_id,
-                limit=request.history_limit
-            )
-            
-            # 3. 构建消息列表
-            messages = history_messages + [{"role": "user", "content": request.user_message}]
-            logger.debug(f"构建消息列表 | history={len(history_messages)} | total={len(messages)}")
-            
-        elif request.messages:
-            # === 方式1：直接提供消息 ===
-            messages = [{"role": msg.role, "content": msg.content} for msg in request.messages]
-        else:
-            raise HTTPException(
-                status_code=400,
-                detail="Either 'messages' or both 'cid' and 'user_message' must be provided"
-            )
+        # 2. 构建 messages 列表
+        history = message_storage.get_history_before_message(
+            cid=request.cid,
+            before_message_id=user_message_id,
+            limit=request.history_limit
+        )
+        messages = [{"role": msg["role"], "content": msg["content"]} for msg in history]
+        messages.append({"role": "user", "content": request.user_message})
         
-        # 准备 LLM 参数
-        kwargs = {}
-        if request.reasoning:
-            kwargs["reasoning"] = {"enabled": True}
-        
-        # 捕获请求参数供生成器使用
+        # 捕获参数
         cid = request.cid
         temperature = request.temperature
         max_tokens = request.max_tokens
         
-        def generate():
+        async def generate():
             """SSE 事件生成器"""
             full_content = ""
             assistant_message_id = None
             
             try:
-                # 流式调用 LLM
-                for chunk in llm_service.chat_completion_stream(
-                    messages=messages,
-                    temperature=temperature,
-                    max_tokens=max_tokens,
-                    **kwargs
-                ):
-                    full_content += chunk
-                    data = json.dumps({"content": chunk}, ensure_ascii=False)
-                    yield f"data: {data}\n\n"
+                # 3. 调用 Agents 服务（流式）
+                async with httpx.AsyncClient() as client:
+                    async with client.stream(
+                        "POST",
+                        f"{AGENTS_BASE_URL}/agent/chat/stream",
+                        json={
+                            "messages": messages,
+                            "temperature": temperature,
+                            "max_tokens": max_tokens
+                        },
+                        timeout=60.0
+                    ) as response:
+                        async for line in response.aiter_lines():
+                            if line.startswith("data: "):
+                                data_str = line[6:]
+                                if data_str == "[DONE]":
+                                    break
+                                try:
+                                    data = json.loads(data_str)
+                                    if "content" in data:
+                                        full_content += data["content"]
+                                        yield f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
+                                    if "error" in data:
+                                        yield f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
+                                        return
+                                except json.JSONDecodeError:
+                                    pass
                 
-                # AI 回复落库
-                if cid:
-                    assistant_message_id = session_manager.add_message(
-                        cid=cid,
-                        role="assistant",
-                        content=full_content
-                    )
-                    logger.debug(f"AI 回复已落库 | assistant_message_id={assistant_message_id}")
+                # 4. 存储 AI 回复
+                assistant_message_id = session_manager.add_message(
+                    cid=cid,
+                    role="assistant",
+                    content=full_content
+                )
+                logger.debug(f"AI 回复已落库 | assistant_message_id={assistant_message_id}")
                 
                 # 发送完成信息
                 done_data = json.dumps({
@@ -279,7 +227,7 @@ async def chat_stream(request: ChatRequest):
                 yield "data: [DONE]\n\n"
                 
             except Exception as e:
-                logger.error(f"/stream 生成错误 | error={str(e)}")
+                logger.error(f"/send/stream 生成错误 | error={str(e)}")
                 error_data = json.dumps({"error": str(e)}, ensure_ascii=False)
                 yield f"data: {error_data}\n\n"
         
@@ -292,10 +240,8 @@ async def chat_stream(request: ChatRequest):
                 "X-Accel-Buffering": "no",
             }
         )
-    except HTTPException:
-        raise
     except Exception as e:
-        logger.error(f"/stream 请求错误 | error={str(e)}")
+        logger.error(f"/send/stream 请求错误 | error={str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -308,7 +254,6 @@ async def create_session(request: CreateSessionRequest = None):
         request = CreateSessionRequest()
     
     cid = session_manager.create_session(
-        system_message=request.system_message,
         metadata=request.metadata
     )
     return CreateSessionResponse(cid=cid)
@@ -344,11 +289,7 @@ async def get_conversation_history(
     before_message_id: int,
     limit: Optional[int] = None
 ):
-    """
-    获取指定消息之前的历史消息
-    
-    用于调试和验证历史消息过滤
-    """
+    """获取指定消息之前的历史消息"""
     messages = session_manager.get_history_before_message(cid, before_message_id, limit)
     return {
         "cid": cid,

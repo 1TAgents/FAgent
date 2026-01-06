@@ -32,7 +32,6 @@ class SessionManager:
     
     def create_session(
         self,
-        system_message: Optional[str] = None,
         metadata: Optional[Dict] = None
     ) -> int:
         """
@@ -41,10 +40,7 @@ class SessionManager:
         Returns:
             cid（整数）
         """
-        cid = message_storage.create_conversation(
-            system_message=system_message,
-            metadata=metadata
-        )
+        cid = message_storage.create_conversation(metadata=metadata)
         logger.info(f"SessionManager: 会话创建 | cid={cid}")
         return cid
     
@@ -117,7 +113,10 @@ class SessionManager:
             limit: 最多返回条数
             
         Returns:
-            [{"role": "...", "content": "..."}]
+            [{"role": "user/assistant", ...}, ...]
+            
+        Note:
+            System prompt 由 Agent 层处理
         """
         return message_storage.get_messages_for_llm(cid, before_message_id, limit)
     

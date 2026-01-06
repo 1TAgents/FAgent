@@ -27,21 +27,22 @@ conversations (
     cid INTEGER PRIMARY KEY AUTOINCREMENT,
     created_at TEXT,
     updated_at TEXT,
-    metadata TEXT,
-    system_message TEXT
+    metadata TEXT
 )
 
 -- 消息表
 messages (
     message_id INTEGER PRIMARY KEY AUTOINCREMENT,
     cid INTEGER,
-    role TEXT,           -- user/assistant/system
+    role TEXT,           -- user/assistant
     content_type TEXT,   -- text/image_url/multimodal
     content TEXT,
     metadata TEXT,
     created_at TEXT
 )
 ```
+
+> **注意**：System Prompt 不存入数据库，由 Agents 服务动态管理
 
 ## API 接口
 
@@ -52,7 +53,6 @@ POST /api/chat/session/create
 Content-Type: application/json
 
 {
-  "system_message": "你是一个股票交易助手",
   "metadata": {"user_id": "123"}
 }
 
@@ -63,10 +63,12 @@ Content-Type: application/json
 }
 ```
 
+> **注意**：System Prompt 由 Agents 服务管理，创建会话时无需指定
+
 ### 2. 非流式对话
 
 ```bash
-POST /api/chat/completion
+POST /api/chat/send
 Content-Type: application/json
 
 {
@@ -80,22 +82,16 @@ Content-Type: application/json
 # 响应
 {
   "content": "AAPL 当前价格为...",
-  "model": "xiaomi/mimo-v2-flash:free",
   "cid": 1,
   "user_message_id": 3,
-  "assistant_message_id": 4,
-  "usage": {
-    "prompt_tokens": 100,
-    "completion_tokens": 50,
-    "total_tokens": 150
-  }
+  "assistant_message_id": 4
 }
 ```
 
 ### 3. 流式对话（SSE）
 
 ```bash
-POST /api/chat/stream
+POST /api/chat/send/stream
 Content-Type: application/json
 
 {
@@ -217,14 +213,12 @@ import requests
 API_BASE = "http://localhost:8000"
 
 # 1. 创建会话
-resp = requests.post(f"{API_BASE}/api/chat/session/create", json={
-    "system_message": "你是一个股票交易助手"
-})
+resp = requests.post(f"{API_BASE}/api/chat/session/create", json={})
 cid = resp.json()["cid"]
 print(f"会话ID: {cid}")  # 整数，如 1
 
-# 2. 发送消息
-resp = requests.post(f"{API_BASE}/api/chat/completion", json={
+# 2. 发送消息（非流式）
+resp = requests.post(f"{API_BASE}/api/chat/send", json={
     "cid": cid,
     "user_message": "查询苹果股票价格"
 })
@@ -233,7 +227,7 @@ print(f"回复: {result['content']}")
 print(f"消息ID: user={result['user_message_id']}, assistant={result['assistant_message_id']}")
 
 # 3. 流式消息
-with requests.post(f"{API_BASE}/api/chat/stream", json={
+with requests.post(f"{API_BASE}/api/chat/send/stream", json={
     "cid": cid,
     "user_message": "介绍一下你自己"
 }, stream=True) as resp:
@@ -262,20 +256,22 @@ resp = requests.post(f"{API_BASE}/api/chat/completion", json={
 })
 ```
 
-## 直接调用（不使用会话）
+## 直接调用 Agents 服务（不经过 Backend）
 
 ```python
-# 不传 cid，直接传 messages
-resp = requests.post(f"{API_BASE}/api/chat/completion", json={
+AGENTS_BASE = "http://localhost:8001"
+
+# 直接调用 Agents 服务，不使用会话
+resp = requests.post(f"{AGENTS_BASE}/agent/chat/completion", json={
     "messages": [
-        {"role": "system", "content": "你是一个助手"},
         {"role": "user", "content": "你好"}
     ],
-    "temperature": 0.7
+    "temperature": 0.7,
+    "system_prompt": "你是一个股票交易助手"  # 可选，覆盖默认 prompt
 })
 ```
 
-> 注意：不使用会话时，消息不会持久化
+> 注意：直接调用 Agents 服务时，消息不会持久化
 
 ## 消息类型
 
@@ -290,4 +286,4 @@ resp = requests.post(f"{API_BASE}/api/chat/completion", json={
 
 ---
 
-**最后更新：** 2025-12-24
+**最后更新：** 2025-12-30

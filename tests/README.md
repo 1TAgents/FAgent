@@ -1,6 +1,75 @@
 # 测试模块
 
-## Streamlit 测试界面
+## 测试框架
+
+测试用例与测试逻辑分离，使用 JSON 配置测试数据。
+
+### 文件结构
+
+```
+tests/
+├── test_cases.json    # 测试用例数据（JSON 格式）
+├── test_runner.py     # 通用测试运行器
+├── test_market.py     # Market 模块测试（旧版，硬编码）
+├── test_multi_turn.py # 多轮对话测试（旧版，硬编码）
+└── README.md
+```
+
+### 快速开始
+
+```bash
+# 列出所有测试用例
+python tests/test_runner.py --list
+
+# 运行指定测试套件
+python tests/test_runner.py --suite market_service
+
+# 按 tag 运行
+python tests/test_runner.py --tag smoke
+
+# 运行所有测试
+python tests/test_runner.py --all
+```
+
+### 测试套件
+
+| 套件 | 描述 | 需要服务 |
+|------|------|----------|
+| `market_service` | Market Service 单元测试 | 否 |
+| `market_subagent` | Market SubAgent 集成测试 | 否 |
+| `market_api` | Market API 端点测试 | 是 (8001) |
+| `multi_turn_chat` | 多轮对话测试 | 是 (8000+8001) |
+| `cache` | 缓存功能测试 | 否 |
+
+### Tags
+
+| Tag | 描述 |
+|-----|------|
+| `smoke` | 冒烟测试，核心功能验证 |
+| `a_share` | A股相关 |
+| `quote` | 行情查询 |
+| `kline` | K线数据 |
+| `api` | API 端点测试 |
+| `chat` | 对话功能 |
+
+### 添加新测试用例
+
+编辑 `test_cases.json`，在对应 suite 的 cases 数组中添加：
+
+```json
+{
+  "id": "MS006",
+  "name": "测试用例名称",
+  "function": "market_service.xxx",
+  "input": { "param": "value" },
+  "expected": { "success": true },
+  "tags": ["tag1", "tag2"]
+}
+```
+
+---
+
+## Streamlit 测试界面（旧）
 
 用于测试 FastAPI 流式和非流式接口的 Web 界面。
 
@@ -14,13 +83,12 @@ pip install -r requirements.txt
 
 1. **启动 FastAPI 后端服务**（在另一个终端）：
    ```bash
-   cd backend
-   uvicorn api.main:app --reload --host 0.0.0.0 --port 8000
+   uvicorn backend.api.main:app --reload --port 8000
    ```
 
 2. **启动 Streamlit 测试界面**：
    ```bash
-   streamlit run streamlit_test.py
+   streamlit run tests/streamlit_test.py
    ```
 
 3. **访问测试界面**：
@@ -33,11 +101,4 @@ pip install -r requirements.txt
 - ✅ **非流式请求测试**：测试普通 RESTful 接口
 - ✅ **对话历史管理**：保存和管理对话历史
 - ✅ **参数配置**：调整 Temperature 等参数
-
-### 使用示例
-
-1. 在输入框输入消息
-2. 选择"流式 (SSE)"或"非流式"
-3. 查看实时回复或完整回复
-4. 查看 Token 使用情况（非流式）
 

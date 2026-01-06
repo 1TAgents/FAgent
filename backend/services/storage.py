@@ -144,7 +144,6 @@ class MessageStorage:
     
     def create_conversation(
         self,
-        system_message: Optional[str] = None,
         metadata: Optional[Dict] = None
     ) -> int:
         """
@@ -161,18 +160,11 @@ class MessageStorage:
         
         try:
             cursor.execute("""
-                INSERT INTO conversations (created_at, updated_at, metadata, system_message)
-                VALUES (?, ?, ?, ?)
-            """, (now, now, metadata_json, system_message))
+                INSERT INTO conversations (created_at, updated_at, metadata)
+                VALUES (?, ?, ?)
+            """, (now, now, metadata_json))
             
             cid = cursor.lastrowid
-            
-            # 如果有系统消息，添加到消息表
-            if system_message:
-                cursor.execute("""
-                    INSERT INTO messages (cid, role, content_type, content, metadata, created_at)
-                    VALUES (?, ?, ?, ?, ?, ?)
-                """, (cid, "system", ContentType.TEXT.value, system_message, None, now))
             
             conn.commit()
             logger.info(f"会话创建成功 | cid={cid}")
@@ -191,7 +183,7 @@ class MessageStorage:
         
         try:
             cursor.execute("""
-                SELECT cid, created_at, updated_at, metadata, system_message
+                SELECT cid, created_at, updated_at, metadata
                 FROM conversations WHERE cid = ?
             """, (cid,))
             
@@ -210,8 +202,7 @@ class MessageStorage:
                 "cid": row["cid"],
                 "created_at": row["created_at"],
                 "updated_at": row["updated_at"],
-                "metadata": metadata,
-                "system_message": row["system_message"]
+                "metadata": metadata
             }
         finally:
             conn.close()
@@ -471,6 +462,9 @@ class MessageStorage:
             
         Returns:
             LLM API 格式的消息列表 [{"role": "...", "content": "..."}]
+            
+        Note:
+            System prompt 由 Agent 层处理，此方法只返回历史消息
         """
         if before_message_id:
             messages = self.get_history_before_message(cid, before_message_id, limit)

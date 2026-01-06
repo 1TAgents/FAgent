@@ -37,6 +37,12 @@
 - 文档使用中文
 - API 路径以 `/api/` 开头，流式用 SSE，非流式用 RESTful
 
+## 文档规范
+
+- 文档中避免硬编码路径、用户名等环境相关信息
+- 使用占位符或变量表示，如 `{workspace}`、`{project_root}`、`<your_api_key>`
+- 便于团队成员在不同环境下协作开发
+
 ## Git 提交规则
 
 ### Commit Message 格式（英文）
