@@ -1,0 +1,379 @@
+{
+  "$schema": "./test_cases.schema.json",
+  "version": "1.0",
+  "description": "FAgent 测试用例集",
+  "updated_at": "2026-01-06",
+  
+  "test_suites": {
+    "market_service": {
+      "description": "Market Service 单元测试",
+      "module": "agents.common.market",
+      "cases": [
+        {
+          "id": "MS001",
+          "name": "A股行情查询-贵州茅台",
+          "function": "market_service.get_quote",
+          "input": {
+            "symbol": "600519"
+          },
+          "expected": {
+            "success": true,
+            "fields": ["name", "symbol", "price", "change_pct", "trade_date"]
+          },
+          "tags": ["a_share", "quote", "smoke"]
+        },
+        {
+          "id": "MS002",
+          "name": "A股行情查询-平安银行",
+          "function": "market_service.get_quote",
+          "input": {
+            "symbol": "000001"
+          },
+          "expected": {
+            "success": true,
+            "fields": ["name", "symbol", "price"]
+          },
+          "tags": ["a_share", "quote"]
+        },
+        {
+          "id": "MS003",
+          "name": "A股日K线-贵州茅台",
+          "function": "market_service.get_kline",
+          "input": {
+            "symbol": "600519",
+            "period": "DAILY",
+            "count": 10
+          },
+          "expected": {
+            "success": true,
+            "data_count": 10,
+            "fields": ["date", "open", "high", "low", "close", "volume"]
+          },
+          "tags": ["a_share", "kline"]
+        },
+        {
+          "id": "MS004",
+          "name": "股票搜索-茅台",
+          "function": "market_service.search",
+          "input": {
+            "keyword": "茅台",
+            "limit": 5
+          },
+          "expected": {
+            "success": true,
+            "min_results": 1,
+            "contains_symbol": "600519"
+          },
+          "tags": ["search"]
+        },
+        {
+          "id": "MS005",
+          "name": "股票搜索-银行",
+          "function": "market_service.search",
+          "input": {
+            "keyword": "银行",
+            "limit": 3
+          },
+          "expected": {
+            "success": true,
+            "min_results": 1
+          },
+          "tags": ["search"]
+        }
+      ]
+    },
+    
+    "market_subagent": {
+      "description": "Market SubAgent 集成测试",
+      "module": "agents.subagents.market_agent",
+      "cases": [
+        {
+          "id": "MA001",
+          "name": "行情查询意图",
+          "function": "market_subagent.process",
+          "input": {
+            "intent": "GET_QUOTE",
+            "symbol": "000001"
+          },
+          "expected": {
+            "success": true,
+            "has_summary": true
+          },
+          "tags": ["subagent", "quote"]
+        },
+        {
+          "id": "MA002",
+          "name": "趋势分析意图",
+          "function": "market_subagent.process",
+          "input": {
+            "intent": "ANALYZE_TREND",
+            "symbol": "600519",
+            "count": 30
+          },
+          "expected": {
+            "success": true,
+            "has_summary": true,
+            "summary_contains": ["涨", "跌", "趋势"]
+          },
+          "tags": ["subagent", "analysis"]
+        },
+        {
+          "id": "MA003",
+          "name": "快捷行情查询",
+          "function": "market_subagent.quick_quote",
+          "input": {
+            "symbol": "600519"
+          },
+          "expected": {
+            "success": true,
+            "result_type": "string",
+            "contains": ["600519", "贵州茅台"]
+          },
+          "tags": ["subagent", "quick"]
+        }
+      ]
+    },
+    
+    "market_api": {
+      "description": "Market API 端点测试",
+      "module": "agents.api.market",
+      "base_url": "http://localhost:8001",
+      "requires_server": true,
+      "cases": [
+        {
+          "id": "API001",
+          "name": "GET 行情查询",
+          "method": "GET",
+          "endpoint": "/market/quote/{symbol}",
+          "input": {
+            "symbol": "600519"
+          },
+          "expected": {
+            "status_code": 200,
+            "json_fields": ["success", "summary", "data"]
+          },
+          "tags": ["api", "quote"]
+        },
+        {
+          "id": "API002",
+          "name": "GET K线数据",
+          "method": "GET",
+          "endpoint": "/market/kline/{symbol}",
+          "input": {
+            "symbol": "600519",
+            "query_params": {
+              "count": 5
+            }
+          },
+          "expected": {
+            "status_code": 200,
+            "json_fields": ["success", "data"]
+          },
+          "tags": ["api", "kline"]
+        },
+        {
+          "id": "API003",
+          "name": "GET 股票搜索",
+          "method": "GET",
+          "endpoint": "/market/search",
+          "input": {
+            "query_params": {
+              "keyword": "银行",
+              "limit": 3
+            }
+          },
+          "expected": {
+            "status_code": 200,
+            "json_fields": ["success", "results"]
+          },
+          "tags": ["api", "search"]
+        },
+        {
+          "id": "API004",
+          "name": "GET 趋势分析",
+          "method": "GET",
+          "endpoint": "/market/analysis/{symbol}",
+          "input": {
+            "symbol": "600519"
+          },
+          "expected": {
+            "status_code": 200,
+            "json_fields": ["success", "summary"]
+          },
+          "tags": ["api", "analysis"]
+        }
+      ]
+    },
+    
+    "multi_turn_chat": {
+      "description": "多轮对话测试",
+      "module": "backend.api + agents.api",
+      "requires_server": true,
+      "base_urls": {
+        "backend": "http://localhost:8000",
+        "agents": "http://localhost:8001"
+      },
+      "cases": [
+        {
+          "id": "CHAT001",
+          "name": "技术问答-两轮对话",
+          "type": "conversation",
+          "steps": [
+            {
+              "step": 1,
+              "action": "create_session",
+              "expected": {
+                "success": true,
+                "has_cid": true
+              }
+            },
+            {
+              "step": 2,
+              "action": "send_message",
+              "input": {
+                "message": "你叫什么名字？"
+              },
+              "expected": {
+                "success": true,
+                "has_response": true,
+                "has_message_ids": true
+              }
+            },
+            {
+              "step": 3,
+              "action": "send_message",
+              "input": {
+                "message": "你的基模型是怎么训练的？"
+              },
+              "expected": {
+                "success": true,
+                "has_response": true,
+                "message_id_incremented": true
+              }
+            }
+          ],
+          "tags": ["chat", "multi_turn", "smoke"]
+        },
+        {
+          "id": "CHAT002",
+          "name": "日常对话-上下文保持",
+          "type": "conversation",
+          "steps": [
+            {
+              "step": 1,
+              "action": "create_session",
+              "expected": {
+                "success": true
+              }
+            },
+            {
+              "step": 2,
+              "action": "send_message",
+              "input": {
+                "message": "今天天气怎么样？"
+              },
+              "expected": {
+                "success": true
+              }
+            },
+            {
+              "step": 3,
+              "action": "send_message",
+              "input": {
+                "message": "那有什么推荐的室内活动吗？"
+              },
+              "expected": {
+                "success": true,
+                "context_aware": true
+              },
+              "description": "验证 AI 理解'那'指代天气相关上下文"
+            }
+          ],
+          "tags": ["chat", "context"]
+        },
+        {
+          "id": "CHAT003",
+          "name": "多会话独立性",
+          "type": "multi_session",
+          "sessions": [
+            {
+              "session_id": "A",
+              "messages": ["请记住数字 42", "我刚才说的数字是什么？"]
+            },
+            {
+              "session_id": "B", 
+              "messages": ["请记住数字 99", "我刚才说的数字是什么？"]
+            }
+          ],
+          "expected": {
+            "session_a_remembers": "42",
+            "session_b_remembers": "99",
+            "sessions_independent": true
+          },
+          "tags": ["chat", "isolation"]
+        }
+      ]
+    },
+    
+    "cache": {
+      "description": "缓存功能测试",
+      "module": "agents.common.market.cache",
+      "cases": [
+        {
+          "id": "CACHE001",
+          "name": "缓存命中-第二次查询更快",
+          "type": "performance",
+          "steps": [
+            {
+              "step": 1,
+              "action": "clear_cache"
+            },
+            {
+              "step": 2,
+              "action": "query",
+              "input": {"symbol": "600519"},
+              "measure": "first_query_time"
+            },
+            {
+              "step": 3,
+              "action": "query",
+              "input": {"symbol": "600519"},
+              "measure": "second_query_time"
+            }
+          ],
+          "expected": {
+            "second_query_faster": true,
+            "speedup_ratio_min": 2.0
+          },
+          "tags": ["cache", "performance"]
+        },
+        {
+          "id": "CACHE002",
+          "name": "缓存统计",
+          "function": "market_cache.get_cache_stats",
+          "expected": {
+            "returns_dict": true,
+            "has_fields": ["hit_count", "miss_count", "item_count"]
+          },
+          "tags": ["cache", "stats"]
+        }
+      ]
+    }
+  },
+  
+  "tags_description": {
+    "smoke": "冒烟测试，核心功能验证",
+    "a_share": "A股相关",
+    "quote": "行情查询",
+    "kline": "K线数据",
+    "search": "搜索功能",
+    "api": "API端点测试",
+    "chat": "对话功能",
+    "multi_turn": "多轮对话",
+    "context": "上下文理解",
+    "cache": "缓存相关",
+    "performance": "性能测试",
+    "subagent": "SubAgent测试"
+  }
+}
+
