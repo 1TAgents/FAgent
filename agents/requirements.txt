@@ -4,3 +4,5 @@ uvicorn>=0.24.0
 openai>=1.0.0
 python-dotenv>=1.0.0
 
+# 行情数据
+akshare>=1.14.0
