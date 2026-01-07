@@ -40,6 +40,32 @@ export async function createSession(): Promise<number> {
 }
 
 /**
+ * 获取会话列表
+ */
+export async function getConversations(limit = 20, offset = 0) {
+  if (USE_MOCK) return { conversations: [], count: 0 };
+
+  const response = await fetch(`/api/chat/conversations?limit=${limit}&offset=${offset}`);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch conversations: ${response.statusText}`);
+  }
+  return response.json();
+}
+
+/**
+ * 获取会话消息
+ */
+export async function getMessages(cid: number) {
+  if (USE_MOCK) return { messages: [], count: 0 };
+
+  const response = await fetch(`/api/chat/conversation/${cid}/messages`);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch messages: ${response.statusText}`);
+  }
+  return response.json();
+}
+
+/**
  * 发送消息并处理流式响应
  * @param cid 会话 ID
  * @param content 用户消息内容

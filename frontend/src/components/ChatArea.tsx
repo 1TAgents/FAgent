@@ -1,11 +1,16 @@
 import React from 'react';
 import { MessageList } from './MessageList';
 import { ChatInput } from './ChatInput';
-import { useChat } from '@/hooks/useChat';
+import type { Message } from '@/types';
 
-export function ChatArea() {
-  const { messages, isLoading, sendMessage, stopGeneration } = useChat();
+interface ChatAreaProps {
+  messages: Message[];
+  isLoading: boolean;
+  sendMessage: (content: string) => Promise<void>;
+  stopGeneration: () => void;
+}
 
+export function ChatArea({ messages, isLoading, sendMessage, stopGeneration }: ChatAreaProps) {
   return (
     <div className="flex-1 flex flex-col h-full relative">
       <div className="flex-1 overflow-hidden relative w-full h-full">
