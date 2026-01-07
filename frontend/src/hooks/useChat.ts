@@ -1,12 +1,66 @@
-import { useState, useCallback, useRef } from 'react';
-import type { Message } from '@/types';
-import { sendMessageStream, createSession } from '@/lib/api';
+import { useState, useCallback, useRef, useEffect } from 'react';
+import type { Message, ChatSession } from '@/types';
+import { sendMessageStream, createSession, getConversations, getMessages } from '@/lib/api';
 
 export function useChat() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [cid, setCid] = useState<number | null>(null);
+  const [conversations, setConversations] = useState<ChatSession[]>([]);
   const abortControllerRef = useRef<AbortController | null>(null);
+
+  // 加载会话列表
+  const fetchConversations = useCallback(async () => {
+    try {
+      const data = await getConversations();
+      // 假设后端返回的数据结构匹配，或者需要适配
+      const list = data.conversations.map((c: any) => ({
+        id: c.cid.toString(),
+        title: `Conversation ${c.cid}`,
+        messages: [],
+        createdAt: c.created_at ? new Date(c.created_at).getTime() : Date.now(),
+        updatedAt: c.updated_at ? new Date(c.updated_at).getTime() : Date.now(),
+      }));
+      setConversations(list);
+    } catch (error) {
+      console.error('Failed to fetch conversations:', error);
+    }
+  }, []);
+
+  // 加载特定会话
+  const selectSession = useCallback(async (sessionId: string) => {
+    // 如果正在生成，先停止
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+    
+    setIsLoading(true);
+    setMessages([]); // 先清空当前消息
+
+    try {
+      const numericCid = parseInt(sessionId);
+      setCid(numericCid);
+      
+      const data = await getMessages(numericCid);
+      const msgs = data.messages.map((m: any) => ({
+        id: m.message_id.toString(),
+        role: m.role,
+        content: m.content,
+        createdAt: m.created_at ? new Date(m.created_at).getTime() : Date.now(),
+      }));
+      setMessages(msgs);
+    } catch (error) {
+      console.error(`Failed to load session ${sessionId}:`, error);
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  // 初始化加载会话列表
+  useEffect(() => {
+    fetchConversations();
+  }, [fetchConversations]);
 
   const sendMessage = useCallback(async (content: string) => {
     if (!content.trim()) return;
@@ -43,13 +97,14 @@ export function useChat() {
     try {
       // 4. 确保有会话 ID
       let currentCid = cid;
+      let isNewSession = false;
       if (currentCid === null) {
         currentCid = await createSession();
         setCid(currentCid);
+        isNewSession = true;
       }
 
       // 5. 调用 API 并流式更新
-      // 注意：这里我们只传递用户的新消息和 CID，后端会自行处理历史上下文
       await sendMessageStream(
         currentCid,
         content,
@@ -65,9 +120,14 @@ export function useChat() {
         },
         abortController.signal
       );
+
+      // 如果是新会话，刷新列表
+      if (isNewSession) {
+        fetchConversations();
+      }
+
     } catch (error) {
       console.error('Failed to send message:', error);
-      // 在 AI 消息中显示错误（可选）
       setMessages((prev) => {
         return prev.map((msg) => {
           if (msg.id === aiMessageId) {
@@ -80,7 +140,7 @@ export function useChat() {
       setIsLoading(false);
       abortControllerRef.current = null;
     }
-  }, [cid]);
+  }, [cid, fetchConversations]);
 
   const stopGeneration = useCallback(() => {
     if (abortControllerRef.current) {
@@ -92,10 +152,6 @@ export function useChat() {
 
   const clearMessages = useCallback(() => {
     setMessages([]);
-    // 我们可能想要创建一个新会话，或者保留当前 cid？
-    // 这里简单起见只清空前端显示。后端历史依然存在。
-    // 如果想要全新开始，应该重置 cid:
-    // setCid(null); 
   }, []);
 
   const resetSession = useCallback(() => {
@@ -109,6 +165,10 @@ export function useChat() {
     sendMessage,
     stopGeneration,
     clearMessages,
-    resetSession
+    resetSession,
+    conversations,
+    selectSession,
+    currentSessionId: cid?.toString(),
+    fetchConversations
   };
 }

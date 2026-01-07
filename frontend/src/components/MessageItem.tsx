@@ -1,5 +1,9 @@
 import React from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import rehypeHighlight from 'rehype-highlight';
 import { cn } from '@/lib/utils';
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 
 interface MessageItemProps {
   role: 'user' | 'assistant';
@@ -15,16 +19,23 @@ export function MessageItem({ role, content }: MessageItemProps) {
       )}
     >
       <div className="text-base gap-4 md:gap-6 md:max-w-2xl lg:max-w-xl xl:max-w-3xl p-4 md:py-6 flex lg:px-0 m-auto">
-        <div className="w-[30px] flex flex-col relative items-end">
-          <div className={cn(
-            "relative h-[30px] w-[30px] p-1 rounded-sm flex items-center justify-center",
-            role === 'assistant' ? "bg-green-500" : "bg-purple-500"
-          )}>
-            {role === 'assistant' ? 'AI' : 'U'}
-          </div>
+        <div className="flex flex-col relative items-end">
+          <Avatar className="h-8 w-8">
+            <AvatarFallback className={cn(
+              "text-white text-xs font-medium",
+              role === 'assistant' ? "bg-green-500" : "bg-purple-500"
+            )}>
+              {role === 'assistant' ? 'AI' : 'U'}
+            </AvatarFallback>
+          </Avatar>
         </div>
-        <div className="relative flex-1 overflow-hidden whitespace-pre-wrap leading-7">
-          {content}
+        <div className="relative flex-1 overflow-hidden leading-7 prose dark:prose-invert max-w-none break-words">
+          <ReactMarkdown
+            remarkPlugins={[remarkGfm]}
+            rehypePlugins={[rehypeHighlight]}
+          >
+            {content}
+          </ReactMarkdown>
         </div>
       </div>
     </div>
