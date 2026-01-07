@@ -1,6 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import { MessageItem } from './MessageItem';
 import type { Message } from '@/types';
+import { ScrollArea } from "@/components/ui/scroll-area";
 
 interface MessageListProps {
   messages: Message[];
@@ -18,8 +19,8 @@ export function MessageList({ messages }: MessageListProps) {
   }, [messages]);
 
   return (
-    <div className="flex-1 overflow-y-auto p-4 md:p-10 h-full scroll-smooth">
-      <div className="flex flex-col items-center text-sm dark:bg-gray-800">
+    <ScrollArea className="h-full w-full">
+      <div className="flex flex-col items-center text-sm dark:bg-gray-800 pb-32">
         {messages.length === 0 ? (
           <div className="text-center text-gray-500 mt-20">
             <h2 className="text-2xl font-bold mb-2">FAgent</h2>
@@ -32,6 +33,6 @@ export function MessageList({ messages }: MessageListProps) {
         )}
         <div ref={messagesEndRef} />
       </div>
-    </div>
+    </ScrollArea>
   );
 }

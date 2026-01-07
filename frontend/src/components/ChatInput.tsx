@@ -1,5 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Send, Square, Loader2 } from 'lucide-react';
+import { Send, Square } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Textarea } from '@/components/ui/textarea';
 
 interface ChatInputProps {
   onSend: (content: string) => void;
@@ -19,7 +21,7 @@ export function ChatInput({ onSend, isLoading, onStop }: ChatInputProps) {
   const adjustHeight = () => {
     const textarea = textareaRef.current;
     if (textarea) {
-      textarea.style.height = '24px'; // Reset height
+      textarea.style.height = 'auto'; // Reset height
       textarea.style.height = `${Math.min(textarea.scrollHeight, 200)}px`;
     }
   };
@@ -38,35 +40,43 @@ export function ChatInput({ onSend, isLoading, onStop }: ChatInputProps) {
     onSend(input);
     setInput('');
     if (textareaRef.current) {
-      textareaRef.current.style.height = '24px';
+      textareaRef.current.style.height = 'auto';
     }
   };
+
+  useEffect(() => {
+    if (textareaRef.current) {
+      textareaRef.current.style.height = 'auto';
+    }
+  }, [input]);
 
   return (
     <div className="stretch mx-2 flex flex-row gap-3 last:mb-2 md:mx-4 md:last:mb-6 lg:mx-auto lg:max-w-2xl xl:max-w-3xl">
       <div className="relative flex h-full flex-1 flex-col">
-        <div className="w-full p-2.5 rounded-md border border-black/10 bg-white dark:border-gray-900/50 dark:text-white dark:bg-gray-700 shadow-[0_0_10px_rgba(0,0,0,0.10)] dark:shadow-[0_0_15px_rgba(0,0,0,0.10)] flex items-end">
-          <textarea
+        <div className="relative p-1 rounded-xl bg-background shadow-sm border border-input focus-within:ring-1 focus-within:ring-ring">
+          <Textarea
             ref={textareaRef}
-            className="m-0 w-full resize-none border-0 bg-transparent p-0 pl-2 pr-2 focus:ring-0 focus-visible:ring-0 dark:bg-transparent md:pl-0 outline-none max-h-[200px] overflow-y-auto"
+            className="min-h-[24px] w-full resize-none border-0 shadow-none focus-visible:ring-0 px-3 py-3 pr-10 bg-transparent"
             placeholder="Send a message..."
             rows={1}
             value={input}
             onChange={handleInput}
             onKeyDown={handleKeyDown}
-            style={{ height: '24px' }}
+            style={{ maxHeight: '200px', overflowY: 'auto' }}
           />
-          <button
+          <Button
+            size="icon"
+            variant="ghost"
             onClick={isLoading ? onStop : handleSend}
             disabled={!input.trim() && !isLoading}
-            className="p-1 rounded-md text-gray-500 hover:bg-gray-100 dark:hover:text-gray-400 dark:hover:bg-gray-900 disabled:hover:bg-transparent dark:disabled:hover:bg-transparent disabled:opacity-40 transition-colors"
+            className="absolute bottom-1 right-1 h-8 w-8 hover:bg-muted"
           >
             {isLoading ? (
               <Square className="h-4 w-4 fill-current" />
             ) : (
               <Send className="h-4 w-4" />
             )}
-          </button>
+          </Button>
         </div>
       </div>
     </div>
