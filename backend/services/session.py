@@ -32,17 +32,38 @@ class SessionManager:
     
     def create_session(
         self,
+        title: Optional[str] = None,
         metadata: Optional[Dict] = None
     ) -> int:
         """
         创建新会话
         
+        Args:
+            title: 会话标题（可选）
+            metadata: 会话元数据（可选）
+        
         Returns:
             cid（整数）
         """
-        cid = message_storage.create_conversation(metadata=metadata)
-        logger.info(f"SessionManager: 会话创建 | cid={cid}")
+        cid = message_storage.create_conversation(title=title, metadata=metadata)
+        logger.info(f"SessionManager: 会话创建 | cid={cid} | title={title}")
         return cid
+    
+    def update_session_title(self, cid: int, title: str) -> bool:
+        """
+        更新会话标题
+        
+        Args:
+            cid: 会话ID
+            title: 新标题
+            
+        Returns:
+            是否更新成功
+        """
+        success = message_storage.update_conversation_title(cid, title)
+        if success:
+            logger.info(f"SessionManager: 会话标题更新 | cid={cid} | title={title}")
+        return success
     
     def get_session(self, cid: int) -> Optional[Dict]:
         """获取会话信息"""

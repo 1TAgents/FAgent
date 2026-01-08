@@ -45,11 +45,11 @@
 
 | 角色 | 任务项 | 详细说明 | 状态 | 完成时间 |
 | :--- | :--- | :--- | :--- | :--- |
-| **Backend** | **DB 变更** | `conversations` 表新增 `title` 字段 (TEXT)。 | ✅ Ready | 2026-01-08 |
-| **Backend** | **接口升级** | `create_conversation` 支持传入 `title`；新增 `update_session_title` 接口。 | ⏳ Pending | - |
-| **Backend** | **触发机制** | 在 `chat_stream` 结束后，异步触发 Agent 的总结任务。 | ⏳ Pending | - |
-| **Agents** | **Prompt 设计** | 设计“总结助手” Prompt，要求输出 10-15 字以内的标题，无废话。 | ⏳ Pending | - |
-| **Agents** | **接口封装** | 提供 `generate_summary(messages) -> str` 函数。 | ⏳ Pending | - |
+| **Backend** | **DB 变更** | `conversations` 表新增 `title` 字段 (TEXT)。 | ✅ Done | 2026-01-08 |
+| **Backend** | **接口升级** | `create_conversation` 支持传入 `title`；新增 `PATCH /conversation/{cid}` 接口。 | ✅ Done | 2026-01-08 |
+| **Backend** | **触发机制** | 在 `chat_stream` 结束后，异步触发 Agent 的总结任务。 | ✅ Done | 2026-01-08 |
+| **Agents** | **Prompt 设计** | 设计"总结助手" Prompt，要求输出 5-15 字以内的标题。 | ✅ Done | 2026-01-08 |
+| **Agents** | **接口封装** | 提供 `POST /agent/summary/generate` 接口。 | ✅ Done | 2026-01-08 |
 | **Frontend** | **UI 展示** | 侧边栏列表渲染 `title` 字段（若为空则显示默认 ID）。 | ✅ Done | 2026-01-07 |
 | **Frontend** | **被动更新** | 监听或在下次刷新时获取最新标题。 | ✅ Done | 2026-01-07 |
 
@@ -68,7 +68,7 @@
 
 | 角色 | 任务项 | 详细说明 | 状态 | 完成时间 |
 | :--- | :--- | :--- | :--- | :--- |
-| **Backend** | **重命名接口** | 实现 `PATCH /api/chat/conversation/{cid}`，支持修改 `title`。 | ⏳ Pending | - |
+| **Backend** | **重命名接口** | 实现 `PATCH /api/chat/conversation/{cid}`，支持修改 `title`。 | ✅ Done | 2026-01-08 |
 | **Backend** | **删除接口** | 确保 `DELETE /api/chat/conversation/{cid}` 可用。 | ✅ Done | 2026-01-07 |
 | **Frontend** | **时间分组** | 实现 `Today`, `Yesterday`, `Previous 7 Days` 的分组算法。 | ✅ Done | 2026-01-08 |
 | **Frontend** | **交互实现** | 增加“编辑”和“删除”按钮（Hover 显示）；实现确认弹窗。 | ⏳ Pending | - |

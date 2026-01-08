@@ -7,6 +7,7 @@ Chat API - 后端业务接口
 3. 调用 Agents 服务（HTTP）
 4. 存储 AI 回复
 5. 返回给前端
+6. 异步触发会话总结（首轮对话后）
 
 ID 设计：
 - cid: 整数，会话ID
@@ -14,7 +15,8 @@ ID 设计：
 """
 import os
 import httpx
-from fastapi import APIRouter, HTTPException
+import asyncio
+from fastapi import APIRouter, HTTPException, BackgroundTasks
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
@@ -28,6 +30,54 @@ router = APIRouter(prefix="/api/chat", tags=["chat"])
 
 # Agents 服务地址
 AGENTS_BASE_URL = os.getenv("AGENTS_BASE_URL", "http://localhost:8001")
+
+
+# ==================== 后台任务 ====================
+
+async def generate_conversation_title(cid: int):
+    """
+    后台任务：为会话生成标题
+    
+    在首轮对话完成后调用，自动生成会话标题。
+    """
+    try:
+        # 检查会话是否已有标题
+        conversation = session_manager.get_session(cid)
+        if conversation is None:
+            logger.warning(f"会话不存在，跳过标题生成 | cid={cid}")
+            return
+        
+        if conversation.get("title"):
+            logger.debug(f"会话已有标题，跳过生成 | cid={cid} | title={conversation['title']}")
+            return
+        
+        # 获取会话消息
+        messages = session_manager.get_messages(cid, limit=6)
+        if len(messages) < 2:  # 至少需要一轮对话
+            logger.debug(f"消息太少，跳过标题生成 | cid={cid} | count={len(messages)}")
+            return
+        
+        # 调用 Agents 总结服务
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                f"{AGENTS_BASE_URL}/agent/summary/generate",
+                json={
+                    "messages": [{"role": m["role"], "content": m["content"]} for m in messages],
+                    "max_messages": 6
+                },
+                timeout=30.0
+            )
+            response.raise_for_status()
+            result = response.json()
+        
+        title = result.get("title", "")
+        if title:
+            # 更新会话标题
+            session_manager.update_session_title(cid, title)
+            logger.info(f"会话标题自动生成成功 | cid={cid} | title={title}")
+        
+    except Exception as e:
+        logger.error(f"会话标题生成失败 | cid={cid} | error={str(e)}")
 
 
 # ==================== 请求/响应模型 ====================
@@ -54,13 +104,20 @@ class ChatSendResponse(BaseModel):
 
 class CreateSessionRequest(BaseModel):
     """创建会话请求"""
+    title: Optional[str] = None
     metadata: Optional[Dict[str, Any]] = None
 
 
 class CreateSessionResponse(BaseModel):
     """创建会话响应"""
     cid: int
+    title: Optional[str] = None
     message: str = "Session created successfully"
+
+
+class UpdateConversationRequest(BaseModel):
+    """更新会话请求"""
+    title: str
 
 
 # ==================== 核心业务接口 ====================
@@ -216,6 +273,10 @@ async def chat_send_stream(request: ChatSendRequest):
                 )
                 logger.debug(f"AI 回复已落库 | assistant_message_id={assistant_message_id}")
                 
+                # 5. 异步触发会话标题生成（首轮对话后）
+                # 使用 asyncio.create_task 在后台执行，不阻塞响应
+                asyncio.create_task(generate_conversation_title(cid))
+                
                 # 发送完成信息
                 done_data = json.dumps({
                     "done": True,
@@ -254,9 +315,10 @@ async def create_session(request: CreateSessionRequest = None):
         request = CreateSessionRequest()
     
     cid = session_manager.create_session(
+        title=request.title,
         metadata=request.metadata
     )
-    return CreateSessionResponse(cid=cid)
+    return CreateSessionResponse(cid=cid, title=request.title)
 
 
 @router.get("/conversation/{cid}")
@@ -297,6 +359,26 @@ async def get_conversation_history(
         "messages": messages,
         "count": len(messages)
     }
+
+
+@router.patch("/conversation/{cid}")
+async def update_conversation(cid: int, request: UpdateConversationRequest):
+    """
+    更新会话信息（如标题）
+    
+    用于：
+    - 手动重命名会话
+    - 自动生成的会话总结
+    """
+    session = session_manager.get_session(cid)
+    if session is None:
+        raise HTTPException(status_code=404, detail=f"Conversation {cid} not found")
+    
+    success = session_manager.update_session_title(cid, request.title)
+    if not success:
+        raise HTTPException(status_code=500, detail="Failed to update conversation")
+    
+    return {"message": "Conversation updated successfully", "cid": cid, "title": request.title}
 
 
 @router.delete("/conversation/{cid}")
