@@ -2,22 +2,27 @@
 Market SubAgent - 行情子智能体
 
 职责：
-1. 理解用户的行情查询意图
+1. 处理行情相关的查询请求
 2. 调用 Market Service 获取数据
-3. 生成结构化的行情分析结果
+3. 使用 LLM 生成分析结果
 
-可处理的意图：
+可处理的任务：
 - 查询实时行情（股价、涨跌幅）
 - 查询 K 线数据
 - 股票搜索
 - 简单技术分析
+
+继承 BaseSubAgent，实现统一的 process_stream 接口
 """
 
-import logging
-from typing import Optional, Dict, Any, List
+import time
+from typing import Optional, Dict, Any, List, AsyncIterator
 from dataclasses import dataclass
 from enum import Enum
 
+from .base import BaseSubAgent
+from ..router.models import TaskContext, TaskType
+from ..services.llm import llm_service
 from ..common.market import (
     market_service,
     StockQuote,
@@ -25,8 +30,7 @@ from ..common.market import (
     StockInfo,
     KLinePeriod,
 )
-
-logger = logging.getLogger(__name__)
+from ..core.logging import logger, log_subagent
 
 
 class MarketIntent(Enum):
@@ -77,20 +81,245 @@ class MarketResult:
         }
 
 
-class MarketSubAgent:
+MARKET_ANALYSIS_PROMPT = """你是一个专业的股票分析师。基于以下行情数据，为用户提供分析和解读。
+
+行情数据：
+{data_summary}
+
+用户问题：{query}
+
+请提供：
+1. 数据解读
+2. 简要分析
+3. 风险提示（如适用）
+
+注意：保持客观专业，投资建议仅供参考。
+"""
+
+
+class MarketSubAgent(BaseSubAgent):
     """
     行情子智能体
     
-    处理行情相关的查询请求，返回结构化结果
+    处理行情相关的查询请求：
+    - 调用 Market Service 获取数据
+    - 使用 LLM 生成分析结果
+    
+    继承 BaseSubAgent，实现统一接口
     """
     
+    name = "market"
+    
     def __init__(self):
+        super().__init__()
         self.service = market_service
-        logger.info("MarketSubAgent 初始化完成")
+        self.llm = llm_service
+    
+    # ==================== BaseSubAgent 接口实现 ====================
+    
+    async def process_stream(self, context: TaskContext) -> AsyncIterator[str]:
+        """
+        流式处理行情任务（BaseSubAgent 接口）
+        
+        流程：
+        1. 根据 TaskContext 获取数据
+        2. 使用 LLM 流式生成分析
+        """
+        start_time = time.time()
+        log_subagent.start("MarketSubAgent", context.task_type.value, context)
+        
+        # 1. 根据任务类型获取数据
+        data_result = self._execute_task(context)
+        
+        if not data_result.success:
+            log_subagent.done("MarketSubAgent", time.time() - start_time, success=False)
+            yield f"抱歉，{data_result.error}"
+            return
+        
+        # 2. 构建 LLM 消息
+        messages = [
+            {
+                "role": "system",
+                "content": MARKET_ANALYSIS_PROMPT.format(
+                    data_summary=data_result.summary,
+                    query=context.query
+                )
+            },
+            {
+                "role": "user",
+                "content": context.query
+            }
+        ]
+        
+        # 3. 流式调用 LLM 生成分析
+        log_subagent.llm_call(model="deepseek", messages_count=len(messages), temperature=0.7)
+        
+        chunk_count = 0
+        for chunk in self.llm.chat_completion_stream(
+            messages=messages,
+            temperature=0.7,
+        ):
+            chunk_count += 1
+            yield chunk
+        
+        duration = time.time() - start_time
+        log_subagent.llm_stream(chunk_count=chunk_count, duration=duration)
+        log_subagent.done("MarketSubAgent", duration)
+    
+    async def process_from_context(self, context: TaskContext) -> str:
+        """
+        非流式处理行情任务（BaseSubAgent 接口）
+        """
+        logger.debug(f"MarketSubAgent.process_from_context | task_type={context.task_type.value}")
+        
+        # 收集流式输出
+        result = ""
+        async for chunk in self.process_stream(context):
+            result += chunk
+        return result
+    
+    # Period 参数映射（处理 LLM 可能输出的变体）
+    PERIOD_MAPPING = {
+        "day": "daily",
+        "d": "daily",
+        "日": "daily",
+        "日k": "daily",
+        "week": "weekly",
+        "w": "weekly",
+        "周": "weekly",
+        "周k": "weekly",
+        "month": "monthly",
+        "m": "monthly",
+        "月": "monthly",
+        "月k": "monthly",
+        "1m": "1min",
+        "5m": "5min",
+        "15m": "15min",
+        "30m": "30min",
+        "60m": "60min",
+        "1h": "60min",
+    }
+    
+    def _normalize_period(self, period: str) -> str:
+        """
+        标准化 period 参数
+        
+        将 LLM 可能输出的各种变体映射到有效的 KLinePeriod 值
+        """
+        if not period:
+            return "daily"
+        
+        period_lower = period.lower().strip()
+        
+        # 先查映射表
+        if period_lower in self.PERIOD_MAPPING:
+            return self.PERIOD_MAPPING[period_lower]
+        
+        # 已经是有效值
+        valid_periods = ["daily", "weekly", "monthly", "1min", "5min", "15min", "30min", "60min"]
+        if period_lower in valid_periods:
+            return period_lower
+        
+        # 默认返回 daily
+        logger.warning(f"未知的 period 值: {period}，使用默认值 daily")
+        return "daily"
+    
+    def _execute_task(self, context: TaskContext) -> MarketResult:
+        """根据 TaskContext 执行具体任务"""
+        task_type = context.task_type
+        params = context.params
+        
+        logger.debug(f"[EXECUTE_TASK] task_type={task_type.value} | params={params}")
+        
+        try:
+            if task_type == TaskType.GET_QUOTE:
+                log_subagent.tool_call("market_service.get_quote", {"symbol": params.get("symbol", "")})
+                start = time.time()
+                result = self._get_quote(params.get("symbol", ""))
+                log_subagent.tool_result(
+                    "market_service.get_quote",
+                    result.success,
+                    data=result.summary[:200] if result.summary else None,
+                    error=result.error,
+                    duration=time.time() - start
+                )
+                return result
+            
+            elif task_type == TaskType.GET_KLINE:
+                # 标准化 period 参数
+                raw_period = params.get("period", "daily")
+                normalized_period = self._normalize_period(raw_period)
+                
+                log_subagent.tool_call("market_service.get_kline", {
+                    "symbol": params.get("symbol", ""),
+                    "period": normalized_period,
+                    "count": params.get("count", 30)
+                })
+                start = time.time()
+                result = self._get_kline(
+                    params.get("symbol", ""),
+                    KLinePeriod(normalized_period),
+                    params.get("count", 30)
+                )
+                log_subagent.tool_result(
+                    "market_service.get_kline",
+                    result.success,
+                    data=result.summary[:200] if result.summary else None,
+                    error=result.error,
+                    duration=time.time() - start
+                )
+                return result
+            
+            elif task_type == TaskType.SEARCH_STOCK:
+                log_subagent.tool_call("market_service.search", {"keyword": params.get("keyword", "")})
+                start = time.time()
+                result = self._search_stock(params.get("keyword", ""))
+                log_subagent.tool_result(
+                    "market_service.search",
+                    result.success,
+                    data=result.summary[:200] if result.summary else None,
+                    error=result.error,
+                    duration=time.time() - start
+                )
+                return result
+            
+            elif task_type == TaskType.ANALYZE_TREND:
+                log_subagent.tool_call("market_service.analyze_trend", params)
+                start = time.time()
+                result = self._analyze_trend(
+                    params.get("symbol", ""),
+                    params.get("count", 30)
+                )
+                log_subagent.tool_result(
+                    "market_service.analyze_trend",
+                    result.success,
+                    data=result.summary[:200] if result.summary else None,
+                    error=result.error,
+                    duration=time.time() - start
+                )
+                return result
+            
+            else:
+                return MarketResult(
+                    success=False,
+                    intent=MarketIntent.UNKNOWN,
+                    error=f"不支持的任务类型: {task_type.value}"
+                )
+                
+        except Exception as e:
+            # 捕获所有异常，返回友好错误
+            logger.error(f"[EXECUTE_TASK_ERROR] task={task_type.value} | error={e}")
+            return MarketResult(
+                success=False,
+                intent=MarketIntent.UNKNOWN,
+                error=f"执行任务时出错，请稍后重试"
+            )
+    
+    # ==================== 原有接口（兼容旧代码） ====================
     
     def process(self, query: MarketQuery) -> MarketResult:
         """
-        处理行情查询
+        处理行情查询（原有接口，保持兼容）
         
         Args:
             query: 查询请求

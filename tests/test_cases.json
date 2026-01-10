@@ -311,6 +311,60 @@
             "sessions_independent": true
           },
           "tags": ["chat", "isolation"]
+        },
+        {
+          "id": "CHAT004",
+          "name": "行情工具调用-茅台周行情",
+          "type": "conversation",
+          "description": "测试 AI 是否能识别行情查询意图并调用工具获取真实数据",
+          "steps": [
+            {
+              "step": 1,
+              "action": "create_session",
+              "expected": {
+                "success": true,
+                "has_cid": true
+              }
+            },
+            {
+              "step": 2,
+              "action": "send_message",
+              "input": {
+                "message": "你好，帮我介绍下贵州茅台最近一周的行情"
+              },
+              "expected": {
+                "success": true,
+                "has_response": true
+              }
+            },
+            {
+              "step": 3,
+              "action": "send_message",
+              "input": {
+                "message": "我需要具体的数据，例如成交量是多少，涨跌幅是多少"
+              },
+              "expected": {
+                "success": true,
+                "should_use_tool": true,
+                "response_contains": ["600519", "涨跌幅"]
+              },
+              "description": "AI 应识别需要调用行情工具获取真实数据"
+            },
+            {
+              "step": 4,
+              "action": "send_message",
+              "input": {
+                "message": "你可以使用工具查询啊"
+              },
+              "expected": {
+                "success": true,
+                "tool_called": true,
+                "has_real_data": true
+              },
+              "description": "AI 应调用 Market 工具并返回真实行情数据"
+            }
+          ],
+          "tags": ["chat", "tool_calling", "market", "regression"]
         }
       ]
     },
