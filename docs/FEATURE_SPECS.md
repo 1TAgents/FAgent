@@ -76,7 +76,71 @@
 
 ---
 
-## 3. 🔌 接口契约草稿 (API Draft)
+## 3. 🔗 需求：请求追踪系统 (Request Tracing)
+
+### 📅 时间线
+- **提出时间**: 2026-01-11
+- **最后更新**: 2026-01-11
+
+### 🎯 需求目标
+实现全链路请求追踪，通过 `request_id` + `cid` 串联同一请求在 Backend、Agents 等服务中的所有日志，便于问题排查。
+
+### 📐 技术方案
+
+**追踪标识：**
+- `request_id (rid)`: 唯一标识一次请求，格式为 UUID 前8位（如 `a1b2c3d4`）
+- `cid`: 会话 ID，标识同一会话的所有请求
+
+**传递方式：**
+- `request_id`: 前端 → Backend → Agents，通过 HTTP Header `X-Request-ID` 传递
+- `cid`: 在 request body 中传递（已有字段，无需额外处理）
+- 如果前端未提供 `X-Request-ID`，Backend 自动生成
+
+**日志格式：**
+```
+[rid=a1b2c3d4 cid=5] [REQ] POST /api/chat/send/stream
+[rid=a1b2c3d4 cid=5] [ROUTER_INTENT] route=market | task=get_quote
+[rid=a1b2c3d4 cid=5] [TOOL_CALL] market_service.get_quote
+```
+
+### 🛠️ 任务分工表
+
+| 角色 | 任务项 | 详细说明 | 状态 | 完成时间 |
+| :--- | :--- | :--- | :--- | :--- |
+| **Backend** | **中间件** | 从 Header 获取或自动生成 `request_id`，存入上下文 | ✅ Done | 2026-01-11 |
+| **Backend** | **日志前缀** | 所有日志自动添加 `[rid=xxx cid=yyy]` 前缀 | ✅ Done | 2026-01-11 |
+| **Backend** | **Header 传递** | 调用 Agents 时传递 `X-Request-ID` Header | ✅ Done | 2026-01-11 |
+| **Agents** | **中间件** | 从 Header 获取 `rid`，从 body 获取 `cid`，存入上下文 | ✅ Done | 2026-01-11 |
+| **Agents** | **日志前缀** | Router/SubAgent 日志自动添加追踪前缀 | ✅ Done | 2026-01-11 |
+| **Frontend** | **生成 rid** | 每次请求生成 UUID 作为 `request_id` | ⏳ Pending | - |
+| **Frontend** | **Header 设置** | 在 API 请求中添加 `X-Request-ID` Header | ⏳ Pending | - |
+
+### 📝 前端实现指南
+
+```typescript
+// 生成 request_id
+const generateRequestId = () => crypto.randomUUID().slice(0, 8);
+
+// API 请求示例
+const sendMessage = async (cid: number, message: string) => {
+  const requestId = generateRequestId();
+  
+  const response = await fetch('/api/chat/send/stream', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Request-ID': requestId,  // cid 已在 body 中，无需 Header
+    },
+    body: JSON.stringify({ cid, user_message: message }),
+  });
+  
+  // ...
+};
+```
+
+---
+
+## 4. 🔌 接口契约草稿 (API Draft)
 
 ### Update Conversation Title
 - **Endpoint**: `PATCH /api/chat/conversation/{cid}`
@@ -87,3 +151,9 @@
   }
   ```
 - **Response**: `200 OK`
+
+### Request Headers (推荐)
+所有 API 请求建议携带以下 Header：
+- `X-Request-ID`: 请求追踪 ID（可选，后端会自动生成）
+
+> 注：`cid` 在 request body 中传递，无需在 Header 中重复

@@ -6,21 +6,47 @@ Agents FastAPI 主应用
 特性：
 - SQLite 持久化缓存
 - 按需加载，用到即缓存
+- 完整日志记录
+- 请求追踪（rid + cid）
 """
-import logging
 from contextlib import asynccontextmanager
 
-# 配置日志
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware
 from .chat import router as chat_router
 from .market import router as market_router
 from .summary import router as summary_router
+
+# 导入日志和上下文模块
+from agents.core.logging import logger
+from agents.core.context import set_context, clear_context
+
+
+# ==================== 中间件 ====================
+
+class RequestContextMiddleware(BaseHTTPMiddleware):
+    """
+    请求上下文中间件
+    
+    从 Header 获取 X-Request-ID，设置到上下文中
+    注：cid 从 request body 获取，在具体 endpoint 中设置
+    """
+    
+    async def dispatch(self, request: Request, call_next):
+        # 从 Header 获取 request_id
+        request_id = request.headers.get("X-Request-ID", "")
+        
+        # 设置上下文（只设置 rid）
+        if request_id:
+            set_context(rid=request_id)
+        
+        try:
+            response = await call_next(request)
+            return response
+        finally:
+            # 清空上下文
+            clear_context()
 
 
 # ==================== 生命周期管理 ====================
@@ -30,18 +56,19 @@ async def lifespan(app: FastAPI):
     """应用生命周期管理"""
     from ..common.market.cache import market_cache
     
-    logging.info("=" * 50)
-    logging.info("FAgent Agents 服务启动中...")
-    logging.info(f"缓存状态: {market_cache.stats()}")
-    logging.info("服务已就绪")
-    logging.info("=" * 50)
+    logger.info("=" * 50)
+    logger.info("FAgent Agents 服务启动中...")
+    logger.info(f"日志目录: logs/agents/")
+    logger.info(f"缓存状态: {market_cache.stats()}")
+    logger.info("服务已就绪")
+    logger.info("=" * 50)
     
     yield  # 应用运行中
     
     # 关闭时清理过期缓存
-    logging.info("FAgent Agents 服务关闭中...")
+    logger.info("FAgent Agents 服务关闭中...")
     market_cache.cleanup_expired()
-    logging.info("服务已关闭")
+    logger.info("服务已关闭")
 
 
 # ==================== FastAPI 应用 ====================
@@ -53,7 +80,11 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS 配置
+# 中间件（注意顺序：先添加的后执行）
+# 1. 请求上下文中间件
+app.add_middleware(RequestContextMiddleware)
+
+# 2. CORS 配置
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
