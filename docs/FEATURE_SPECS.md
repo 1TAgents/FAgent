@@ -152,7 +152,29 @@ const sendMessage = async (cid: number, message: string) => {
 
 ---
 
-## 4. 🔌 接口契约草稿 (API Draft)
+## 4. � 需求：优化会话总结准确性 (Optimize Conversation Summary Accuracy)
+
+### 📅 时间线
+- **提出时间**: 2026-01-11
+- **最后更新**: 2026-01-11
+
+### 🎯 需求目标
+解决当前自动生成的会话标题存在的问题，提升用户体验。
+1.  **内容不准**：未能精准捕捉用户意图，经常生成与核心主题无关的标题。
+2.  **废话较多**：包含“关于”、“讨论”、“咨询”等无意义词汇。
+3.  **格式混乱**：包含引号、书名号、`Title:` 前缀等符号。
+
+### 🛠️ 任务分工表
+
+| 角色 | 任务项 | 详细说明 | 状态 | 完成时间 |
+| :--- | :--- | :--- | :--- | :--- |
+| **Agents** | **Prompt 优化** | 升级 System Prompt，增加“精准概括”、“拒绝废话”等强约束；提供 Few-Shot 示例（如 Input -> Output）。 | ✅ Done | 2026-01-11 |
+| **Agents** | **后处理增强** | 增强 `_clean_title` 方法，增加对书名号、常见前缀（如 `summary:`）的清洗逻辑；严格控制长度（15字内）。 | ✅ Done | 2026-01-11 |
+| **Backend** | **触发策略优化** | (可选) 优化消息截取逻辑（目前固定前6条），考虑根据 Token 数量截取；支持手动重新生成标题的接口。 | ⏳ Pending | - |
+
+---
+
+## 5. �🔌 接口契约草稿 (API Draft)
 
 ### Update Conversation Title
 - **Endpoint**: `PATCH /api/chat/conversation/{cid}`
