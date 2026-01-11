@@ -85,18 +85,23 @@ class SummaryService:
     
     def _clean_title(self, title: str) -> str:
         """清理生成的标题"""
-        # 去除首尾引号
-        title = title.strip('"\'「」『』【】')
+        # 去除首尾引号和空白
+        title = title.strip().strip('"\'「」『』【】《》')
         
-        # 去除常见前缀
-        prefixes = ["标题：", "标题:", "Title:", "title:"]
+        # 去除常见前缀（不区分大小写）
+        prefixes = ["标题：", "标题:", "title:", "summary:", "主题：", "主题:"]
+        lower_title = title.lower()
         for prefix in prefixes:
-            if title.startswith(prefix):
+            if lower_title.startswith(prefix):
                 title = title[len(prefix):].strip()
+                break # 只要匹配到一个前缀就停止
         
+        # 再次清理可能残留的引号
+        title = title.strip('"\'')
+
         # 限制长度
-        if len(title) > 20:
-            title = title[:20]
+        if len(title) > 15:
+            title = title[:15]
         
         return title or "新对话"
     

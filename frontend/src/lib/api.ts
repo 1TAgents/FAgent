@@ -5,6 +5,9 @@ const USE_MOCK = false; // Set to true to force mock mode
 // 模拟延迟
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
+// 生成 Request ID (8位 UUID)
+const generateRequestId = () => crypto.randomUUID().slice(0, 8);
+
 // 模拟流式响应数据
 const MOCK_RESPONSE = `这是一个模拟的流式响应（Mock Mode）。
 如果您看到这条消息，说明后端服务不可用或已启用 Mock 模式。
@@ -19,7 +22,10 @@ export async function createSession(): Promise<number> {
   try {
     const response = await fetch('/api/chat/session/create', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 
+        'Content-Type': 'application/json',
+        'X-Request-ID': generateRequestId()
+      },
       body: JSON.stringify({}),
     });
 
@@ -45,7 +51,11 @@ export async function createSession(): Promise<number> {
 export async function getConversations(limit = 20, offset = 0) {
   if (USE_MOCK) return { conversations: [], count: 0 };
 
-  const response = await fetch(`/api/chat/conversations?limit=${limit}&offset=${offset}`);
+  const response = await fetch(`/api/chat/conversations?limit=${limit}&offset=${offset}`, {
+    headers: {
+      'X-Request-ID': generateRequestId()
+    }
+  });
   if (!response.ok) {
     throw new Error(`Failed to fetch conversations: ${response.statusText}`);
   }
@@ -58,9 +68,56 @@ export async function getConversations(limit = 20, offset = 0) {
 export async function getMessages(cid: number) {
   if (USE_MOCK) return { messages: [], count: 0 };
 
-  const response = await fetch(`/api/chat/conversation/${cid}/messages`);
+  const response = await fetch(`/api/chat/conversation/${cid}/messages`, {
+    headers: {
+      'X-Request-ID': generateRequestId()
+    }
+  });
   if (!response.ok) {
     throw new Error(`Failed to fetch messages: ${response.statusText}`);
+  }
+  return response.json();
+}
+
+/**
+ * 删除会话
+ */
+export async function deleteSession(cid: string) {
+  if (USE_MOCK) return;
+  
+  const response = await fetch(`/api/chat/conversation/${cid}`, {
+    method: 'DELETE',
+    headers: {
+      'X-Request-ID': generateRequestId()
+    }
+  });
+  
+  if (!response.ok) {
+    throw new Error(`Failed to delete session: ${response.statusText}`);
+  }
+}
+
+/**
+ * 重命名会话
+ */
+export async function renameSession(cid: string, title: string) {
+  if (USE_MOCK) return;
+  
+  // 注意：后端接口可能尚未就绪，如果返回 404/405 请忽略或处理
+  const response = await fetch(`/api/chat/conversation/${cid}`, {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Request-ID': generateRequestId()
+    },
+    body: JSON.stringify({ title })
+  });
+  
+  if (!response.ok) {
+    // 暂时允许失败，因为后端接口可能未实现
+    console.warn(`Failed to rename session (backend might not support it): ${response.statusText}`);
+    // throw new Error(`Failed to rename session: ${response.statusText}`);
+    return; 
   }
   return response.json();
 }
@@ -95,6 +152,7 @@ export async function sendMessageStream(
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        'X-Request-ID': generateRequestId()
       },
       body: JSON.stringify({
         cid,
