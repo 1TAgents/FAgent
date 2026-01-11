@@ -8,12 +8,12 @@ export function Layout() {
     conversations, 
     selectSession, 
     currentSessionId, 
-    resetSession,
-    messages,
-    isLoading,
-    sendMessage,
-    stopGeneration,
-    deleteSession,
+    resetSession, 
+    messages, 
+    isLoading, 
+    sendMessage, 
+    stopGeneration, 
+    deleteSession, 
     renameSession
   } = useChat();
 
