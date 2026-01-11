@@ -76,6 +76,18 @@
 
 ---
 
+son
+  {
+    "title": "New Title"
+  }
+  ```
+- **Response**: `200 OK`
+
+### Request Headers (推荐)
+所有 API 请求建议携带以下 Header：
+- `X-Request-ID`: 请求追踪 ID（可选，后端会自动生成）
+
+> 注：`cid` 在 request body 中传递，无需在 Header 中重复
 ## 3. 🔗 需求：请求追踪系统 (Request Tracing)
 
 ### 📅 时间线
@@ -112,8 +124,8 @@
 | **Backend** | **Header 传递** | 调用 Agents 时传递 `X-Request-ID` Header | ✅ Done | 2026-01-11 |
 | **Agents** | **中间件** | 从 Header 获取 `rid`，从 body 获取 `cid`，存入上下文 | ✅ Done | 2026-01-11 |
 | **Agents** | **日志前缀** | Router/SubAgent 日志自动添加追踪前缀 | ✅ Done | 2026-01-11 |
-| **Frontend** | **生成 rid** | 每次请求生成 UUID 作为 `request_id` | ⏳ Pending | - |
-| **Frontend** | **Header 设置** | 在 API 请求中添加 `X-Request-ID` Header | ⏳ Pending | - |
+| **Frontend** | **生成 rid** | 每次请求生成 UUID 作为 `request_id` | ✅ Done | 2026-01-11 |
+| **Frontend** | **Header 设置** | 在 API 请求中添加 `X-Request-ID` Header | ✅ Done | 2026-01-11 |
 
 ### 📝 前端实现指南
 
@@ -145,15 +157,4 @@ const sendMessage = async (cid: number, message: string) => {
 ### Update Conversation Title
 - **Endpoint**: `PATCH /api/chat/conversation/{cid}`
 - **Body**:
-  ```json
-  {
-    "title": "New Title"
-  }
-  ```
-- **Response**: `200 OK`
-
-### Request Headers (推荐)
-所有 API 请求建议携带以下 Header：
-- `X-Request-ID`: 请求追踪 ID（可选，后端会自动生成）
-
-> 注：`cid` 在 request body 中传递，无需在 Header 中重复
+  ```j

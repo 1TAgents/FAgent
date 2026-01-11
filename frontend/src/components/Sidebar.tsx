@@ -1,18 +1,39 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import type { ChatSession } from '@/types';
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Plus } from "lucide-react";
+import { Plus, Pencil, Trash2, Check, X, MessageSquare } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 
 interface SidebarProps {
   conversations: ChatSession[];
   onSelectSession: (id: string) => void;
+  onDeleteSession: (id: string) => void;
+  onRenameSession: (id: string, newTitle: string) => void;
   currentSessionId?: string;
   onNewChat: () => void;
 }
 
-export function Sidebar({ conversations, onSelectSession, currentSessionId, onNewChat }: SidebarProps) {
+export function Sidebar({ 
+  conversations, 
+  onSelectSession, 
+  onDeleteSession, 
+  onRenameSession, 
+  currentSessionId, 
+  onNewChat 
+}: SidebarProps) {
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editTitle, setEditTitle] = useState("");
+  const [deleteId, setDeleteId] = useState<string | null>(null);
   
   const groupedConversations = useMemo(() => {
     const groups: Record<string, ChatSession[]> = {
@@ -50,6 +71,37 @@ export function Sidebar({ conversations, onSelectSession, currentSessionId, onNe
     return groups;
   }, [conversations]);
 
+  const handleStartEdit = (e: React.MouseEvent, session: ChatSession) => {
+    e.stopPropagation();
+    setEditingId(session.id);
+    setEditTitle(session.title);
+  };
+
+  const handleSaveEdit = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (editingId && editTitle.trim()) {
+      onRenameSession(editingId, editTitle.trim());
+      setEditingId(null);
+    }
+  };
+
+  const handleCancelEdit = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setEditingId(null);
+  };
+
+  const handleDeleteClick = (e: React.MouseEvent, id: string) => {
+    e.stopPropagation();
+    setDeleteId(id);
+  };
+
+  const confirmDelete = () => {
+    if (deleteId) {
+      onDeleteSession(deleteId);
+      setDeleteId(null);
+    }
+  };
+
   return (
     <div className="w-[260px] bg-black text-white flex flex-col h-full border-r border-zinc-800 hidden md:flex">
       <div className="p-3">
@@ -72,16 +124,60 @@ export function Sidebar({ conversations, onSelectSession, currentSessionId, onNe
                 <div className="px-3 py-2 text-xs font-medium text-zinc-500">{label}</div>
                 <div className="flex flex-col gap-1">
                   {sessions.map((session) => (
-                    <button
+                    <div
                       key={session.id}
-                      onClick={() => onSelectSession(session.id)}
                       className={cn(
-                        "flex items-center gap-3 px-3 py-2 text-sm text-zinc-100 rounded-md transition-colors hover:bg-zinc-900 text-left truncate w-full group relative",
+                        "group flex items-center gap-2 px-3 py-2 text-sm text-zinc-100 rounded-md transition-colors hover:bg-zinc-900 cursor-pointer relative",
                         currentSessionId === session.id && "bg-zinc-800"
                       )}
+                      onClick={() => onSelectSession(session.id)}
                     >
-                      <span className="truncate flex-1">{session.title}</span>
-                    </button>
+                      <MessageSquare className="h-4 w-4 shrink-0 text-zinc-500" />
+                      
+                      {editingId === session.id ? (
+                        <div className="flex items-center gap-1 flex-1 min-w-0" onClick={(e) => e.stopPropagation()}>
+                          <Input
+                            value={editTitle}
+                            onChange={(e) => setEditTitle(e.target.value)}
+                            className="h-7 px-2 py-0 bg-zinc-950 border-zinc-700 text-xs focus-visible:ring-1 focus-visible:ring-zinc-600"
+                            autoFocus
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') handleSaveEdit(e as any);
+                              if (e.key === 'Escape') handleCancelEdit(e as any);
+                            }}
+                          />
+                          <Button variant="ghost" size="icon" className="h-6 w-6 shrink-0 hover:bg-zinc-800" onClick={handleSaveEdit}>
+                            <Check className="h-3 w-3" />
+                          </Button>
+                          <Button variant="ghost" size="icon" className="h-6 w-6 shrink-0 hover:bg-zinc-800" onClick={handleCancelEdit}>
+                            <X className="h-3 w-3" />
+                          </Button>
+                        </div>
+                      ) : (
+                        <>
+                          <span className="truncate flex-1">{session.title}</span>
+                          
+                          <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity absolute right-2 bg-gradient-to-l from-zinc-900 via-zinc-900/80 to-transparent pl-4">
+                            <Button 
+                              variant="ghost" 
+                              size="icon" 
+                              className="h-6 w-6 text-zinc-400 hover:text-white hover:bg-zinc-700"
+                              onClick={(e) => handleStartEdit(e, session)}
+                            >
+                              <Pencil className="h-3 w-3" />
+                            </Button>
+                            <Button 
+                              variant="ghost" 
+                              size="icon" 
+                              className="h-6 w-6 text-zinc-400 hover:text-red-400 hover:bg-zinc-700"
+                              onClick={(e) => handleDeleteClick(e, session.id)}
+                            >
+                              <Trash2 className="h-3 w-3" />
+                            </Button>
+                          </div>
+                        </>
+                      )}
+                    </div>
                   ))}
                 </div>
               </div>
@@ -93,6 +189,21 @@ export function Sidebar({ conversations, onSelectSession, currentSessionId, onNe
       <div className="p-4 border-t border-zinc-800">
         <div className="text-sm text-zinc-400">User Profile</div>
       </div>
+
+      <Dialog open={!!deleteId} onOpenChange={(open) => !open && setDeleteId(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete Conversation</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete this conversation? This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteId(null)}>Cancel</Button>
+            <Button variant="destructive" onClick={confirmDelete}>Delete</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

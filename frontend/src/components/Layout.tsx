@@ -12,7 +12,9 @@ export function Layout() {
     messages,
     isLoading,
     sendMessage,
-    stopGeneration
+    stopGeneration,
+    deleteSession,
+    renameSession
   } = useChat();
 
   return (
@@ -22,6 +24,8 @@ export function Layout() {
         onSelectSession={selectSession}
         currentSessionId={currentSessionId}
         onNewChat={resetSession}
+        onDeleteSession={deleteSession}
+        onRenameSession={renameSession}
       />
       <ChatArea 
         messages={messages}

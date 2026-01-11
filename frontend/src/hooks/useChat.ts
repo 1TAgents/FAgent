@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import type { Message, ChatSession } from '@/types';
-import { sendMessageStream, createSession, getConversations, getMessages } from '@/lib/api';
+import { sendMessageStream, createSession, getConversations, getMessages, deleteSession as apiDeleteSession, renameSession as apiRenameSession } from '@/lib/api';
 
 export function useChat() {
   const [messages, setMessages] = useState<Message[]>([]);
@@ -16,7 +16,7 @@ export function useChat() {
       // 假设后端返回的数据结构匹配，或者需要适配
       const list = data.conversations.map((c: any) => ({
         id: c.cid.toString(),
-        title: `Conversation ${c.cid}`,
+        title: c.title || `Conversation ${c.cid}`,
         messages: [],
         createdAt: c.created_at ? new Date(c.created_at).getTime() : Date.now(),
         updatedAt: c.updated_at ? new Date(c.updated_at).getTime() : Date.now(),
@@ -26,6 +26,41 @@ export function useChat() {
       console.error('Failed to fetch conversations:', error);
     }
   }, []);
+
+  // 删除会话
+  const deleteSession = useCallback(async (sessionId: string) => {
+    try {
+      await apiDeleteSession(sessionId);
+      
+      // Update local state
+      setConversations(prev => prev.filter(c => c.id !== sessionId));
+      
+      // If deleted session is active, reset
+      if (cid?.toString() === sessionId) {
+        setCid(null);
+        setMessages([]);
+      }
+    } catch (error) {
+      console.error('Failed to delete session:', error);
+      // Could add toast notification here
+    }
+  }, [cid]);
+
+  // 重命名会话
+  const renameSession = useCallback(async (sessionId: string, newTitle: string) => {
+    try {
+      // Optimistic update
+      setConversations(prev => prev.map(c => 
+        c.id === sessionId ? { ...c, title: newTitle } : c
+      ));
+
+      await apiRenameSession(sessionId, newTitle);
+    } catch (error) {
+      console.error('Failed to rename session:', error);
+      // Revert on error would go here, simplified for now
+      fetchConversations();
+    }
+  }, [fetchConversations]);
 
   // 加载特定会话
   const selectSession = useCallback(async (sessionId: string) => {
@@ -168,6 +203,8 @@ export function useChat() {
     resetSession,
     conversations,
     selectSession,
+    deleteSession,
+    renameSession,
     currentSessionId: cid?.toString(),
     fetchConversations
   };
