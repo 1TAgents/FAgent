@@ -1,21 +1,27 @@
 """
 Agents Chat API - 对话接口（流式和非流式）
 
-Agents 服务对外接口，纯 LLM 调用，不涉及存储。
+Agents 服务对外接口：
+- 新接口：使用 Router 进行多 Agent 路由
+- 旧接口：纯 LLM 调用（保持兼容）
 
 接口：
-- POST /agent/chat/completion - 非流式
-- POST /agent/chat/stream - 流式
+- POST /agent/chat/router/stream - 🆕 Router 流式（推荐）
+- POST /agent/chat/completion - 非流式（旧）
+- POST /agent/chat/stream - 流式（旧）
 """
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Union, Any
 import json
+import asyncio
 
 from ..services.chat_agent import chat_agent
 from ..services.llm import llm_service
 from ..core.prompts import DEFAULT_SYSTEM_PROMPT
+from ..core.context import set_context
+from ..router import main_router
 
 router = APIRouter(prefix="/agent/chat", tags=["agent-chat"])
 
@@ -138,6 +144,90 @@ async def agent_chat_stream(request: AgentChatRequest):
                 "X-Accel-Buffering": "no",
             }
         )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ==================== 新接口：Router 模式 ====================
+
+class RouterChatRequest(BaseModel):
+    """Router 聊天请求模型"""
+    cid: int                          # 会话 ID
+    message_id: int                   # 当前消息 ID（用于获取历史）
+    user_message: str                 # 用户消息
+    history_limit: Optional[int] = 10 # 历史消息限制
+
+
+class RouterChatResponse(BaseModel):
+    """Router 聊天响应模型"""
+    content: str
+    route: Optional[str] = None       # 路由到哪个 SubAgent
+
+
+@router.post("/router/stream")
+async def router_chat_stream(request: RouterChatRequest):
+    """
+    🆕 Router 流式聊天接口（推荐）
+    
+    使用 MainRouter 进行多 Agent 路由：
+    1. 分析用户意图
+    2. 路由到合适的 SubAgent（Market/Chat）
+    3. 流式透传 SubAgent 的输出
+    
+    适用于：需要调用行情工具等外部能力的场景
+    """
+    # 设置 cid 到上下文（用于日志追踪）
+    set_context(cid=str(request.cid))
+    
+    try:
+        async def generate():
+            """异步 SSE 生成器"""
+            try:
+                async for chunk in main_router.process_stream(
+                    cid=request.cid,
+                    message_id=request.message_id,
+                    user_message=request.user_message,
+                    history_limit=request.history_limit or 10,
+                ):
+                    data = json.dumps({"content": chunk}, ensure_ascii=False)
+                    yield f"data: {data}\n\n"
+                
+                # 发送完成信号
+                yield "data: [DONE]\n\n"
+                
+            except Exception as e:
+                error_data = json.dumps({"error": str(e)}, ensure_ascii=False)
+                yield f"data: {error_data}\n\n"
+        
+        return StreamingResponse(
+            generate(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",
+            }
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/router/completion", response_model=RouterChatResponse)
+async def router_chat_completion(request: RouterChatRequest):
+    """
+    🆕 Router 非流式聊天接口
+    
+    使用 MainRouter 进行多 Agent 路由（非流式版本）
+    """
+    try:
+        content = await main_router.process(
+            cid=request.cid,
+            message_id=request.message_id,
+            user_message=request.user_message,
+            history_limit=request.history_limit or 10,
+        )
+        
+        return RouterChatResponse(content=content)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

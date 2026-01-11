@@ -45,7 +45,8 @@ FAgent 是一款创新的 Android 应用，通过自然语言对话的方式帮�
 - FastAPI (Web 框架)
 - Server-Sent Events (SSE) - 流式输出
 - RESTful API - 非流式接口
-- LangGraph + LangChain - 多智能体框架
+- 自研多 Agent 架构（Router + SubAgents）
+- MCP (Model Context Protocol) - 工具服务协议
 
 > 📖 详细的架构文档请查看 [backend/docs/ARCHITECTURE.md](backend/docs/ARCHITECTURE.md)
 
@@ -70,10 +71,13 @@ FAgent/
 │       ├── API_USAGE.md    # API 使用文档
 │       ├── ARCHITECTURE.md # 架构文档
 │       └── DEBUG.md        # 调试指南
-├── agents/                 # 智能体服务（LLM 调用）
-│   ├── api/                # FastAPI 接口
-│   ├── core/               # System Prompt 配置
-│   └── services/           # LLM 服务、Chat Agent
+├── agents/                 # 智能体服务（多 Agent 架构）
+│   ├── router/             # 🆕 主路由器（系统入口）
+│   ├── subagents/          # 子智能体（Market、Chat 等）
+│   ├── mcp/                # 🆕 MCP 服务（行情数据）
+│   ├── services/           # LLM 服务
+│   ├── common/             # 公共模块（行情数据源）
+│   └── api/                # FastAPI 接口
 ├── tests/                  # 测试代码
 │   └── test_multi_turn.py  # 多轮对话测试
 ├── docs/                   # 项目文档
@@ -174,9 +178,10 @@ FAgent: "策略已启用，将自动执行交易..."
 - [x] System Prompt 动态管理（不存库）
 
 ### Phase 2: 多智能体系统
-- [ ] LangGraph 工作流集成
-- [ ] 多智能体协作
-- [ ] 长期记忆
+- [ ] MainRouter 主路由器实现
+- [ ] SubAgent 基类 + ChatSubAgent
+- [ ] MarketSubAgent 集成 MCP
+- [ ] Market MCP Server（行情数据服务）
 
 ### Phase 3: 核心功能
 - [ ] 行情查询 API

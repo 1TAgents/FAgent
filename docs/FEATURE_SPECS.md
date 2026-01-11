@@ -45,11 +45,11 @@
 
 | 角色 | 任务项 | 详细说明 | 状态 | 完成时间 |
 | :--- | :--- | :--- | :--- | :--- |
-| **Backend** | **DB 变更** | `conversations` 表新增 `title` 字段 (TEXT)。 | ✅ Ready | 2026-01-08 |
-| **Backend** | **接口升级** | `create_conversation` 支持传入 `title`；新增 `update_session_title` 接口。 | ⏳ Pending | - |
-| **Backend** | **触发机制** | 在 `chat_stream` 结束后，异步触发 Agent 的总结任务。 | ⏳ Pending | - |
-| **Agents** | **Prompt 设计** | 设计“总结助手” Prompt，要求输出 10-15 字以内的标题，无废话。 | ⏳ Pending | - |
-| **Agents** | **接口封装** | 提供 `generate_summary(messages) -> str` 函数。 | ⏳ Pending | - |
+| **Backend** | **DB 变更** | `conversations` 表新增 `title` 字段 (TEXT)。 | ✅ Done | 2026-01-08 |
+| **Backend** | **接口升级** | `create_conversation` 支持传入 `title`；新增 `PATCH /conversation/{cid}` 接口。 | ✅ Done | 2026-01-08 |
+| **Backend** | **触发机制** | 在 `chat_stream` 结束后，异步触发 Agent 的总结任务。 | ✅ Done | 2026-01-08 |
+| **Agents** | **Prompt 设计** | 设计"总结助手" Prompt，要求输出 5-15 字以内的标题。 | ✅ Done | 2026-01-08 |
+| **Agents** | **接口封装** | 提供 `POST /agent/summary/generate` 接口。 | ✅ Done | 2026-01-08 |
 | **Frontend** | **UI 展示** | 侧边栏列表渲染 `title` 字段（若为空则显示默认 ID）。 | ✅ Done | 2026-01-07 |
 | **Frontend** | **被动更新** | 监听或在下次刷新时获取最新标题。 | ✅ Done | 2026-01-07 |
 
@@ -68,7 +68,7 @@
 
 | 角色 | 任务项 | 详细说明 | 状态 | 完成时间 |
 | :--- | :--- | :--- | :--- | :--- |
-| **Backend** | **重命名接口** | 实现 `PATCH /api/chat/conversation/{cid}`，支持修改 `title`。 | ⏳ Pending | - |
+| **Backend** | **重命名接口** | 实现 `PATCH /api/chat/conversation/{cid}`，支持修改 `title`。 | ✅ Done | 2026-01-08 |
 | **Backend** | **删除接口** | 确保 `DELETE /api/chat/conversation/{cid}` 可用。 | ✅ Done | 2026-01-07 |
 | **Frontend** | **时间分组** | 实现 `Today`, `Yesterday`, `Previous 7 Days` 的分组算法。 | ✅ Done | 2026-01-08 |
 | **Frontend** | **交互实现** | 增加“编辑”和“删除”按钮（Hover 显示）；实现确认弹窗。 | ⏳ Pending | - |
@@ -76,14 +76,107 @@
 
 ---
 
-## 3. 🔌 接口契约草稿 (API Draft)
-
-### Update Conversation Title
-- **Endpoint**: `PATCH /api/chat/conversation/{cid}`
-- **Body**:
-  ```json
+son
   {
     "title": "New Title"
   }
   ```
 - **Response**: `200 OK`
+
+### Request Headers (推荐)
+所有 API 请求建议携带以下 Header：
+- `X-Request-ID`: 请求追踪 ID（可选，后端会自动生成）
+
+> 注：`cid` 在 request body 中传递，无需在 Header 中重复
+## 3. 🔗 需求：请求追踪系统 (Request Tracing)
+
+### 📅 时间线
+- **提出时间**: 2026-01-11
+- **最后更新**: 2026-01-11
+
+### 🎯 需求目标
+实现全链路请求追踪，通过 `request_id` + `cid` 串联同一请求在 Backend、Agents 等服务中的所有日志，便于问题排查。
+
+### 📐 技术方案
+
+**追踪标识：**
+- `request_id (rid)`: 唯一标识一次请求，格式为 UUID 前8位（如 `a1b2c3d4`）
+- `cid`: 会话 ID，标识同一会话的所有请求
+
+**传递方式：**
+- `request_id`: 前端 → Backend → Agents，通过 HTTP Header `X-Request-ID` 传递
+- `cid`: 在 request body 中传递（已有字段，无需额外处理）
+- 如果前端未提供 `X-Request-ID`，Backend 自动生成
+
+**日志格式：**
+```
+[rid=a1b2c3d4 cid=5] [REQ] POST /api/chat/send/stream
+[rid=a1b2c3d4 cid=5] [ROUTER_INTENT] route=market | task=get_quote
+[rid=a1b2c3d4 cid=5] [TOOL_CALL] market_service.get_quote
+```
+
+### 🛠️ 任务分工表
+
+| 角色 | 任务项 | 详细说明 | 状态 | 完成时间 |
+| :--- | :--- | :--- | :--- | :--- |
+| **Backend** | **中间件** | 从 Header 获取或自动生成 `request_id`，存入上下文 | ✅ Done | 2026-01-11 |
+| **Backend** | **日志前缀** | 所有日志自动添加 `[rid=xxx cid=yyy]` 前缀 | ✅ Done | 2026-01-11 |
+| **Backend** | **Header 传递** | 调用 Agents 时传递 `X-Request-ID` Header | ✅ Done | 2026-01-11 |
+| **Agents** | **中间件** | 从 Header 获取 `rid`，从 body 获取 `cid`，存入上下文 | ✅ Done | 2026-01-11 |
+| **Agents** | **日志前缀** | Router/SubAgent 日志自动添加追踪前缀 | ✅ Done | 2026-01-11 |
+| **Frontend** | **生成 rid** | 每次请求生成 UUID 作为 `request_id` | ✅ Done | 2026-01-11 |
+| **Frontend** | **Header 设置** | 在 API 请求中添加 `X-Request-ID` Header | ✅ Done | 2026-01-11 |
+
+### 📝 前端实现指南
+
+```typescript
+// 生成 request_id
+const generateRequestId = () => crypto.randomUUID().slice(0, 8);
+
+// API 请求示例
+const sendMessage = async (cid: number, message: string) => {
+  const requestId = generateRequestId();
+  
+  const response = await fetch('/api/chat/send/stream', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Request-ID': requestId,  // cid 已在 body 中，无需 Header
+    },
+    body: JSON.stringify({ cid, user_message: message }),
+  });
+  
+  // ...
+};
+```
+
+---
+
+## 4. � 需求：优化会话总结准确性 (Optimize Conversation Summary Accuracy)
+
+### 📅 时间线
+- **提出时间**: 2026-01-11
+- **最后更新**: 2026-01-11
+
+### 🎯 需求目标
+解决当前自动生成的会话标题存在的问题，提升用户体验。
+1.  **内容不准**：未能精准捕捉用户意图，经常生成与核心主题无关的标题。
+2.  **废话较多**：包含“关于”、“讨论”、“咨询”等无意义词汇。
+3.  **格式混乱**：包含引号、书名号、`Title:` 前缀等符号。
+
+### 🛠️ 任务分工表
+
+| 角色 | 任务项 | 详细说明 | 状态 | 完成时间 |
+| :--- | :--- | :--- | :--- | :--- |
+| **Agents** | **Prompt 优化** | 升级 System Prompt，增加“精准概括”、“拒绝废话”等强约束；提供 Few-Shot 示例（如 Input -> Output）。 | ✅ Done | 2026-01-11 |
+| **Agents** | **后处理增强** | 增强 `_clean_title` 方法，增加对书名号、常见前缀（如 `summary:`）的清洗逻辑；严格控制长度（15字内）。 | ✅ Done | 2026-01-11 |
+| **Backend** | **触发策略优化** | (可选) 优化消息截取逻辑（目前固定前6条），考虑根据 Token 数量截取；支持手动重新生成标题的接口。 | ⏳ Pending | - |
+
+---
+
+## 5. �🔌 接口契约草稿 (API Draft)
+
+### Update Conversation Title
+- **Endpoint**: `PATCH /api/chat/conversation/{cid}`
+- **Body**:
+  ```j

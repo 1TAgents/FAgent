@@ -44,7 +44,7 @@ class MessageStorage:
     """消息存储服务"""
     
     # 数据库版本，用于迁移
-    DB_VERSION = 3  # 升级版本：自增 ID
+    DB_VERSION = 4  # 升级版本：新增 title 字段
     
     def __init__(self, db_path: str = "data/conversations.db"):
         """初始化存储服务"""
@@ -82,6 +82,7 @@ class MessageStorage:
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS conversations (
                 cid INTEGER PRIMARY KEY AUTOINCREMENT,
+                title TEXT,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
                 metadata TEXT,
@@ -144,10 +145,15 @@ class MessageStorage:
     
     def create_conversation(
         self,
+        title: Optional[str] = None,
         metadata: Optional[Dict] = None
     ) -> int:
         """
         创建新会话
+        
+        Args:
+            title: 会话标题（可选）
+            metadata: 会话元数据（可选）
         
         Returns:
             cid (整数)
@@ -160,14 +166,14 @@ class MessageStorage:
         
         try:
             cursor.execute("""
-                INSERT INTO conversations (created_at, updated_at, metadata)
-                VALUES (?, ?, ?)
-            """, (now, now, metadata_json))
+                INSERT INTO conversations (title, created_at, updated_at, metadata)
+                VALUES (?, ?, ?, ?)
+            """, (title, now, now, metadata_json))
             
             cid = cursor.lastrowid
             
             conn.commit()
-            logger.info(f"会话创建成功 | cid={cid}")
+            logger.info(f"会话创建成功 | cid={cid} | title={title}")
             return cid
         except Exception as e:
             logger.error(f"会话创建失败 | error={str(e)}")
@@ -183,7 +189,7 @@ class MessageStorage:
         
         try:
             cursor.execute("""
-                SELECT cid, created_at, updated_at, metadata
+                SELECT cid, title, created_at, updated_at, metadata
                 FROM conversations WHERE cid = ?
             """, (cid,))
             
@@ -200,6 +206,7 @@ class MessageStorage:
             
             return {
                 "cid": row["cid"],
+                "title": row["title"],
                 "created_at": row["created_at"],
                 "updated_at": row["updated_at"],
                 "metadata": metadata
@@ -218,6 +225,37 @@ class MessageStorage:
         conversation["message_count"] = len(messages)
         
         return conversation
+    
+    def update_conversation_title(self, cid: int, title: str) -> bool:
+        """
+        更新会话标题
+        
+        Args:
+            cid: 会话ID
+            title: 新标题
+            
+        Returns:
+            是否更新成功
+        """
+        now = datetime.now().isoformat()
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        try:
+            cursor.execute("""
+                UPDATE conversations SET title = ?, updated_at = ?
+                WHERE cid = ?
+            """, (title, now, cid))
+            conn.commit()
+            success = cursor.rowcount > 0
+            if success:
+                logger.info(f"会话标题更新成功 | cid={cid} | title={title}")
+            return success
+        except Exception as e:
+            logger.error(f"会话标题更新失败 | cid={cid} | error={str(e)}")
+            raise
+        finally:
+            conn.close()
     
     def delete_conversation(self, cid: int) -> bool:
         """删除会话及其所有消息"""
@@ -240,7 +278,7 @@ class MessageStorage:
         
         try:
             query = """
-                SELECT c.cid, c.created_at, c.updated_at, c.metadata,
+                SELECT c.cid, c.title, c.created_at, c.updated_at, c.metadata,
                        COUNT(m.message_id) as message_count
                 FROM conversations c
                 LEFT JOIN messages m ON c.cid = m.cid
@@ -267,6 +305,7 @@ class MessageStorage:
                 
                 conversations.append({
                     "cid": row["cid"],
+                    "title": row["title"],
                     "created_at": row["created_at"],
                     "updated_at": row["updated_at"],
                     "metadata": metadata,

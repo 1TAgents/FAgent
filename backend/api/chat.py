@@ -7,20 +7,24 @@ Chat API - 后端业务接口
 3. 调用 Agents 服务（HTTP）
 4. 存储 AI 回复
 5. 返回给前端
+6. 异步触发会话总结（首轮对话后）
 
 ID 设计：
 - cid: 整数，会话ID
 - message_id: 整数，消息ID
 """
 import os
+import time
 import httpx
-from fastapi import APIRouter, HTTPException
+import asyncio
+from fastapi import APIRouter, HTTPException, BackgroundTasks
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
 import json
 
-from ..core.context import set_context, ctx_logger as logger
+from ..core.context import set_context, get_context, ctx_logger as logger
+from ..core.logging import log_request, log_response, log_call_agents, log_store_message
 from ..services.session import session_manager
 from ..services.storage import message_storage
 
@@ -28,6 +32,54 @@ router = APIRouter(prefix="/api/chat", tags=["chat"])
 
 # Agents 服务地址
 AGENTS_BASE_URL = os.getenv("AGENTS_BASE_URL", "http://localhost:8001")
+
+
+# ==================== 后台任务 ====================
+
+async def generate_conversation_title(cid: int):
+    """
+    后台任务：为会话生成标题
+    
+    在首轮对话完成后调用，自动生成会话标题。
+    """
+    try:
+        # 检查会话是否已有标题
+        conversation = session_manager.get_session(cid)
+        if conversation is None:
+            logger.warning(f"会话不存在，跳过标题生成 | cid={cid}")
+            return
+        
+        if conversation.get("title"):
+            logger.debug(f"会话已有标题，跳过生成 | cid={cid} | title={conversation['title']}")
+            return
+        
+        # 获取会话消息
+        messages = session_manager.get_messages(cid, limit=6)
+        if len(messages) < 2:  # 至少需要一轮对话
+            logger.debug(f"消息太少，跳过标题生成 | cid={cid} | count={len(messages)}")
+            return
+        
+        # 调用 Agents 总结服务
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                f"{AGENTS_BASE_URL}/agent/summary/generate",
+                json={
+                    "messages": [{"role": m["role"], "content": m["content"]} for m in messages],
+                    "max_messages": 6
+                },
+                timeout=30.0
+            )
+            response.raise_for_status()
+            result = response.json()
+        
+        title = result.get("title", "")
+        if title:
+            # 更新会话标题
+            session_manager.update_session_title(cid, title)
+            logger.info(f"会话标题自动生成成功 | cid={cid} | title={title}")
+        
+    except Exception as e:
+        logger.error(f"会话标题生成失败 | cid={cid} | error={str(e)}")
 
 
 # ==================== 请求/响应模型 ====================
@@ -54,13 +106,20 @@ class ChatSendResponse(BaseModel):
 
 class CreateSessionRequest(BaseModel):
     """创建会话请求"""
+    title: Optional[str] = None
     metadata: Optional[Dict[str, Any]] = None
 
 
 class CreateSessionResponse(BaseModel):
     """创建会话响应"""
     cid: int
+    title: Optional[str] = None
     message: str = "Session created successfully"
+
+
+class UpdateConversationRequest(BaseModel):
+    """更新会话请求"""
+    title: str
 
 
 # ==================== 核心业务接口 ====================
@@ -147,8 +206,176 @@ async def chat_send_stream(request: ChatSendRequest):
     3. 后端：接收流式结果，转发给前端
     4. 后端：存储 AI 回复
     """
+    start_time = time.time()
     set_context(cid=str(request.cid))
-    logger.info("/send/stream 请求")
+    
+    # 记录请求日志
+    log_request(
+        method="POST",
+        path="/api/chat/send/stream",
+        body={"cid": request.cid, "user_message": request.user_message[:100], "history_limit": request.history_limit},
+        cid=request.cid,
+    )
+    
+    try:
+        # 1. 存储用户消息
+        user_message_id = session_manager.add_message(
+            cid=request.cid,
+            role="user",
+            content=request.user_message,
+            metadata=request.user_message_metadata
+        )
+        log_store_message(cid=request.cid, role="user", message_id=user_message_id, content_length=len(request.user_message))
+        
+        # 2. 构建 messages 列表
+        history = message_storage.get_history_before_message(
+            cid=request.cid,
+            before_message_id=user_message_id,
+            limit=request.history_limit
+        )
+        messages = [{"role": msg["role"], "content": msg["content"]} for msg in history]
+        messages.append({"role": "user", "content": request.user_message})
+        
+        logger.debug(f"[HISTORY] cid={request.cid} | loaded={len(history)} messages")
+        
+        # 捕获参数
+        cid = request.cid
+        user_message = request.user_message
+        history_limit = request.history_limit
+        
+        async def generate():
+            """SSE 事件生成器"""
+            full_content = ""
+            assistant_message_id = None
+            stream_start = time.time()
+            
+            try:
+                # 3. 调用 Agents Router 服务（流式）
+                agents_payload = {
+                    "cid": cid,
+                    "message_id": user_message_id,
+                    "user_message": user_message,
+                    "history_limit": history_limit,
+                }
+                log_call_agents(
+                    endpoint="/agent/chat/router/stream",
+                    payload=agents_payload,
+                    cid=cid,
+                )
+                
+                # 获取 request_id 传递给 Agents（cid 已在 body 中）
+                ctx = get_context()
+                request_headers = {"X-Request-ID": ctx.get("rid", "")}
+                
+                async with httpx.AsyncClient() as client:
+                    async with client.stream(
+                        "POST",
+                        f"{AGENTS_BASE_URL}/agent/chat/router/stream",
+                        json=agents_payload,
+                        headers=request_headers,
+                        timeout=120.0  # Router 可能需要更长时间（调用外部数据源）
+                    ) as response:
+                        async for line in response.aiter_lines():
+                            if line.startswith("data: "):
+                                data_str = line[6:]
+                                if data_str == "[DONE]":
+                                    break
+                                try:
+                                    data = json.loads(data_str)
+                                    if "content" in data:
+                                        full_content += data["content"]
+                                        yield f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
+                                    if "error" in data:
+                                        logger.error(f"[STREAM_ERROR] cid={cid} | error={data['error']}")
+                                        yield f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
+                                        return
+                                except json.JSONDecodeError:
+                                    pass
+                
+                stream_duration = time.time() - stream_start
+                logger.info(f"[STREAM_COMPLETE] cid={cid} | content_len={len(full_content)} | duration={stream_duration:.3f}s")
+                
+                # 4. 存储 AI 回复
+                assistant_message_id = session_manager.add_message(
+                    cid=cid,
+                    role="assistant",
+                    content=full_content
+                )
+                log_store_message(cid=cid, role="assistant", message_id=assistant_message_id, content_length=len(full_content))
+                
+                # 5. 异步触发会话标题生成（首轮对话后）
+                asyncio.create_task(generate_conversation_title(cid))
+                
+                # 发送完成信息
+                done_data = json.dumps({
+                    "done": True,
+                    "cid": cid,
+                    "user_message_id": user_message_id,
+                    "assistant_message_id": assistant_message_id
+                }, ensure_ascii=False)
+                yield f"data: {done_data}\n\n"
+                yield "data: [DONE]\n\n"
+                
+                # 记录响应日志
+                total_duration = time.time() - start_time
+                log_response(
+                    method="POST",
+                    path="/api/chat/send/stream",
+                    status_code=200,
+                    duration=total_duration,
+                    cid=cid,
+                )
+                
+            except Exception as e:
+                logger.error(f"[STREAM_ERROR] cid={cid} | error={str(e)}")
+                error_data = json.dumps({"error": str(e)}, ensure_ascii=False)
+                yield f"data: {error_data}\n\n"
+                
+                log_response(
+                    method="POST",
+                    path="/api/chat/send/stream",
+                    status_code=500,
+                    duration=time.time() - start_time,
+                    cid=cid,
+                    error=str(e),
+                )
+        
+        return StreamingResponse(
+            generate(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",
+            }
+        )
+    except Exception as e:
+        logger.error(f"[REQ_ERROR] /send/stream | cid={request.cid} | error={str(e)}")
+        log_response(
+            method="POST",
+            path="/api/chat/send/stream",
+            status_code=500,
+            duration=time.time() - start_time,
+            cid=request.cid,
+            error=str(e),
+        )
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/send/router/stream")
+async def chat_send_router_stream(request: ChatSendRequest):
+    """
+    🆕 发送消息接口（Router 模式，流式）
+    
+    使用 MainRouter 进行多 Agent 路由：
+    1. 分析用户意图
+    2. 路由到合适的 SubAgent（Market/Chat）
+    3. 流式透传 SubAgent 的输出
+    
+    适用于：需要调用行情工具等外部能力的场景
+    """
+    set_context(cid=str(request.cid))
+    logger.info("/send/router/stream 请求")
     
     try:
         # 1. 存储用户消息
@@ -160,19 +387,10 @@ async def chat_send_stream(request: ChatSendRequest):
         )
         logger.debug(f"用户消息已落库 | user_message_id={user_message_id}")
         
-        # 2. 构建 messages 列表
-        history = message_storage.get_history_before_message(
-            cid=request.cid,
-            before_message_id=user_message_id,
-            limit=request.history_limit
-        )
-        messages = [{"role": msg["role"], "content": msg["content"]} for msg in history]
-        messages.append({"role": "user", "content": request.user_message})
-        
         # 捕获参数
         cid = request.cid
-        temperature = request.temperature
-        max_tokens = request.max_tokens
+        user_message = request.user_message
+        history_limit = request.history_limit
         
         async def generate():
             """SSE 事件生成器"""
@@ -180,17 +398,18 @@ async def chat_send_stream(request: ChatSendRequest):
             assistant_message_id = None
             
             try:
-                # 3. 调用 Agents 服务（流式）
+                # 2. 调用 Agents Router 服务（流式）
                 async with httpx.AsyncClient() as client:
                     async with client.stream(
                         "POST",
-                        f"{AGENTS_BASE_URL}/agent/chat/stream",
+                        f"{AGENTS_BASE_URL}/agent/chat/router/stream",
                         json={
-                            "messages": messages,
-                            "temperature": temperature,
-                            "max_tokens": max_tokens
+                            "cid": cid,
+                            "message_id": user_message_id,
+                            "user_message": user_message,
+                            "history_limit": history_limit or 10
                         },
-                        timeout=60.0
+                        timeout=120.0  # Router 模式可能需要更长时间
                     ) as response:
                         async for line in response.aiter_lines():
                             if line.startswith("data: "):
@@ -208,13 +427,16 @@ async def chat_send_stream(request: ChatSendRequest):
                                 except json.JSONDecodeError:
                                     pass
                 
-                # 4. 存储 AI 回复
+                # 3. 存储 AI 回复
                 assistant_message_id = session_manager.add_message(
                     cid=cid,
                     role="assistant",
                     content=full_content
                 )
                 logger.debug(f"AI 回复已落库 | assistant_message_id={assistant_message_id}")
+                
+                # 4. 异步触发会话标题生成
+                asyncio.create_task(generate_conversation_title(cid))
                 
                 # 发送完成信息
                 done_data = json.dumps({
@@ -227,7 +449,7 @@ async def chat_send_stream(request: ChatSendRequest):
                 yield "data: [DONE]\n\n"
                 
             except Exception as e:
-                logger.error(f"/send/stream 生成错误 | error={str(e)}")
+                logger.error(f"/send/router/stream 生成错误 | error={str(e)}")
                 error_data = json.dumps({"error": str(e)}, ensure_ascii=False)
                 yield f"data: {error_data}\n\n"
         
@@ -241,7 +463,7 @@ async def chat_send_stream(request: ChatSendRequest):
             }
         )
     except Exception as e:
-        logger.error(f"/send/stream 请求错误 | error={str(e)}")
+        logger.error(f"/send/router/stream 请求错误 | error={str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -254,9 +476,10 @@ async def create_session(request: CreateSessionRequest = None):
         request = CreateSessionRequest()
     
     cid = session_manager.create_session(
+        title=request.title,
         metadata=request.metadata
     )
-    return CreateSessionResponse(cid=cid)
+    return CreateSessionResponse(cid=cid, title=request.title)
 
 
 @router.get("/conversation/{cid}")
@@ -297,6 +520,26 @@ async def get_conversation_history(
         "messages": messages,
         "count": len(messages)
     }
+
+
+@router.patch("/conversation/{cid}")
+async def update_conversation(cid: int, request: UpdateConversationRequest):
+    """
+    更新会话信息（如标题）
+    
+    用于：
+    - 手动重命名会话
+    - 自动生成的会话总结
+    """
+    session = session_manager.get_session(cid)
+    if session is None:
+        raise HTTPException(status_code=404, detail=f"Conversation {cid} not found")
+    
+    success = session_manager.update_session_title(cid, request.title)
+    if not success:
+        raise HTTPException(status_code=500, detail="Failed to update conversation")
+    
+    return {"message": "Conversation updated successfully", "cid": cid, "title": request.title}
 
 
 @router.delete("/conversation/{cid}")

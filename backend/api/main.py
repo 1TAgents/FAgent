@@ -1,15 +1,36 @@
 """
 FastAPI 主应用
 """
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from .chat import router as chat_router
 from .middleware import RequestContextMiddleware
+from backend.core.logging import logger
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """应用生命周期管理"""
+    # 启动时
+    logger.info("=" * 50)
+    logger.info("FAgent Backend 服务启动中...")
+    logger.info(f"日志目录: logs/backend/")
+    logger.info("服务已就绪")
+    logger.info("=" * 50)
+    
+    yield
+    
+    # 关闭时
+    logger.info("FAgent Backend 服务关闭中...")
+    logger.info("服务已关闭")
+
 
 app = FastAPI(
     title="FAgent API",
     description="智能股票交易助手 API",
-    version="0.1.0"
+    version="0.1.0",
+    lifespan=lifespan,
 )
 
 # 配置中间件（注意顺序：先添加的后执行）
