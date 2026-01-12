@@ -2,7 +2,7 @@ import React, { useMemo, useState } from 'react';
 import type { ChatSession } from '@/types';
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Plus, Pencil, Trash2, Check, X, MessageSquare } from "lucide-react";
+import { Plus, Pencil, Trash2, Check, X, MessageSquare, PanelLeftClose, LogIn, LogOut, User as UserIcon } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import {
   Dialog,
@@ -13,6 +13,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
+import { useAuth } from "@/context/AuthContext";
+import { AuthModal } from "@/components/AuthModal";
 
 interface SidebarProps {
   conversations: ChatSession[];
@@ -21,6 +23,7 @@ interface SidebarProps {
   onRenameSession: (id: string, newTitle: string) => void;
   currentSessionId?: string;
   onNewChat: () => void;
+  onToggleSidebar: () => void;
 }
 
 export function Sidebar({ 
@@ -29,11 +32,15 @@ export function Sidebar({
   onDeleteSession, 
   onRenameSession, 
   currentSessionId, 
-  onNewChat 
+  onNewChat,
+  onToggleSidebar
 }: SidebarProps) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState("");
   const [deleteId, setDeleteId] = useState<string | null>(null);
+  
+  const { user, isAuthenticated, logout } = useAuth();
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   
   const groupedConversations = useMemo(() => {
     const groups: Record<string, ChatSession[]> = {
@@ -103,15 +110,23 @@ export function Sidebar({
   };
 
   return (
-    <div className="w-[260px] bg-black text-white flex flex-col h-full border-r border-zinc-800 hidden md:flex">
-      <div className="p-3">
+    <div className="w-full bg-black text-white flex flex-col h-full border-r border-zinc-800 flex">
+      <div className="p-3 flex items-center gap-2">
         <Button 
           variant="outline" 
-          className="w-full justify-start gap-2 bg-transparent text-white border-white/20 hover:bg-zinc-900"
+          className="flex-1 justify-start gap-2 bg-transparent text-white border-white/20 hover:bg-zinc-900"
           onClick={onNewChat}
         >
           <Plus className="h-4 w-4" />
           New chat
+        </Button>
+        <Button 
+          variant="ghost" 
+          size="icon" 
+          className="text-zinc-400 hover:text-white hover:bg-zinc-900"
+          onClick={onToggleSidebar}
+        >
+          <PanelLeftClose className="h-4 w-4" />
         </Button>
       </div>
 
@@ -187,8 +202,42 @@ export function Sidebar({
       </ScrollArea>
       
       <div className="p-4 border-t border-zinc-800">
-        <div className="text-sm text-zinc-400">User Profile</div>
+        {isAuthenticated && user ? (
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2 overflow-hidden">
+              <div className="h-8 w-8 rounded-full bg-zinc-700 flex items-center justify-center text-zinc-300">
+                <UserIcon className="h-4 w-4" />
+              </div>
+              <div className="flex flex-col min-w-0">
+                <span className="text-sm font-medium text-white truncate">{user.username}</span>
+                <span className="text-xs text-zinc-500 truncate">Free Plan</span>
+              </div>
+            </div>
+            <Button 
+              variant="ghost" 
+              size="icon" 
+              className="text-zinc-400 hover:text-white hover:bg-zinc-800"
+              onClick={logout}
+              title="Sign Out"
+            >
+              <LogOut className="h-4 w-4" />
+            </Button>
+          </div>
+        ) : (
+          <Button 
+            className="w-full justify-start gap-2 bg-zinc-800 hover:bg-zinc-700 text-white"
+            onClick={() => setIsAuthModalOpen(true)}
+          >
+            <LogIn className="h-4 w-4" />
+            Sign In / Sign Up
+          </Button>
+        )}
       </div>
+
+      <AuthModal 
+        isOpen={isAuthModalOpen} 
+        onClose={() => setIsAuthModalOpen(false)} 
+      />
 
       <Dialog open={!!deleteId} onOpenChange={(open) => !open && setDeleteId(null)}>
         <DialogContent>

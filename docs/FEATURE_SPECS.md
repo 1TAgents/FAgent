@@ -179,4 +179,112 @@ const sendMessage = async (cid: number, message: string) => {
 ### Update Conversation Title
 - **Endpoint**: `PATCH /api/chat/conversation/{cid}`
 - **Body**:
-  ```j
+  ```json
+  {
+    "title": "New Title"
+  }
+  ```
+- **Response**: `200 OK`
+
+---
+
+## 6. 🧠 需求：动态模型切换 (Dynamic Model Switching)
+
+### 📅 时间线
+- **提出时间**: 2026-01-12
+- **最后更新**: 2026-01-12
+
+### 🎯 需求目标
+支持用户在前端选择不同的 LLM 模型进行对话，后端需支持动态切换模型参数。
+
+### 📝 模型映射表 (Model Mapping)
+
+| 前端显示名称 (Frontend Name) | 后端/Agents 映射值 (Model ID) | 说明 |
+| :--- | :--- | :--- |
+| `mimo-v2-flash` | `xiaomi/mimo-v2-flash:free` | 极速模型 |
+| `glm-4.5-air` | `z-ai/glm-4.5-air:free` | 通用模型 |
+| `qwen3-coder` | `qwen/qwen3-coder:free` | 代码能力强 |
+| `gpt-oss-120b` | `openai/gpt-oss-120b:free` | 强大的开源模型 |
+
+### 🛠️ 任务分工表
+
+| 角色 | 任务项 | 详细说明 | 状态 | 完成时间 |
+| :--- | :--- | :--- | :--- | :--- |
+| **Frontend** | **UI 更新** | 下拉框支持上述 4 种模型选择。 | ✅ Done | 2026-01-12 |
+| **Backend** | **参数透传** | `ChatSendRequest` 增加 `model` 字段 (Optional[str])，透传给 Agents 服务。 | ⏳ Pending | - |
+| **Agents** | **模型适配** | `ChatAgent` 支持接收 `model` 参数，并动态调用对应 LLM。 | ⏳ Pending | - |
+
+### 🔧 详细技术要求 (Detailed Requirements)
+
+#### Backend
+- **Endpoint**: `POST /api/chat/send` 和 `POST /api/chat/send/stream`
+- **Request Body**: 增加可选字段 `model: str`
+- **Logic**: 接收前端传来的 `model` 值，直接透传给 Agents 服务接口 (`/agent/chat/stream` 或 `/agent/chat/completion`)
+
+#### Agents
+- **Endpoint**: `POST /agent/chat/stream` 和 `POST /agent/chat/completion`
+- **Request Body**: 增加可选字段 `model: str`
+- **Logic**:
+  1. 接收 `model` 参数
+  2. 根据映射表将前端模型名转换为实际 Model ID（如 `mimo-v2-flash` -> `xiaomi/mimo-v2-flash:free`）
+  3. 调用 `llm_service.chat_completion` 时传入 `model` 参数
+
+---
+
+## 7. 👤 需求：用户认证系统 (User Authentication System)
+
+### 📅 时间线
+- **提出时间**: 2026-01-12
+- **最后更新**: 2026-01-12
+
+### 🎯 需求目标
+在侧边栏底部实现用户注册和登录功能，支持多用户隔离，保障数据安全。
+- 未登录状态：显示 "Login / Register" 按钮。
+- 登录状态：显示用户头像、昵称，提供 "Logout" 选项。
+
+### 🛠️ 任务分工表
+
+| 角色 | 任务项 | 详细说明 | 状态 | 完成时间 |
+| :--- | :--- | :--- | :--- | :--- |
+| **Backend** | **数据库设计** | 新增 `users` 表，更新 `conversations` 表关联 `user_id`。 | ⏳ Pending | - |
+| **Backend** | **认证接口** | 实现注册、登录、获取用户信息接口；集成 JWT 认证。 | ⏳ Pending | - |
+| **Backend** | **数据隔离** | 升级现有 Chat 接口，强制校验 Token 并按 `user_id` 过滤数据。 | ⏳ Pending | - |
+| **Frontend** | **UI 组件** | 开发登录/注册模态框 (`AuthModal`)，改造 `UserProfile` 区域。 | ⏳ Pending | - |
+| **Frontend** | **状态管理** | 实现 `AuthContext`，管理 Token 持久化、请求拦截器 (Interceptor)。 | ⏳ Pending | - |
+| **Agents** | **上下文适配** | 支持接收 `user_id`，为未来个性化记忆 (Memory) 做准备。 | ⏳ Pending | - |
+
+### 📐 技术方案详情
+
+#### 1. Backend (后端)
+- **Database Schema**:
+  ```sql
+  CREATE TABLE users (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      username TEXT UNIQUE NOT NULL,
+      password_hash TEXT NOT NULL,
+      email TEXT,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+  );
+  -- conversations 表需新增 user_id 字段并建立外键
+  ```
+- **API Endpoints**:
+  - `POST /api/auth/register`: 注册 (Body: username, password)
+  - `POST /api/auth/login`: 登录 (Body: username, password -> Return: access_token)
+  - `GET /api/auth/me`: 获取当前用户信息 (Header: Authorization)
+- **Middleware**:
+  - 实现 JWT 认证中间件，拦截受保护路由。
+
+#### 2. Frontend (前端)
+- **UI Components**:
+  - `UserProfile`: 根据登录状态切换显示内容。
+  - `AuthModal`: 包含 "Sign In" 和 "Sign Up" 两个 Tab 的弹窗。
+- **State Management**:
+  - 使用 Context API + LocalStorage 存储 Token。
+  - 封装 `fetch` 或 `axios`，自动在 Header 中添加 `Authorization: Bearer <token>`。
+
+#### 3. Agents (智能体)
+- **Context Injection**:
+  - 后端在调用 Agents 接口时，需将 `user_id` 注入到 Request Context 中。
+  - 示例日志：`[rid=xxx cid=yyy uid=101] [REQ] ...`
+
+
