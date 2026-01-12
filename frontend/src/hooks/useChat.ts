@@ -97,83 +97,86 @@ export function useChat() {
     fetchConversations();
   }, [fetchConversations]);
 
-  const sendMessage = useCallback(async (content: string) => {
+  const sendMessage = useCallback(async (content: string, model?: string) => {
     if (!content.trim()) return;
 
-    // 1. 添加用户消息
-    const userMessage: Message = {
+    // 如果没有会话，先创建
+    let currentCid = cid;
+    if (!currentCid) {
+      try {
+        setIsLoading(true);
+        currentCid = await createSession();
+        setCid(currentCid);
+        
+        // Optimistically add new session to list
+        const newSession: ChatSession = {
+          id: currentCid.toString(),
+          title: 'New Chat',
+          messages: [],
+          createdAt: Date.now(),
+          updatedAt: Date.now()
+        };
+        setConversations(prev => [newSession, ...prev]);
+      } catch (error) {
+        console.error('Failed to create session:', error);
+        setIsLoading(false);
+        return;
+      }
+    }
+
+    // 添加用户消息
+    const userMsg: Message = {
       id: Date.now().toString(),
       role: 'user',
       content,
       createdAt: Date.now(),
     };
-
-    setMessages((prev) => [...prev, userMessage]);
+    
+    setMessages(prev => [...prev, userMsg]);
     setIsLoading(true);
 
-    // 2. 准备 AI 消息占位符
-    const aiMessageId = (Date.now() + 1).toString();
-    const aiMessage: Message = {
-      id: aiMessageId,
+    // 创建新的 AI 消息占位
+    const aiMsgId = (Date.now() + 1).toString();
+    const aiMsg: Message = {
+      id: aiMsgId,
       role: 'assistant',
       content: '',
-      createdAt: Date.now() + 1,
+      createdAt: Date.now(),
     };
-
-    setMessages((prev) => [...prev, aiMessage]);
-
-    // 3. 创建 AbortController
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
-    }
-    const abortController = new AbortController();
-    abortControllerRef.current = abortController;
+    setMessages(prev => [...prev, aiMsg]);
 
     try {
-      // 4. 确保有会话 ID
-      let currentCid = cid;
-      let isNewSession = false;
-      if (currentCid === null) {
-        currentCid = await createSession();
-        setCid(currentCid);
-        isNewSession = true;
-      }
-
-      // 5. 调用 API 并流式更新
+      abortControllerRef.current = new AbortController();
+      
       await sendMessageStream(
         currentCid,
         content,
         (chunk) => {
-          setMessages((prev) => {
-            return prev.map((msg) => {
-              if (msg.id === aiMessageId) {
-                return { ...msg, content: msg.content + chunk };
-              }
-              return msg;
-            });
-          });
+          setMessages(prev => prev.map(msg => 
+            msg.id === aiMsgId 
+              ? { ...msg, content: msg.content + chunk }
+              : msg
+          ));
         },
-        abortController.signal
+        abortControllerRef.current.signal,
+        model
       );
-
-      // 如果是新会话，刷新列表
-      if (isNewSession) {
-        fetchConversations();
+    } catch (error: any) {
+      if (error.name === 'AbortError') {
+        console.log('Generation stopped by user');
+      } else {
+        console.error('Failed to send message:', error);
+        setMessages(prev => prev.map(msg => 
+          msg.id === aiMsgId 
+            ? { ...msg, content: msg.content + '\n[Error: Failed to generate response]' }
+            : msg
+        ));
       }
-
-    } catch (error) {
-      console.error('Failed to send message:', error);
-      setMessages((prev) => {
-        return prev.map((msg) => {
-          if (msg.id === aiMessageId) {
-            return { ...msg, content: msg.content + `\n[Error: Failed to send message]` };
-          }
-          return msg;
-        });
-      });
     } finally {
       setIsLoading(false);
       abortControllerRef.current = null;
+      // Refresh conversations list to update timestamp/preview
+      // fetchConversations(); 
     }
   }, [cid, fetchConversations]);
 

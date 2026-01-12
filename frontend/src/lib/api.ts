@@ -8,6 +8,18 @@ const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 // 生成 Request ID (8位 UUID)
 const generateRequestId = () => crypto.randomUUID().slice(0, 8);
 
+// 获取认证 Header
+const getAuthHeaders = () => {
+  const headers: Record<string, string> = {
+    'X-Request-ID': generateRequestId()
+  };
+  const token = localStorage.getItem('auth_token');
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+  return headers;
+};
+
 // 模拟流式响应数据
 const MOCK_RESPONSE = `这是一个模拟的流式响应（Mock Mode）。
 如果您看到这条消息，说明后端服务不可用或已启用 Mock 模式。
@@ -24,7 +36,7 @@ export async function createSession(): Promise<number> {
       method: 'POST',
       headers: { 
         'Content-Type': 'application/json',
-        'X-Request-ID': generateRequestId()
+        ...getAuthHeaders()
       },
       body: JSON.stringify({}),
     });
@@ -52,9 +64,7 @@ export async function getConversations(limit = 20, offset = 0) {
   if (USE_MOCK) return { conversations: [], count: 0 };
 
   const response = await fetch(`/api/chat/conversations?limit=${limit}&offset=${offset}`, {
-    headers: {
-      'X-Request-ID': generateRequestId()
-    }
+    headers: getAuthHeaders()
   });
   if (!response.ok) {
     throw new Error(`Failed to fetch conversations: ${response.statusText}`);
@@ -69,9 +79,7 @@ export async function getMessages(cid: number) {
   if (USE_MOCK) return { messages: [], count: 0 };
 
   const response = await fetch(`/api/chat/conversation/${cid}/messages`, {
-    headers: {
-      'X-Request-ID': generateRequestId()
-    }
+    headers: getAuthHeaders()
   });
   if (!response.ok) {
     throw new Error(`Failed to fetch messages: ${response.statusText}`);
@@ -133,7 +141,8 @@ export async function sendMessageStream(
   cid: number,
   content: string,
   onChunk: (chunk: string) => void,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  model?: string
 ): Promise<void> {
   
   if (USE_MOCK || cid === 999) {
@@ -152,12 +161,13 @@ export async function sendMessageStream(
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'X-Request-ID': generateRequestId()
+        ...getAuthHeaders()
       },
       body: JSON.stringify({
         cid,
         user_message: content,
-        temperature: 0.7
+        temperature: 0.7,
+        model
       }),
       signal,
     });
