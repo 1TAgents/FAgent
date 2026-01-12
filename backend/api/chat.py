@@ -159,17 +159,13 @@ async def chat_send(request: ChatSendRequest):
         
         # 3. 调用 Agents 服务
         async with httpx.AsyncClient() as client:
-            payload = {
-                "messages": messages,
-                "temperature": request.temperature,
-                "max_tokens": request.max_tokens
-            }
-            if request.model:
-                payload["model"] = request.model
-                
             response = await client.post(
                 f"{AGENTS_BASE_URL}/agent/chat/completion",
-                json=payload,
+                json={
+                    "messages": messages,
+                    "temperature": request.temperature,
+                    "max_tokens": request.max_tokens
+                },
                 timeout=60.0
             )
             response.raise_for_status()
