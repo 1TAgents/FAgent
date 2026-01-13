@@ -247,10 +247,10 @@ const sendMessage = async (cid: number, message: string) => {
 | 角色 | 任务项 | 详细说明 | 状态 | 完成时间 |
 | :--- | :--- | :--- | :--- | :--- |
 | **Backend** | **数据库设计** | 新增 `users` 表，更新 `conversations` 表关联 `user_id`。 | ⏳ Pending | - |
-| **Backend** | **认证接口** | 实现注册、登录、获取用户信息接口；集成 JWT 认证。 | ⏳ Pending | - |
+| **Backend** | **认证接口** | 实现注册（需支持邮箱）、登录（需支持邮箱/用户名）、获取用户信息接口；集成 JWT 认证。 | ⏳ Pending | - |
 | **Backend** | **数据隔离** | 升级现有 Chat 接口，强制校验 Token 并按 `user_id` 过滤数据。 | ⏳ Pending | - |
-| **Frontend** | **UI 组件** | 开发登录/注册模态框 (`AuthModal`)，改造 `UserProfile` 区域。 | ⏳ Pending | - |
-| **Frontend** | **状态管理** | 实现 `AuthContext`，管理 Token 持久化、请求拦截器 (Interceptor)。 | ⏳ Pending | - |
+| **Frontend** | **UI 组件** | 开发登录/注册模态框 (`AuthModal`)，改造 `UserProfile` 区域。 | ✅ Done | 2026-01-13 |
+| **Frontend** | **状态管理** | 实现 `AuthContext`，管理 Token 持久化、请求拦截器 (Interceptor)。 | ✅ Done | 2026-01-13 |
 | **Agents** | **上下文适配** | 支持接收 `user_id`，为未来个性化记忆 (Memory) 做准备。 | ⏳ Pending | - |
 
 ### 📐 技术方案详情
@@ -261,15 +261,20 @@ const sendMessage = async (cid: number, message: string) => {
   CREATE TABLE users (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       username TEXT UNIQUE NOT NULL,
+      email TEXT UNIQUE NOT NULL, -- 必填，用于找回密码及登录
       password_hash TEXT NOT NULL,
-      email TEXT,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
   );
   -- conversations 表需新增 user_id 字段并建立外键
   ```
 - **API Endpoints**:
-  - `POST /api/auth/register`: 注册 (Body: username, password)
-  - `POST /api/auth/login`: 登录 (Body: username, password -> Return: access_token)
+  - `POST /api/auth/register`: 注册
+    - Body: `{ "username": "string", "email": "string", "password": "string" }`
+    - 校验: 邮箱格式、密码长度、用户名唯一性
+  - `POST /api/auth/login`: 登录
+    - Body: `{ "username": "string", "email": "string", "password": "string" }`
+    - 说明: 登录时支持通过 `username` 或 `email` 字段进行认证
+    - Return: `{ "access_token": "jwt_token", "user": { "id": 1, "username": "...", "email": "..." } }`
   - `GET /api/auth/me`: 获取当前用户信息 (Header: Authorization)
 - **Middleware**:
   - 实现 JWT 认证中间件，拦截受保护路由。

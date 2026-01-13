@@ -30,7 +30,7 @@ export function AuthModal({ isOpen, onClose }: AuthModalProps) {
       const response = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, password }),
+        body: JSON.stringify({ username, email, password }),
       });
 
       if (!response.ok) {
@@ -42,10 +42,10 @@ export function AuthModal({ isOpen, onClose }: AuthModalProps) {
       onClose();
     } catch (err) {
       setError("Login failed. Backend might not be ready.");
-      // For demo purpose, if backend fails, we can mock login if username is provided
-      if (username) {
+      // For demo purpose, if backend fails, we can mock login if username or email is provided
+      if (username || email) {
          console.warn("Backend unavailable, using mock login");
-         login("mock-token-" + Date.now(), { id: 1, username: username });
+         login("mock-token-" + Date.now(), { id: 1, username: username || email.split('@')[0] });
          onClose();
       }
     } finally {
@@ -57,6 +57,23 @@ export function AuthModal({ isOpen, onClose }: AuthModalProps) {
     e.preventDefault();
     setIsLoading(true);
     setError("");
+
+    // Basic validation
+    if (!username.trim() || username.length < 3) {
+      setError("Username must be at least 3 characters long");
+      setIsLoading(false);
+      return;
+    }
+    if (!email.trim() || !/\S+@\S+\.\S+/.test(email)) {
+      setError("Please enter a valid email address");
+      setIsLoading(false);
+      return;
+    }
+    if (!password || password.length < 6) {
+      setError("Password must be at least 6 characters long");
+      setIsLoading(false);
+      return;
+    }
 
     try {
       const response = await fetch('/api/auth/register', {
@@ -73,9 +90,9 @@ export function AuthModal({ isOpen, onClose }: AuthModalProps) {
       await handleLogin(e);
     } catch (err) {
       setError("Registration failed. Backend might not be ready.");
-      if (username) {
+      if (username || email) {
          console.warn("Backend unavailable, using mock login");
-         login("mock-token-" + Date.now(), { id: 1, username: username });
+         login("mock-token-" + Date.now(), { id: 1, username: username || email.split('@')[0] });
          onClose();
       }
     } finally {
@@ -103,9 +120,10 @@ export function AuthModal({ isOpen, onClose }: AuthModalProps) {
             <form onSubmit={handleLogin} className="space-y-4 pt-4">
               <div className="space-y-2">
                 <Input
-                  placeholder="Username"
-                  value={username}
-                  onChange={(e) => setUsername(e.target.value)}
+                  type="email"
+                  placeholder="Email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
                   required
                 />
                 <Input
@@ -135,9 +153,10 @@ export function AuthModal({ isOpen, onClose }: AuthModalProps) {
                 />
                 <Input
                   type="email"
-                  placeholder="Email (Optional)"
+                  placeholder="Email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
+                  required
                 />
                 <Input
                   type="password"
