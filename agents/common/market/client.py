@@ -38,7 +38,12 @@ class AKShareClient:
     def __init__(self):
         self._ak = None
         self._last_trade_date: Optional[date] = None
+        self._bypass_proxy()
         self._init_akshare()
+    
+    def _bypass_proxy(self):
+        """确认代理已在 agents/__init__.py 中全局禁用"""
+        logger.info("代理已在全局禁用（agents/__init__.py）")
     
     def _init_akshare(self):
         """延迟加载 akshare"""
@@ -111,13 +116,16 @@ class AKShareClient:
     
     # ==================== A股 ====================
     
+    def _get_sina_symbol(self, symbol: str) -> str:
+        """将纯数字代码转为新浪格式（sh600519 / sz000001）"""
+        if symbol.startswith(("sh", "sz")):
+            return symbol
+        prefix = "sh" if symbol.startswith(("6", "9")) else "sz"
+        return f"{prefix}{symbol}"
+    
     def get_a_share_quote(self, symbol: str, use_cache: bool = True) -> Optional[StockQuote]:
         """
-        获取 A 股实时行情（优化版，使用缓存）
-        
-        策略：使用全市场 API + 缓存
-        - 第一次请求：下载全市场数据（约 30-60s），缓存 30 秒
-        - 后续请求：直接从缓存获取（0s）
+        获取 A 股行情（使用新浪数据源，兼容性最好）
         
         Args:
             symbol: 股票代码，如 "600519"、"000001"
@@ -126,61 +134,50 @@ class AKShareClient:
         Returns:
             StockQuote 或 None
         """
-        # 1. 检查单股票缓存
         cache_key = f"quote:{symbol}"
         if use_cache:
             cached = market_cache.get(cache_key)
             if cached:
                 return cached
         
-        # 2. 从全市场数据获取（有缓存）
-        quote = self._get_quote_from_all(symbol, use_cache)
-        if quote:
-            market_cache.set(cache_key, quote, cache_type="quote")
-        return quote
-    
-    def _get_quote_from_all(self, symbol: str, use_cache: bool = True) -> Optional[StockQuote]:
-        """
-        从全市场数据中获取行情（有缓存）
-        """
         try:
-            # 检查全市场缓存
-            cache_key = "quote_all:a_share"
-            df = None
+            sina_symbol = self._get_sina_symbol(symbol)
+            df = self.ak.stock_zh_a_daily(symbol=sina_symbol)
             
-            if use_cache:
-                df = market_cache.get(cache_key)
-            
-            if df is None:
-                logger.info("获取全市场 A 股数据...")
-                df = self.ak.stock_zh_a_spot_em()
-                market_cache.set(cache_key, df, cache_type="quote_all")
-                logger.info(f"全市场数据已缓存 | count={len(df)}")
-            
-            # 查找股票
-            row = df[df["代码"] == symbol]
-            if row.empty:
-                logger.warning(f"未找到股票: {symbol}")
+            if df.empty:
+                logger.warning(f"未找到股票数据: {symbol}")
                 return None
             
-            row = row.iloc[0]
+            latest = df.iloc[-1]
+            prev = df.iloc[-2] if len(df) > 1 else latest
             
-            return StockQuote(
+            name_df = self._get_stock_name_list(use_cache)
+            name_row = name_df[name_df["code"] == symbol]
+            name = name_row.iloc[0]["name"] if not name_row.empty else symbol
+            
+            price = float(latest["close"])
+            prev_close = float(prev["close"])
+            
+            quote = StockQuote(
                 symbol=symbol,
-                name=row["名称"],
-                price=self._parse_float(row.get("最新价", 0)),
-                change=self._parse_float(row.get("涨跌额", 0)),
-                change_pct=self._parse_float(row.get("涨跌幅", 0)),
-                open=self._parse_float(row.get("今开", 0)),
-                high=self._parse_float(row.get("最高", 0)),
-                low=self._parse_float(row.get("最低", 0)),
-                prev_close=self._parse_float(row.get("昨收", 0)),
-                volume=int(self._parse_float(row.get("成交量", 0))),
-                amount=self._parse_float(row.get("成交额", 0)),
+                name=name,
+                price=price,
+                change=round(price - prev_close, 2),
+                change_pct=round((price - prev_close) / prev_close * 100, 2) if prev_close else 0,
+                open=float(latest["open"]),
+                high=float(latest["high"]),
+                low=float(latest["low"]),
+                prev_close=prev_close,
+                volume=int(latest.get("volume", 0)),
+                amount=self._parse_float(latest.get("amount", 0)),
                 timestamp=datetime.now(),
                 market=Market.A_SHARE,
-                trade_date=self.get_last_trade_date(),
+                trade_date=latest["date"].date() if hasattr(latest["date"], "date") else None,
             )
+            
+            market_cache.set(cache_key, quote, cache_type="quote")
+            return quote
+            
         except Exception as e:
             logger.error(f"获取 A 股行情失败 | symbol={symbol} | error={e}")
             return None
@@ -225,52 +222,29 @@ class AKShareClient:
                 return cached
         
         try:
-            # 日K线
             if period == KLinePeriod.DAILY:
-                df = self.ak.stock_zh_a_hist(
-                    symbol=symbol,
-                    period="daily",
-                    start_date=start_date or "20200101",
-                    end_date=end_date or datetime.now().strftime("%Y%m%d"),
-                    adjust="qfq"  # 前复权
-                )
-            # 分钟K线
-            elif period in [KLinePeriod.MIN_1, KLinePeriod.MIN_5, 
-                           KLinePeriod.MIN_15, KLinePeriod.MIN_30, KLinePeriod.MIN_60]:
-                period_map = {
-                    KLinePeriod.MIN_1: "1",
-                    KLinePeriod.MIN_5: "5",
-                    KLinePeriod.MIN_15: "15",
-                    KLinePeriod.MIN_30: "30",
-                    KLinePeriod.MIN_60: "60",
-                }
-                df = self.ak.stock_zh_a_hist_min_em(
-                    symbol=symbol,
-                    period=period_map[period],
-                    adjust="qfq"
-                )
+                sina_symbol = self._get_sina_symbol(symbol)
+                df = self.ak.stock_zh_a_daily(symbol=sina_symbol)
+                
+                if df.empty:
+                    return None
+                
+                df = df.tail(count)
+                
+                data = []
+                for _, row in df.iterrows():
+                    data.append({
+                        "date": str(row["date"]),
+                        "open": float(row["open"]),
+                        "high": float(row["high"]),
+                        "low": float(row["low"]),
+                        "close": float(row["close"]),
+                        "volume": int(row.get("volume", 0)),
+                        "amount": float(row.get("amount", 0)),
+                    })
             else:
-                logger.warning(f"暂不支持的 K 线周期: {period}")
+                logger.warning(f"当前仅支持日K线，收到: {period}")
                 return None
-            
-            if df.empty:
-                return None
-            
-            # 只取最近 count 条
-            df = df.tail(count)
-            
-            # 转换为标准格式
-            data = []
-            for _, row in df.iterrows():
-                data.append({
-                    "date": str(row.get("日期", row.get("时间", ""))),
-                    "open": float(row["开盘"]),
-                    "high": float(row["最高"]),
-                    "low": float(row["最低"]),
-                    "close": float(row["收盘"]),
-                    "volume": int(row["成交量"]),
-                    "amount": float(row.get("成交额", 0)),
-                })
             
             result = KLineData(
                 symbol=symbol,
@@ -286,9 +260,26 @@ class AKShareClient:
             logger.error(f"获取 A 股 K 线失败 | symbol={symbol} | error={e}")
             return None
     
+    def _get_stock_name_list(self, use_cache: bool = True):
+        """获取 A 股代码名称列表（使用 stock_info_a_code_name，不依赖 curl_cffi）"""
+        cache_key = "stock_name_list:a_share"
+        if use_cache:
+            cached = market_cache.get(cache_key)
+            if cached is not None:
+                return cached
+        
+        logger.info("加载 A 股股票名称列表...")
+        df = self.ak.stock_info_a_code_name()
+        market_cache.set(cache_key, df, cache_type="quote_all")
+        logger.info(f"股票名称列表已缓存 | count={len(df)}")
+        return df
+    
     def search_a_share(self, keyword: str, limit: int = 10, use_cache: bool = True) -> List[StockInfo]:
         """
         搜索 A 股股票
+        
+        使用 stock_info_a_code_name（不依赖 curl_cffi），
+        避免系统代理导致连接失败。
         
         Args:
             keyword: 关键词（代码或名称）
@@ -298,7 +289,6 @@ class AKShareClient:
         Returns:
             StockInfo 列表
         """
-        # 检查缓存
         cache_key = f"search:{keyword}:{limit}"
         if use_cache:
             cached = market_cache.get(cache_key)
@@ -306,33 +296,24 @@ class AKShareClient:
                 return cached
         
         try:
-            # 使用全市场数据（有缓存）
-            cache_key_all = "quote_all:a_share"
-            df = market_cache.get(cache_key_all)
+            df = self._get_stock_name_list(use_cache)
             
-            if df is None:
-                df = self.ak.stock_zh_a_spot_em()
-                market_cache.set(cache_key_all, df, cache_type="quote_all")
-            
-            # 按代码或名称搜索
             mask = (
-                df["代码"].str.contains(keyword, case=False, na=False) |
-                df["名称"].str.contains(keyword, case=False, na=False)
+                df["code"].str.contains(keyword, case=False, na=False) |
+                df["name"].str.contains(keyword, case=False, na=False)
             )
             results_df = df[mask].head(limit)
             
             results = [
                 StockInfo(
-                    symbol=row["代码"],
-                    name=row["名称"],
+                    symbol=row["code"],
+                    name=row["name"],
                     market=Market.A_SHARE,
                 )
                 for _, row in results_df.iterrows()
             ]
             
-            # 缓存搜索结果
             market_cache.set(cache_key, results, cache_type="search")
-            
             return results
         except Exception as e:
             logger.error(f"搜索 A 股失败 | keyword={keyword} | error={e}")

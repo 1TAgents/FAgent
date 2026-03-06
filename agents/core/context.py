@@ -77,11 +77,13 @@ def get_trace_prefix() -> str:
         return ""
     
     parts = []
-    # 固定顺序：rid, cid
+    # 固定顺序：rid, cid, uid
     if ctx.get("rid"):
         parts.append(f"rid={ctx['rid']}")
     if ctx.get("cid"):
         parts.append(f"cid={ctx['cid']}")
+    if ctx.get("uid"):
+        parts.append(f"uid={ctx['uid']}")
     
     if parts:
         return f"[{' '.join(parts)}] "

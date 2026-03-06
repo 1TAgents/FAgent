@@ -1,9 +1,10 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { MessageList } from './MessageList';
 import { ChatInput } from './ChatInput';
 import type { Message } from '@/types';
 import { PanelLeftOpen, ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { getModels, type ModelInfo } from '@/lib/api';
 
 interface ChatAreaProps {
   messages: Message[];
@@ -24,7 +25,19 @@ export function ChatArea({
 }: ChatAreaProps) {
   const [model, setModel] = useState("mimo-v2-flash");
   const [isModelMenuOpen, setIsModelMenuOpen] = useState(false);
-  const models = ["mimo-v2-flash", "glm-4.5-air", "qwen3-coder", "gpt-oss-120b"];
+  const [availableModels, setAvailableModels] = useState<ModelInfo[]>([]);
+
+  useEffect(() => {
+    getModels()
+      .then(data => {
+        setAvailableModels(data.models);
+        if (data.default) setModel(data.default);
+      })
+      .catch(err => {
+        console.warn('Failed to fetch models, using fallback:', err);
+        setAvailableModels([{ id: "mimo-v2-flash", name: "Mimo V2 Flash", description: "默认模型" }]);
+      });
+  }, []);
 
   return (
     <div className="flex-1 flex flex-col h-full relative">
@@ -42,24 +55,27 @@ export function ChatArea({
                className="gap-2 text-lg font-semibold text-zinc-700 dark:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800"
                onClick={() => setIsModelMenuOpen(!isModelMenuOpen)}
              >
-               {model}
+               {availableModels.find(m => m.id === model)?.name || model}
                <ChevronDown className="h-4 w-4 opacity-50" />
              </Button>
              
              {isModelMenuOpen && (
                <>
                  <div className="fixed inset-0 z-10" onClick={() => setIsModelMenuOpen(false)} />
-                 <div className="absolute top-full left-0 mt-1 w-40 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-md shadow-lg z-20 py-1">
-                   {models.map(m => (
+                 <div className="absolute top-full left-0 mt-1 w-56 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-md shadow-lg z-20 py-1">
+                   {availableModels.map(m => (
                      <button
-                       key={m}
-                       className="w-full text-left px-4 py-2 text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-200"
+                       key={m.id}
+                       className={`w-full text-left px-4 py-2 text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800 ${
+                         model === m.id ? 'text-blue-600 dark:text-blue-400 font-medium' : 'text-zinc-700 dark:text-zinc-200'
+                       }`}
                        onClick={() => {
-                         setModel(m);
+                         setModel(m.id);
                          setIsModelMenuOpen(false);
                        }}
                      >
-                       {m}
+                       <div>{m.name}</div>
+                       <div className="text-xs text-zinc-400 mt-0.5">{m.description}</div>
                      </button>
                    ))}
                  </div>

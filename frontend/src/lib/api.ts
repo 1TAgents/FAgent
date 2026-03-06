@@ -131,6 +131,54 @@ export async function renameSession(cid: string, title: string) {
 }
 
 /**
+ * 重新生成会话标题
+ */
+export async function regenerateTitle(cid: string) {
+  if (USE_MOCK) return;
+  
+  const response = await fetch(`/api/chat/conversation/${cid}/regenerate-title`, {
+    method: 'POST',
+    headers: getAuthHeaders()
+  });
+  
+  if (!response.ok) {
+    throw new Error(`Failed to regenerate title: ${response.statusText}`);
+  }
+  return response.json();
+}
+
+/**
+ * 获取可用模型列表
+ */
+export interface ModelInfo {
+  id: string;
+  name: string;
+  description: string;
+}
+
+export interface ModelsResponse {
+  models: ModelInfo[];
+  default: string;
+}
+
+export async function getModels(): Promise<ModelsResponse> {
+  if (USE_MOCK) {
+    return {
+      models: [{ id: "mimo-v2-flash", name: "Mimo V2 Flash", description: "默认模型" }],
+      default: "mimo-v2-flash"
+    };
+  }
+
+  const response = await fetch('/api/chat/models', {
+    headers: getAuthHeaders()
+  });
+  if (!response.ok) {
+    throw new Error(`Failed to fetch models: ${response.statusText}`);
+  }
+  return response.json();
+}
+
+/**
  * 发送消息并处理流式响应
  * @param cid 会话 ID
  * @param content 用户消息内容

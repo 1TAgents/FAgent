@@ -54,19 +54,30 @@ async def generate_conversation_title(cid: int):
             logger.debug(f"会话已有标题，跳过生成 | cid={cid} | title={conversation['title']}")
             return
         
-        # 获取会话消息
-        messages = session_manager.get_messages(cid, limit=6)
-        if len(messages) < 2:  # 至少需要一轮对话
+        # 获取会话消息（多取一些，后面按字符数截取）
+        messages = session_manager.get_messages(cid, limit=10)
+        if len(messages) < 2:
             logger.debug(f"消息太少，跳过标题生成 | cid={cid} | count={len(messages)}")
             return
+        
+        # 按总字符数截取，避免长消息浪费 Token
+        max_chars = 1500
+        truncated_messages = []
+        total_chars = 0
+        for m in messages:
+            content = m["content"][:300]
+            total_chars += len(content)
+            truncated_messages.append({"role": m["role"], "content": content})
+            if total_chars >= max_chars:
+                break
         
         # 调用 Agents 总结服务
         async with httpx.AsyncClient() as client:
             response = await client.post(
                 f"{AGENTS_BASE_URL}/agent/summary/generate",
                 json={
-                    "messages": [{"role": m["role"], "content": m["content"]} for m in messages],
-                    "max_messages": 6
+                    "messages": truncated_messages,
+                    "max_messages": len(truncated_messages)
                 },
                 timeout=30.0
             )
@@ -198,7 +209,10 @@ async def chat_send(request: ChatSendRequest):
 
 
 @router.post("/send/stream")
-async def chat_send_stream(request: ChatSendRequest):
+async def chat_send_stream(
+    request: ChatSendRequest,
+    current_user: Optional[dict] = Depends(get_optional_user)
+):
     """
     发送消息接口（流式）
     
@@ -245,6 +259,7 @@ async def chat_send_stream(request: ChatSendRequest):
         user_message = request.user_message
         history_limit = request.history_limit
         model = request.model
+        user_id = current_user["id"] if current_user else None
         
         async def generate():
             """SSE 事件生成器"""
@@ -260,6 +275,7 @@ async def chat_send_stream(request: ChatSendRequest):
                     "user_message": user_message,
                     "history_limit": history_limit,
                     "model": model,
+                    "user_id": user_id,
                 }
                 log_call_agents(
                     endpoint="/agent/chat/router/stream",
@@ -556,6 +572,46 @@ async def update_conversation(cid: int, request: UpdateConversationRequest):
     return {"message": "Conversation updated successfully", "cid": cid, "title": request.title}
 
 
+@router.post("/conversation/{cid}/regenerate-title")
+async def regenerate_conversation_title(cid: int, background_tasks: BackgroundTasks):
+    """
+    手动重新生成会话标题
+    
+    强制重新生成，不检查是否已有标题
+    """
+    session = session_manager.get_session(cid)
+    if session is None:
+        raise HTTPException(status_code=404, detail=f"Conversation {cid} not found")
+    
+    messages = session_manager.get_messages(cid, limit=10)
+    if len(messages) < 2:
+        raise HTTPException(status_code=400, detail="Not enough messages to generate title")
+    
+    async def _regenerate(cid: int):
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    f"{AGENTS_BASE_URL}/agent/summary/generate",
+                    json={
+                        "messages": [{"role": m["role"], "content": m["content"]} for m in messages],
+                        "max_messages": 10
+                    },
+                    timeout=30.0
+                )
+                response.raise_for_status()
+                result = response.json()
+            
+            title = result.get("title", "")
+            if title:
+                session_manager.update_session_title(cid, title)
+                logger.info(f"会话标题手动重新生成成功 | cid={cid} | title={title}")
+        except Exception as e:
+            logger.error(f"会话标题重新生成失败 | cid={cid} | error={str(e)}")
+    
+    background_tasks.add_background_task(_regenerate, cid)
+    return {"message": "Title regeneration started", "cid": cid}
+
+
 @router.delete("/conversation/{cid}")
 async def delete_conversation(cid: int):
     """删除会话及其所有消息"""
@@ -620,7 +676,7 @@ async def get_available_models():
         # 返回默认配置作为 fallback
         return {
             "models": [
-                {"id": "mimo-v2-flash", "name": "Mimo V2 Flash", "description": "默认模型"}
+                {"id": "qwen3-coder-plus", "name": "Qwen3 Coder Plus", "description": "默认模型"}
             ],
-            "default": "mimo-v2-flash"
+            "default": "qwen3-coder-plus"
         }

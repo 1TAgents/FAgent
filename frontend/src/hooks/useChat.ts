@@ -175,8 +175,8 @@ export function useChat() {
     } finally {
       setIsLoading(false);
       abortControllerRef.current = null;
-      // Refresh conversations list to update timestamp/preview
-      // fetchConversations(); 
+      // 延迟刷新会话列表，等待后端异步标题生成完成
+      setTimeout(() => fetchConversations(), 3000);
     }
   }, [cid, fetchConversations]);
 

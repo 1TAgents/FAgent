@@ -19,35 +19,58 @@ logger = logging.getLogger(__name__)
 # 可用模型列表（供前端展示）
 AVAILABLE_MODELS = [
     {
-        "id": "mimo-v2-flash",
-        "name": "Mimo V2 Flash",
-        "description": "小米极速模型，响应快速",
-        "model_id": "xiaomi/mimo-v2-flash:free",
+        "id": "qwen3-coder-plus",
+        "name": "Qwen3 Coder Plus",
+        "description": "通义千问编程增强模型，综合能力强",
     },
     {
-        "id": "glm-4.5-air",
-        "name": "GLM 4.5 Air",
-        "description": "智谱通用模型，能力均衡",
-        "model_id": "z-ai/glm-4.5-air:free",
+        "id": "qwen3.5-plus",
+        "name": "Qwen3.5 Plus",
+        "description": "通义千问最新一代模型",
+    },
+    {
+        "id": "qwen3-coder-next",
+        "name": "Qwen3 Coder Next",
+        "description": "通义千问编程前沿模型",
+    },
+    {
+        "id": "qwen3-max-2026-01-23",
+        "name": "Qwen3 Max",
+        "description": "通义千问旗舰模型，能力最强",
+    },
+    {
+        "id": "glm-5",
+        "name": "GLM-5",
+        "description": "智谱最新一代通用模型",
+    },
+    {
+        "id": "kimi-k2.5",
+        "name": "Kimi K2.5",
+        "description": "Moonshot 长上下文模型",
+    },
+    {
+        "id": "MiniMax-M2.5",
+        "name": "MiniMax M2.5",
+        "description": "MiniMax 通用模型",
     },
 ]
 
-# 模型映射表：前端显示名称 -> 实际 Model ID（从 AVAILABLE_MODELS 生成）
-MODEL_MAPPING = {m["id"]: m["model_id"] for m in AVAILABLE_MODELS}
+# 模型映射表：前端 id -> 实际 Model ID（DashScope 直接使用 id）
+MODEL_MAPPING = {m["id"]: m.get("model_id", m["id"]) for m in AVAILABLE_MODELS}
 
 
 class LLMService:
     """LLM 服务类，封装 OpenAI SDK 调用"""
     
     def __init__(self):
-        base_url = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
-        api_key = os.getenv("openrounter_p")
+        base_url = os.getenv("LLM_BASE_URL") or os.getenv("BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1")
+        api_key = os.getenv("LLM_API_KEY") or os.getenv("API_KEY")
         
         self.mock_mode = False
-        self.default_model = os.getenv("LLM_MODEL", "xiaomi/mimo-v2-flash:free")
+        self.default_model = os.getenv("LLM_MODEL", "qwen3-coder-plus")
 
-        if not api_key or api_key == "mock_key":
-            logger.warning("OPENROUTER_API_KEY 未设置或为 mock_key，启用 Mock 模式")
+        if not api_key or api_key.startswith("<"):
+            logger.warning("LLM_API_KEY 未设置，启用 Mock 模式")
             self.mock_mode = True
             self.client = None
         else:
@@ -178,7 +201,7 @@ class LLMService:
         if self.mock_mode:
             logger.info(f"Mock LLM 调用 (流式) | model={resolved_model}")
             last_msg = messages[-1]['content'] if messages else "未知"
-            response_text = f"【Mock 回复】\n我收到了你的消息：\"{last_msg}\"\n\n后端服务链路正常（Frontend -> Backend -> Agents），但由于未配置有效的 OPENROUTER_API_KEY，Agents 服务当前运行在 Mock 模式。请在 .env 文件中配置 API Key 以接入真实的大模型。"
+            response_text = f"【Mock 回复】\n我收到了你的消息：\"{last_msg}\"\n\n后端服务链路正常（Frontend -> Backend -> Agents），但由于未配置有效的 LLM_API_KEY，Agents 服务当前运行在 Mock 模式。请在 .env 文件中配置 API Key 以接入真实的大模型。"
             import time
             for char in response_text:
                 time.sleep(0.02)

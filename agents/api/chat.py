@@ -157,6 +157,7 @@ class RouterChatRequest(BaseModel):
     user_message: str                 # 用户消息
     history_limit: Optional[int] = 10 # 历史消息限制
     model: Optional[str] = None       # 动态模型选择（如 mimo-v2-flash, glm-4.5-air）
+    user_id: Optional[int] = None     # 用户 ID（已登录时由 Backend 透传）
 
 
 class RouterChatResponse(BaseModel):
@@ -177,8 +178,11 @@ async def router_chat_stream(request: RouterChatRequest):
     
     适用于：需要调用行情工具等外部能力的场景
     """
-    # 设置 cid 到上下文（用于日志追踪）
-    set_context(cid=str(request.cid))
+    # 设置上下文（用于日志追踪）
+    ctx_kwargs = {"cid": str(request.cid)}
+    if request.user_id is not None:
+        ctx_kwargs["uid"] = str(request.user_id)
+    set_context(**ctx_kwargs)
     
     try:
         async def generate():

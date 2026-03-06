@@ -71,8 +71,8 @@
 | **Backend** | **重命名接口** | 实现 `PATCH /api/chat/conversation/{cid}`，支持修改 `title`。 | ✅ Done | 2026-01-08 |
 | **Backend** | **删除接口** | 确保 `DELETE /api/chat/conversation/{cid}` 可用。 | ✅ Done | 2026-01-07 |
 | **Frontend** | **时间分组** | 实现 `Today`, `Yesterday`, `Previous 7 Days` 的分组算法。 | ✅ Done | 2026-01-08 |
-| **Frontend** | **交互实现** | 增加“编辑”和“删除”按钮（Hover 显示）；实现确认弹窗。 | ⏳ Pending | - |
-| **Frontend** | **状态同步** | 操作成功后，乐观更新 (Optimistic Update) 本地列表。 | ⏳ Pending | - |
+| **Frontend** | **交互实现** | 增加“编辑”和“删除”按钮（Hover 显示）；实现确认弹窗。 | ✅ Done | 2026-03-06 |
+| **Frontend** | **状态同步** | 操作成功后，乐观更新 (Optimistic Update) 本地列表。 | ✅ Done | 2026-03-06 |
 
 ---
 
@@ -170,7 +170,7 @@ const sendMessage = async (cid: number, message: string) => {
 | :--- | :--- | :--- | :--- | :--- |
 | **Agents** | **Prompt 优化** | 升级 System Prompt，增加“精准概括”、“拒绝废话”等强约束；提供 Few-Shot 示例（如 Input -> Output）。 | ✅ Done | 2026-01-11 |
 | **Agents** | **后处理增强** | 增强 `_clean_title` 方法，增加对书名号、常见前缀（如 `summary:`）的清洗逻辑；严格控制长度（15字内）。 | ✅ Done | 2026-01-11 |
-| **Backend** | **触发策略优化** | (可选) 优化消息截取逻辑（目前固定前6条），考虑根据 Token 数量截取；支持手动重新生成标题的接口。 | ⏳ Pending | - |
+| **Backend** | **触发策略优化** | (可选) 优化消息截取逻辑（目前固定前6条），考虑根据 Token 数量截取；支持手动重新生成标题的接口。 | ✅ Done | 2026-03-06 |
 
 ---
 
@@ -216,7 +216,7 @@ const sendMessage = async (cid: number, message: string) => {
 | **Backend** | **模型配置接口** | 新增 `GET /api/chat/models` 接口，返回可用模型列表供前端动态获取。 | ✅ Done | 2026-01-14 |
 | **Agents** | **模型适配** | `ChatAgent` 支持接收 `model` 参数，并动态调用对应 LLM。 | ✅ Done | 2026-01-14 |
 | **Agents** | **模型列表接口** | 新增 `GET /agent/chat/models` 接口，返回可用模型配置。 | ✅ Done | 2026-01-14 |
-| **Frontend** | **动态模型列表** | 从 `/api/chat/models` 获取模型列表，替代硬编码的下拉选项。 | ⏳ Pending | - |
+| **Frontend** | **动态模型列表** | 从 `/api/chat/models` 获取模型列表，替代硬编码的下拉选项。 | ✅ Done | 2026-03-06 |
 
 ### 🔧 详细技术要求 (Detailed Requirements)
 
@@ -276,7 +276,7 @@ const sendMessage = async (cid: number, message: string) => {
 | **Backend** | **数据隔离** | 升级现有 Chat 接口，强制校验 Token 并按 `user_id` 过滤数据。 | ✅ Done | 2026-01-14 |
 | **Frontend** | **UI 组件** | 开发登录/注册模态框 (`AuthModal`)，改造 `UserProfile` 区域。 | ✅ Done | 2026-01-13 |
 | **Frontend** | **状态管理** | 实现 `AuthContext`，管理 Token 持久化、请求拦截器 (Interceptor)。 | ✅ Done | 2026-01-13 |
-| **Agents** | **上下文适配** | 支持接收 `user_id`，为未来个性化记忆 (Memory) 做准备。 | ⏳ Pending | - |
+| **Agents** | **上下文适配** | 支持接收 `user_id`，为未来个性化记忆 (Memory) 做准备。 | ✅ Done | 2026-03-06 |
 
 ### 📐 技术方案详情
 
