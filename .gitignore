@@ -1,0 +1,159 @@
+# ============================================
+# Python
+# ============================================
+
+# 虚拟环境
+.venv/
+venv/
+env/
+.python-version
+
+# 字节码和缓存
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# 分发/打包
+dist/
+build/
+*.egg-info/
+*.egg
+*.whl
+
+# ============================================
+# IDE 和编辑器
+# ============================================
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.project
+.pydevproject
+.settings/
+
+# ============================================
+# 环境变量和密钥
+# ============================================
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets/
+
+# ============================================
+# 数据文件
+# ============================================
+
+# 数据库
+*.db
+*.sqlite
+*.sqlite3
+data/
+backend/data/
+
+# 数据文件
+*.csv
+*.json
+!package.json
+!tsconfig.json
+!tests/test_cases.json
+*.parquet
+*.pkl
+*.pickle
+
+# ============================================
+# 日志
+# ============================================
+*.log
+logs/
+*.log.*
+
+# ============================================
+# 临时文件和缓存
+# ============================================
+tmp/
+temp/
+.tmp/
+.temp/
+.cache/
+*.tmp
+*.temp
+*.bak
+*.backup
+
+# ============================================
+# 操作系统
+# ============================================
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.Spotlight-V100
+.Trashes
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Linux
+*~
+
+# ============================================
+# 测试和覆盖率
+# ============================================
+htmlcov/
+.coverage
+.coverage.*
+coverage.xml
+*.cover
+.hypothesis/
+
+# ============================================
+# 文档（可选忽略）
+# ============================================
+
+# 自动生成的文档
+docs/_build/
+docs/api/
+docs/competition/
+docs/images/
+site/
+
+# 变更记录和需求记录（本地记录，不上传）
+docs/changelog/
+docs/REQUIREMENTS_LOG.md
+
+# 临时笔记（个人笔记不提交）
+*.draft.md
+*.temp.md
+NOTES.md
+TODO.md
+SCRATCH.md
+
+# ============================================
+# 项目特定
+# ============================================
+
+# Android 构建产物
+android/.gradle/
+android/build/
+android/app/build/
+*.apk
+*.aab
+
+# Node.js（如果有前端）
+node_modules/
+npm-debug.log
+yarn-error.log
+
+# Jupyter Notebook
+.ipynb_checkpoints/
