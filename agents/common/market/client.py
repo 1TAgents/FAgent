@@ -20,6 +20,7 @@ from .models import (
     KLinePeriod
 )
 from .cache import market_cache
+from .dataset_manager import get_dataset_manager
 
 logger = logging.getLogger(__name__)
 
@@ -141,21 +142,22 @@ class AKShareClient:
     
     def _get_quote_from_all(self, symbol: str, use_cache: bool = True) -> Optional[StockQuote]:
         """
-        从全市场数据中获取行情（有缓存）
+        从全市场数据中获取行情（优化版，使用 DatasetManager）
         """
         try:
-            # 检查全市场缓存
-            cache_key = "quote_all:a_share"
-            df = None
+            # 使用 DatasetManager 获取数据集
+            dataset_mgr = get_dataset_manager()
             
-            if use_cache:
-                df = market_cache.get(cache_key)
+            def fetch_a_share_all():
+                """获取 A 股全市场数据的函数"""
+                logger.info("从线上拉取 A 股全市场数据...")
+                return self.ak.stock_zh_a_spot_em()
+            
+            df = dataset_mgr.get_dataset("a_share_all", fetch_func=fetch_a_share_all)
             
             if df is None:
-                logger.info("获取全市场 A 股数据...")
+                logger.warning("数据集不可用，尝试直接获取")
                 df = self.ak.stock_zh_a_spot_em()
-                market_cache.set(cache_key, df, cache_type="quote_all")
-                logger.info(f"全市场数据已缓存 | count={len(df)}")
             
             # 查找股票
             row = df[df["代码"] == symbol]
