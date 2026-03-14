@@ -26,7 +26,7 @@ from typing import Dict, List, Optional, Union, Any
 from datetime import datetime
 from pathlib import Path
 from enum import Enum
-from ..core.context import ctx_logger as logger
+from backend.core.context import ctx_logger as logger
 
 
 class ContentType(str, Enum):

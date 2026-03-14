@@ -17,7 +17,7 @@ ID 设计：
 - system: 系统消息
 """
 from typing import Dict, List, Optional, Union
-from ..core.context import ctx_logger as logger
+from backend.core.context import ctx_logger as logger
 from .storage import message_storage, ContentType
 
 

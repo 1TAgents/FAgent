@@ -19,8 +19,8 @@ from fastapi import APIRouter, HTTPException, Depends, Header
 from pydantic import BaseModel, EmailStr, field_validator
 from passlib.context import CryptContext
 
-from ..services.storage import message_storage
-from ..core.context import ctx_logger as logger
+from backend.services.storage import message_storage
+from backend.core.context import ctx_logger as logger
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 

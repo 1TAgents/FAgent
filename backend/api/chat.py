@@ -23,11 +23,11 @@ from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
 import json
 
-from ..core.context import set_context, get_context, ctx_logger as logger
-from ..core.logging import log_request, log_response, log_call_agents, log_store_message
-from ..services.session import session_manager
-from ..services.storage import message_storage
-from .auth import get_optional_user
+from backend.core.context import set_context, get_context, ctx_logger as logger
+from backend.core.logging import log_request, log_response, log_call_agents, log_store_message
+from backend.services.session import session_manager
+from backend.services.storage import message_storage
+from backend.api.auth import get_optional_user
 
 router = APIRouter(prefix="/api/chat", tags=["chat"])
 

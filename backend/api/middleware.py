@@ -5,7 +5,7 @@ FastAPI 中间件 - 请求上下文处理
 """
 from fastapi import Request
 from starlette.middleware.base import BaseHTTPMiddleware
-from ..core.context import set_context, clear_context, generate_request_id, ctx_logger
+from backend.core.context import set_context, clear_context, generate_request_id, ctx_logger
 
 
 class RequestContextMiddleware(BaseHTTPMiddleware):
