@@ -110,11 +110,11 @@ export function Sidebar({
   };
 
   return (
-    <div className="w-full bg-black text-white flex flex-col h-full border-r border-zinc-800 flex">
+    <div className="w-full bg-[#202123] text-white flex flex-col h-full border-r border-[#2f2f31] flex">
       <div className="p-3 flex items-center gap-2">
         <Button 
           variant="outline" 
-          className="flex-1 justify-start gap-2 bg-transparent text-white border-white/20 hover:bg-zinc-900"
+          className="flex-1 justify-start gap-2 bg-transparent text-white border-white/20 hover:bg-white/10"
           onClick={onNewChat}
         >
           <Plus className="h-4 w-4" />
@@ -123,7 +123,7 @@ export function Sidebar({
         <Button 
           variant="ghost" 
           size="icon" 
-          className="text-zinc-400 hover:text-white hover:bg-zinc-900"
+          className="text-zinc-400 hover:text-white hover:bg-white/10"
           onClick={onToggleSidebar}
         >
           <PanelLeftClose className="h-4 w-4" />
@@ -136,35 +136,35 @@ export function Sidebar({
             if (sessions.length === 0) return null;
             return (
               <div key={label}>
-                <div className="px-3 py-2 text-xs font-medium text-zinc-500">{label}</div>
+                <div className="px-3 py-2 text-xs font-medium text-[#8e8ea0]">{label}</div>
                 <div className="flex flex-col gap-1">
                   {sessions.map((session) => (
                     <div
                       key={session.id}
                       className={cn(
-                        "group flex items-center gap-2 px-3 py-2 text-sm text-zinc-100 rounded-md transition-colors hover:bg-zinc-900 cursor-pointer relative",
-                        currentSessionId === session.id && "bg-zinc-800"
+                        "group flex items-center gap-2 px-3 py-2 text-sm text-[#ececf1] rounded-md transition-colors hover:bg-white/10 cursor-pointer relative",
+                        currentSessionId === session.id && "bg-white/10"
                       )}
                       onClick={() => onSelectSession(session.id)}
                     >
-                      <MessageSquare className="h-4 w-4 shrink-0 text-zinc-500" />
+                      <MessageSquare className="h-4 w-4 shrink-0 text-[#8e8ea0]" />
                       
                       {editingId === session.id ? (
                         <div className="flex items-center gap-1 flex-1 min-w-0" onClick={(e) => e.stopPropagation()}>
                           <Input
                             value={editTitle}
                             onChange={(e) => setEditTitle(e.target.value)}
-                            className="h-7 px-2 py-0 bg-zinc-950 border-zinc-700 text-xs focus-visible:ring-1 focus-visible:ring-zinc-600"
+                            className="h-7 px-2 py-0 bg-[#2f2f31] border-[#4a4a4d] text-xs text-white focus-visible:ring-1 focus-visible:ring-[#8e8ea0]"
                             autoFocus
                             onKeyDown={(e) => {
                               if (e.key === 'Enter') handleSaveEdit(e as any);
                               if (e.key === 'Escape') handleCancelEdit(e as any);
                             }}
                           />
-                          <Button variant="ghost" size="icon" className="h-6 w-6 shrink-0 hover:bg-zinc-800" onClick={handleSaveEdit}>
+                          <Button variant="ghost" size="icon" className="h-6 w-6 shrink-0 hover:bg-white/10" onClick={handleSaveEdit}>
                             <Check className="h-3 w-3" />
                           </Button>
-                          <Button variant="ghost" size="icon" className="h-6 w-6 shrink-0 hover:bg-zinc-800" onClick={handleCancelEdit}>
+                          <Button variant="ghost" size="icon" className="h-6 w-6 shrink-0 hover:bg-white/10" onClick={handleCancelEdit}>
                             <X className="h-3 w-3" />
                           </Button>
                         </div>
@@ -172,11 +172,11 @@ export function Sidebar({
                         <>
                           <span className="truncate flex-1">{session.title}</span>
                           
-                          <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity absolute right-2 bg-gradient-to-l from-zinc-900 via-zinc-900/80 to-transparent pl-4">
+                          <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity absolute right-2 bg-gradient-to-l from-[#202123] via-[#202123]/80 to-transparent pl-4">
                             <Button 
                               variant="ghost" 
                               size="icon" 
-                              className="h-6 w-6 text-zinc-400 hover:text-white hover:bg-zinc-700"
+                              className="h-6 w-6 text-[#8e8ea0] hover:text-white hover:bg-white/10"
                               onClick={(e) => handleStartEdit(e, session)}
                             >
                               <Pencil className="h-3 w-3" />
@@ -184,7 +184,7 @@ export function Sidebar({
                             <Button 
                               variant="ghost" 
                               size="icon" 
-                              className="h-6 w-6 text-zinc-400 hover:text-red-400 hover:bg-zinc-700"
+                              className="h-6 w-6 text-[#8e8ea0] hover:text-red-400 hover:bg-white/10"
                               onClick={(e) => handleDeleteClick(e, session.id)}
                             >
                               <Trash2 className="h-3 w-3" />
@@ -201,22 +201,22 @@ export function Sidebar({
         </div>
       </ScrollArea>
       
-      <div className="p-4 border-t border-zinc-800">
+      <div className="p-4 border-t border-[#2f2f31]">
         {isAuthenticated && user ? (
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2 overflow-hidden">
-              <div className="h-8 w-8 rounded-full bg-zinc-700 flex items-center justify-center text-zinc-300">
+              <div className="h-8 w-8 rounded-full bg-[#10a37f] flex items-center justify-center text-white">
                 <UserIcon className="h-4 w-4" />
               </div>
               <div className="flex flex-col min-w-0">
                 <span className="text-sm font-medium text-white truncate">{user.username}</span>
-                <span className="text-xs text-zinc-500 truncate">Free Plan</span>
+                <span className="text-xs text-[#8e8ea0] truncate">Free Plan</span>
               </div>
             </div>
             <Button 
               variant="ghost" 
               size="icon" 
-              className="text-zinc-400 hover:text-white hover:bg-zinc-800"
+              className="text-[#8e8ea0] hover:text-white hover:bg-white/10"
               onClick={logout}
               title="Sign Out"
             >
@@ -225,7 +225,7 @@ export function Sidebar({
           </div>
         ) : (
           <Button 
-            className="w-full justify-start gap-2 bg-zinc-800 hover:bg-zinc-700 text-white"
+            className="w-full justify-start gap-2 bg-[#2f2f31] hover:bg-[#3a3a3d] text-white"
             onClick={() => setIsAuthModalOpen(true)}
           >
             <LogIn className="h-4 w-4" />

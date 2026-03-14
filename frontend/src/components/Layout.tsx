@@ -20,7 +20,7 @@ export function Layout() {
   } = useChat();
 
   return (
-    <div className="flex h-screen bg-white dark:bg-zinc-950 overflow-hidden">
+    <div className="flex h-screen overflow-hidden">
       <div 
         className={cn(
           "transition-all duration-300 ease-in-out overflow-hidden flex-shrink-0",

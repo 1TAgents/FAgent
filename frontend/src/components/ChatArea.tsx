@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { MessageList } from './MessageList';
 import { ChatInput } from './ChatInput';
 import type { Message } from '@/types';
-import { PanelLeftOpen, ChevronDown } from "lucide-react";
+import { PanelLeftOpen } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 interface ChatAreaProps {
@@ -23,60 +23,33 @@ export function ChatArea({
   onToggleSidebar
 }: ChatAreaProps) {
   const [model, setModel] = useState("mimo-v2-flash");
-  const [isModelMenuOpen, setIsModelMenuOpen] = useState(false);
-  const models = ["mimo-v2-flash", "glm-4.5-air", "qwen3-coder", "gpt-oss-120b"];
 
   return (
-    <div className="flex-1 flex flex-col h-full relative">
-      <div className="flex items-center justify-between px-4 py-2 border-b border-black/5 dark:border-white/5 bg-white dark:bg-zinc-950 h-[60px]">
+    <div className="flex-1 flex flex-col h-full relative bg-white dark:bg-[#343541]">
+      {/* 顶部栏 - 简化版，只有侧边栏切换按钮 */}
+      <div className="flex items-center justify-between px-4 py-3 border-b border-black/5 dark:border-white/10 absolute top-0 left-0 right-0 z-10">
         <div className="flex items-center gap-2">
-           {!isSidebarOpen && (
-              <Button variant="ghost" size="icon" onClick={onToggleSidebar} className="text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100">
-                <PanelLeftOpen className="h-5 w-5" />
-              </Button>
-           )}
-           
-           <div className="relative">
-             <Button 
-               variant="ghost" 
-               className="gap-2 text-lg font-semibold text-zinc-700 dark:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800"
-               onClick={() => setIsModelMenuOpen(!isModelMenuOpen)}
-             >
-               {model}
-               <ChevronDown className="h-4 w-4 opacity-50" />
-             </Button>
-             
-             {isModelMenuOpen && (
-               <>
-                 <div className="fixed inset-0 z-10" onClick={() => setIsModelMenuOpen(false)} />
-                 <div className="absolute top-full left-0 mt-1 w-40 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-md shadow-lg z-20 py-1">
-                   {models.map(m => (
-                     <button
-                       key={m}
-                       className="w-full text-left px-4 py-2 text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-200"
-                       onClick={() => {
-                         setModel(m);
-                         setIsModelMenuOpen(false);
-                       }}
-                     >
-                       {m}
-                     </button>
-                   ))}
-                 </div>
-               </>
-             )}
-           </div>
+          {!isSidebarOpen && (
+            <Button variant="ghost" size="icon" onClick={onToggleSidebar} className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700">
+              <PanelLeftOpen className="h-5 w-5" />
+            </Button>
+          )}
         </div>
       </div>
 
-      <div className="flex-1 overflow-hidden relative w-full h-full">
+      {/* 消息列表区域 */}
+      <div className="flex-1 overflow-hidden relative w-full h-full pt-[60px]">
         <MessageList messages={messages} />
       </div>
-      <div className="w-full pt-2 md:pt-0 dark:border-white/20 md:border-transparent md:dark:border-transparent md:w-[calc(100%-.5rem)] mx-auto">
+      
+      {/* 输入框区域 */}
+      <div className="w-full pt-2 md:pt-0 mx-auto bg-white dark:bg-[#343541]">
         <ChatInput 
           onSend={(content) => sendMessage(content, model)} 
           isLoading={isLoading} 
           onStop={stopGeneration}
+          model={model}
+          onModelChange={setModel}
         />
       </div>
     </div>

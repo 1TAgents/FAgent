@@ -4,6 +4,9 @@ import './index.css'
 import 'highlight.js/styles/github-dark.css'
 import App from './App.tsx'
 
+// 默认启用深色模式
+document.documentElement.classList.add('dark')
+
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <App />

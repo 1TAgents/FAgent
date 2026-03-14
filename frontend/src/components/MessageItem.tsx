@@ -11,25 +11,27 @@ interface MessageItemProps {
 }
 
 export function MessageItem({ role, content }: MessageItemProps) {
+  const isUser = role === 'user';
+  
   return (
     <div
       className={cn(
-        "group w-full text-gray-800 dark:text-gray-100 border-b border-black/10 dark:border-gray-900/50",
-        role === 'assistant' ? "bg-gray-50 dark:bg-[#444654]" : "dark:bg-gray-800"
+        "group w-full text-gray-800 dark:text-gray-100 border-b border-black/5 dark:border-white/10",
+        isUser ? "bg-white dark:bg-[#343541]" : "bg-[#f7f7f8] dark:bg-[#444654]"
       )}
     >
       <div className="text-base gap-4 md:gap-6 md:max-w-2xl lg:max-w-xl xl:max-w-3xl p-4 md:py-6 flex lg:px-0 m-auto">
-        <div className="flex flex-col relative items-end">
-          <Avatar className="h-8 w-8">
-            <AvatarFallback className={cn(
-              "text-white text-xs font-medium",
-              role === 'assistant' ? "bg-green-500" : "bg-purple-500"
-            )}>
-              {role === 'assistant' ? 'AI' : 'U'}
+        {/* 头像 */}
+        <div className={cn("flex flex-col relative shrink-0", isUser && "order-2")}>
+          <Avatar className={cn("h-8 w-8", isUser ? "bg-[#10a37f]" : "bg-[#e69100]")}>
+            <AvatarFallback className="text-white text-xs font-medium">
+              {isUser ? 'You' : 'AI'}
             </AvatarFallback>
           </Avatar>
         </div>
-        <div className="relative flex-1 overflow-hidden leading-7 prose dark:prose-invert max-w-none break-words">
+        
+        {/* 消息内容 */}
+        <div className={cn("relative flex-1 overflow-hidden leading-7 prose dark:prose-invert max-w-none break-words", isUser && "order-1")}>
           <ReactMarkdown
             remarkPlugins={[remarkGfm]}
             rehypePlugins={[rehypeHighlight]}
