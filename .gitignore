@@ -128,9 +128,12 @@ docs/competition/
 docs/images/
 site/
 
-# 变更记录和需求记录（本地记录，不上传）
-docs/changelog/
-docs/REQUIREMENTS_LOG.md
+# docs/ 默认忽略，白名单放行
+docs/*
+!docs/FEATURE_SPECS.md
+
+# Claude Code 项目配置（本地）
+CLAUDE.md
 
 # 临时笔记（个人笔记不提交）
 *.draft.md
