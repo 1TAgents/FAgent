@@ -21,6 +21,7 @@ from .models import ToolCallRequest, ToolCallResponse, ToolDefinition
 from .tools import tool_registry
 from .adapters.akshare_adapter import AKShareAdapter
 from .middleware import RateLimitMiddleware, APIKeyMiddleware, RequestLogMiddleware
+from agents.data_service import get_data_service
 
 # 配置日志
 logging.basicConfig(
@@ -41,6 +42,15 @@ async def lifespan(app: FastAPI):
     
     # 初始化工具
     adapter = AKShareAdapter()
+    
+    # 初始化数据服务
+    data_service = get_data_service(
+        db_path="data/stock_data.db",
+        redis_url="redis://localhost:6379",
+        cache_enabled=True,
+        auto_sync=True
+    )
+    logger.info("数据服务初始化完成")
     
     # 注册工具 - 实时行情
     tool_registry.register(
@@ -209,8 +219,75 @@ async def lifespan(app: FastAPI):
         }
     )
     
+    # 注册工具 - 数据服务（使用 DataService）
+    tool_registry.register(
+        name="data_quote",
+        handler=data_service.get_quote,
+        description="获取股票行情（优先从数据库/缓存，实时为辅）",
+        parameters={
+            "type": "object",
+            "properties": {
+                "symbol": {
+                    "type": "string",
+                    "description": "股票代码"
+                },
+                "market": {
+                    "type": "string",
+                    "description": "市场类型",
+                    "enum": ["A", "US", "HK"],
+                    "default": "A"
+                }
+            },
+            "required": ["symbol"]
+        }
+    )
+    
+    tool_registry.register(
+        name="data_kline",
+        handler=data_service.get_kline,
+        description="获取 K 线数据（从数据库，自动补充缺失）",
+        parameters={
+            "type": "object",
+            "properties": {
+                "symbol": {
+                    "type": "string",
+                    "description": "股票代码"
+                },
+                "period": {
+                    "type": "string",
+                    "description": "K 线周期",
+                    "enum": ["daily", "weekly", "monthly"],
+                    "default": "daily"
+                },
+                "count": {
+                    "type": "integer",
+                    "description": "返回条数",
+                    "default": 100
+                }
+            },
+            "required": ["symbol"]
+        }
+    )
+    
+    tool_registry.register(
+        name="data_sync",
+        handler=data_service.sync_single_stock,
+        description="手动同步单只股票数据",
+        parameters={
+            "type": "object",
+            "properties": {
+                "symbol": {
+                    "type": "string",
+                    "description": "股票代码"
+                }
+            },
+            "required": ["symbol"]
+        }
+    )
+    
     logger.info(f"已注册 {tool_registry.count} 个工具")
     logger.info("日志目录：logs/mcp/")
+    logger.info("数据服务：SQLite + Redis 缓存 + 定时同步")
     logger.info("限流中间件已启用 | 60 次/分钟，1000 次/小时")
     
     # API Key 鉴权检查
