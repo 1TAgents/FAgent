@@ -80,7 +80,7 @@ async def generate_conversation_title(cid: int):
             logger.info(f"会话标题自动生成成功 | cid={cid} | title={title}")
         
     except Exception as e:
-        logger.error(f"会话标题生成失败 | cid={cid} | error={str(e)}")
+        logger.error(f"[SESSION] 标题生成失败 | cid={cid} | 原因={str(e)}")
 
 
 # ==================== 请求/响应模型 ====================
@@ -148,7 +148,10 @@ async def chat_send(request: ChatSendRequest):
             content=request.user_message,
             metadata=request.user_message_metadata
         )
-        logger.debug(f"用户消息已落库 | user_message_id={user_message_id}")
+        # 注入 mid 到上下文
+        set_context(mid=str(user_message_id))
+        log_store_message(cid=request.cid, role="user", message_id=user_message_id, content_length=len(request.user_message))
+        logger.info(f"[CHAT] 用户消息存储完成 | cid={request.cid} | mid={user_message_id}")
         
         # 2. 构建 messages 列表
         history = message_storage.get_history_before_message(
@@ -166,7 +169,9 @@ async def chat_send(request: ChatSendRequest):
                 json={
                     "messages": messages,
                     "temperature": request.temperature,
-                    "max_tokens": request.max_tokens
+                    "max_tokens": request.max_tokens,
+                    "cid": request.cid,
+                    "message_id": user_message_id
                 },
                 timeout=60.0
             )
@@ -181,7 +186,8 @@ async def chat_send(request: ChatSendRequest):
             role="assistant",
             content=content
         )
-        logger.debug(f"AI 回复已落库 | assistant_message_id={assistant_message_id}")
+        log_store_message(cid=request.cid, role="assistant", message_id=assistant_message_id, content_length=len(content))
+        logger.info(f"[CHAT] 助手消息存储完成 | cid={request.cid} | mid={assistant_message_id}")
         
         return ChatSendResponse(
             content=content,
@@ -190,10 +196,10 @@ async def chat_send(request: ChatSendRequest):
             assistant_message_id=assistant_message_id
         )
     except httpx.HTTPError as e:
-        logger.error(f"调用 Agents 服务失败 | error={str(e)}")
+        logger.error(f"[AGENTS] 服务调用失败 | 输入=cid={request.cid} | 原因={str(e)}")
         raise HTTPException(status_code=502, detail=f"Agents service error: {str(e)}")
     except Exception as e:
-        logger.error(f"/send 错误 | error={str(e)}")
+        logger.error(f"[CHAT] /send 处理失败 | 输入=cid={request.cid} | 原因={str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -227,7 +233,10 @@ async def chat_send_stream(request: ChatSendRequest):
             content=request.user_message,
             metadata=request.user_message_metadata
         )
+        # 注入 mid 到上下文
+        set_context(mid=str(user_message_id))
         log_store_message(cid=request.cid, role="user", message_id=user_message_id, content_length=len(request.user_message))
+        logger.info(f"[CHAT] 用户消息存储完成 | cid={request.cid} | mid={user_message_id}")
         
         # 2. 构建 messages 列表
         history = message_storage.get_history_before_message(
@@ -290,7 +299,7 @@ async def chat_send_stream(request: ChatSendRequest):
                                         full_content += data["content"]
                                         yield f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
                                     if "error" in data:
-                                        logger.error(f"[STREAM_ERROR] cid={cid} | error={data['error']}")
+                                        logger.error(f"[STREAM] 流式响应错误 | cid={cid} | 原因={data['error']}")
                                         yield f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
                                         return
                                 except json.JSONDecodeError:
@@ -306,6 +315,7 @@ async def chat_send_stream(request: ChatSendRequest):
                     content=full_content
                 )
                 log_store_message(cid=cid, role="assistant", message_id=assistant_message_id, content_length=len(full_content))
+                logger.info(f"[CHAT] 助手消息存储完成 | cid={cid} | mid={assistant_message_id}")
                 
                 # 5. 异步触发会话标题生成（首轮对话后）
                 asyncio.create_task(generate_conversation_title(cid))
@@ -331,7 +341,7 @@ async def chat_send_stream(request: ChatSendRequest):
                 )
                 
             except Exception as e:
-                logger.error(f"[STREAM_ERROR] cid={cid} | error={str(e)}")
+                logger.error(f"[STREAM] 流式处理失败 | 输入=cid={cid} | 原因={str(e)}")
                 error_data = json.dumps({"error": str(e)}, ensure_ascii=False)
                 yield f"data: {error_data}\n\n"
                 
@@ -354,7 +364,7 @@ async def chat_send_stream(request: ChatSendRequest):
             }
         )
     except Exception as e:
-        logger.error(f"[REQ_ERROR] /send/stream | cid={request.cid} | error={str(e)}")
+        logger.error(f"[CHAT] /send/stream 处理失败 | 输入=cid={request.cid} | 原因={str(e)}")
         log_response(
             method="POST",
             path="/api/chat/send/stream",
@@ -453,7 +463,7 @@ async def chat_send_router_stream(request: ChatSendRequest):
                 yield "data: [DONE]\n\n"
                 
             except Exception as e:
-                logger.error(f"/send/router/stream 生成错误 | error={str(e)}")
+                logger.error(f"[ROUTER] /send/router/stream 生成失败 | 输入=cid={cid} | 原因={str(e)}")
                 error_data = json.dumps({"error": str(e)}, ensure_ascii=False)
                 yield f"data: {error_data}\n\n"
         
@@ -467,7 +477,7 @@ async def chat_send_router_stream(request: ChatSendRequest):
             }
         )
     except Exception as e:
-        logger.error(f"/send/router/stream 请求错误 | error={str(e)}")
+        logger.error(f"[ROUTER] /send/router/stream 请求失败 | 输入=cid={request.cid} | 原因={str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -616,7 +626,7 @@ async def get_available_models():
             response.raise_for_status()
             return response.json()
     except Exception as e:
-        logger.error(f"Failed to get models from Agents: {e}")
+        logger.error(f"[MODELS] 获取模型列表失败 | 原因={str(e)}")
         # 返回默认配置作为 fallback
         return {
             "models": [

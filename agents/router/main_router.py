@@ -23,6 +23,7 @@ from .models import TaskContext, TaskType, RouteType, RouteDecision
 from ..services.llm import llm_service
 from ..subagents import chat_subagent, market_subagent
 from ..core.logging import logger, log_router, log_subagent
+from ..core.context import set_context
 
 
 # 路由决策 Prompt
@@ -117,6 +118,9 @@ class MainRouter:
         """
         start_time = time.time()
         
+        # 设置 mid 到上下文
+        set_context(mid=str(message_id))
+        
         # 记录请求
         log_router.request(cid=cid, message_id=message_id, user_message=user_message)
         
@@ -156,7 +160,7 @@ class MainRouter:
             log_router.done(cid=cid, duration=duration, route=decision.route.value)
             
         except Exception as e:
-            logger.error(f"[ROUTER_ERROR] cid={cid} | subagent={subagent_name} | error={e}")
+            logger.error(f"[ROUTER] SubAgent 处理失败 | 输入=cid={cid}, subagent={subagent_name} | 原因={str(e)}")
             log_router.fallback(f"SubAgent 处理失败: {str(e)}")
             yield f"抱歉，处理请求时出现错误：{str(e)}"
     
@@ -232,7 +236,7 @@ class MainRouter:
             return decision
             
         except Exception as e:
-            logger.error(f"路由决策失败 | error={e}")
+            logger.error(f"[ROUTER] 路由决策失败 | 输入=user_message | 原因={str(e)}")
             # 降级：默认路由到 chat
             return RouteDecision(
                 route=RouteType.CHAT,

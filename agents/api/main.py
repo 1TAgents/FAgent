@@ -7,8 +7,9 @@ Agents FastAPI 主应用
 - SQLite 持久化缓存
 - 按需加载，用到即缓存
 - 完整日志记录
-- 请求追踪（rid + cid）
+- 请求追踪（rid + cid + mid）
 """
+import json
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
@@ -29,17 +30,32 @@ class RequestContextMiddleware(BaseHTTPMiddleware):
     """
     请求上下文中间件
     
-    从 Header 获取 X-Request-ID，设置到上下文中
-    注：cid 从 request body 获取，在具体 endpoint 中设置
+    从 Header 获取 X-Request-ID
+    从请求体解析 cid/mid（如果可用）
     """
     
     async def dispatch(self, request: Request, call_next):
         # 从 Header 获取 request_id
         request_id = request.headers.get("X-Request-ID", "")
         
-        # 设置上下文（只设置 rid）
-        if request_id:
-            set_context(rid=request_id)
+        # 尝试从请求体解析 cid/mid
+        cid = None
+        mid = None
+        try:
+            body = await request.body()
+            if body:
+                body_data = json.loads(body.decode('utf-8'))
+                cid = body_data.get("cid")
+                mid = body_data.get("message_id")
+        except Exception:
+            pass  # 无法解析则忽略
+        
+        # 设置上下文
+        set_context(
+            rid=request_id if request_id else None,
+            cid=str(cid) if cid else None,
+            mid=str(mid) if mid else None
+        )
         
         try:
             response = await call_next(request)

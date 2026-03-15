@@ -107,15 +107,17 @@ def _safe_json(obj: Any, max_length: int = 2000) -> str:
 
 
 def _get_trace_prefix() -> str:
-    """获取追踪前缀 [rid=xxx cid=yyy]"""
+    """获取追踪前缀 [cid=X mid=Y rid=Z]"""
     try:
         from .context import get_context
         ctx = get_context()
         parts = []
-        if ctx.get("rid"):
-            parts.append(f"rid={ctx['rid']}")
         if ctx.get("cid"):
             parts.append(f"cid={ctx['cid']}")
+        if ctx.get("mid"):
+            parts.append(f"mid={ctx['mid']}")
+        if ctx.get("rid"):
+            parts.append(f"rid={ctx['rid']}")
         if parts:
             return f"[{' '.join(parts)}] "
     except Exception:

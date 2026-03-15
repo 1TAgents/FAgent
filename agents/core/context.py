@@ -33,6 +33,7 @@ def generate_request_id() -> str:
 def set_context(
     rid: Optional[str] = None,
     cid: Optional[str] = None,
+    mid: Optional[str] = None,
     **kwargs
 ) -> None:
     """
@@ -41,6 +42,7 @@ def set_context(
     Args:
         rid: request_id
         cid: conversation_id
+        mid: message_id
         **kwargs: 其他自定义字段
     """
     ctx = _request_context.get().copy()
@@ -50,6 +52,9 @@ def set_context(
     
     if cid is not None:
         ctx["cid"] = cid
+    
+    if mid is not None:
+        ctx["mid"] = mid
     
     ctx.update(kwargs)
     _request_context.set(ctx)
@@ -70,18 +75,20 @@ def get_trace_prefix() -> str:
     获取追踪前缀
     
     Returns:
-        格式化的字符串，如 "[rid=xxx cid=yyy] "
+        格式化的字符串，如 "[cid=X mid=Y rid=Z] "
     """
     ctx = _request_context.get()
     if not ctx:
         return ""
     
     parts = []
-    # 固定顺序：rid, cid
-    if ctx.get("rid"):
-        parts.append(f"rid={ctx['rid']}")
+    # 固定顺序：cid, mid, rid
     if ctx.get("cid"):
         parts.append(f"cid={ctx['cid']}")
+    if ctx.get("mid"):
+        parts.append(f"mid={ctx['mid']}")
+    if ctx.get("rid"):
+        parts.append(f"rid={ctx['rid']}")
     
     if parts:
         return f"[{' '.join(parts)}] "

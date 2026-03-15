@@ -31,6 +31,7 @@ def generate_request_id() -> str:
 def set_context(
     rid: Optional[str] = None,
     cid: Optional[str] = None,
+    mid: Optional[str] = None,
     **kwargs
 ) -> None:
     """
@@ -39,6 +40,7 @@ def set_context(
     Args:
         rid: request_id，如果不提供则自动生成
         cid: conversation_id
+        mid: message_id
         **kwargs: 其他自定义字段
     """
     ctx = _request_context.get().copy()
@@ -50,6 +52,9 @@ def set_context(
     
     if cid is not None:
         ctx["cid"] = cid
+    
+    if mid is not None:
+        ctx["mid"] = mid
     
     ctx.update(kwargs)
     _request_context.set(ctx)
@@ -70,22 +75,24 @@ def format_context_prefix() -> str:
     格式化上下文前缀
     
     Returns:
-        格式化的字符串，如 "[rid=xxx cid=yyy]"
+        格式化的字符串，如 "[cid=X mid=Y rid=Z]"
     """
     ctx = _request_context.get()
     if not ctx:
         return ""
     
     parts = []
-    # 固定顺序：rid, cid, 其他
-    if "rid" in ctx:
-        parts.append(f"rid={ctx['rid']}")
+    # 固定顺序：cid, mid, rid
     if "cid" in ctx:
         parts.append(f"cid={ctx['cid']}")
+    if "mid" in ctx:
+        parts.append(f"mid={ctx['mid']}")
+    if "rid" in ctx:
+        parts.append(f"rid={ctx['rid']}")
     
     # 其他字段
     for key, value in ctx.items():
-        if key not in ("rid", "cid"):
+        if key not in ("rid", "cid", "mid"):
             parts.append(f"{key}={value}")
     
     if parts:

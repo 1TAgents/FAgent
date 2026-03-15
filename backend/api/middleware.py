@@ -2,7 +2,9 @@
 FastAPI 中间件 - 请求上下文处理
 
 自动从请求 Header 获取或生成 request_id
+从请求体解析 cid（如果可用）
 """
+import json
 from fastapi import Request
 from starlette.middleware.base import BaseHTTPMiddleware
 from backend.core.context import set_context, clear_context, generate_request_id, ctx_logger
@@ -13,6 +15,7 @@ class RequestContextMiddleware(BaseHTTPMiddleware):
     请求上下文中间件
     
     - 从 Header 获取 X-Request-ID，如果没有则自动生成
+    - 从请求体解析 cid（如果可用）
     - 在请求开始时设置上下文
     - 在请求结束时清空上下文
     """
@@ -23,8 +26,18 @@ class RequestContextMiddleware(BaseHTTPMiddleware):
         if not request_id:
             request_id = generate_request_id()
         
+        # 尝试从请求体解析 cid
+        cid = None
+        try:
+            body = await request.body()
+            if body:
+                body_data = json.loads(body.decode('utf-8'))
+                cid = body_data.get("cid")
+        except Exception:
+            pass  # 无法解析则忽略
+        
         # 设置上下文
-        set_context(rid=request_id)
+        set_context(rid=request_id, cid=str(cid) if cid else None)
         
         # 记录请求开始
         ctx_logger.info(f"请求开始 | {request.method} {request.url.path}")

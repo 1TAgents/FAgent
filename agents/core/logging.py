@@ -117,7 +117,7 @@ def _safe_json(obj: Any, max_length: int = 3000) -> str:
 
 
 def _get_trace_prefix() -> str:
-    """获取追踪前缀 [rid=xxx cid=yyy]"""
+    """获取追踪前缀 [cid=X mid=Y rid=Z]"""
     try:
         from .context import get_trace_prefix
         return get_trace_prefix()
@@ -202,20 +202,24 @@ class SubAgentLogger:
     def start(self, agent_name: str, task_type: str, context: Any = None):
         """记录 SubAgent 开始处理"""
         prefix = _get_trace_prefix()
-        self._logger.info(f"{prefix}[SUBAGENT_START] agent={agent_name} | task={task_type}")
+        # 规范化子任务标签
+        module_tag = "[market]" if "market" in agent_name.lower() else "[llm]" if "chat" in agent_name.lower() else "[router]"
+        self._logger.info(f"{prefix}{module_tag} SubAgent 启动 | agent={agent_name} | task={task_type}")
         if context:
             if hasattr(context, 'to_dict'):
-                self._logger.debug(f"{prefix}[SUBAGENT_START] context={_safe_json(context.to_dict())}")
+                self._logger.debug(f"{prefix}{module_tag} context={_safe_json(context.to_dict())}")
             else:
-                self._logger.debug(f"{prefix}[SUBAGENT_START] context={_safe_json(context)}")
-        logger.info(f"{prefix}[SUBAGENT_START] {agent_name}.{task_type}")
+                self._logger.debug(f"{prefix}{module_tag} context={_safe_json(context)}")
+        logger.info(f"{prefix}{module_tag} {agent_name}.{task_type}")
     
     def tool_call(self, tool_name: str, params: dict = None):
         """记录工具调用"""
         prefix = _get_trace_prefix()
-        self._logger.info(f"{prefix}[TOOL_CALL] tool={tool_name} | params={_safe_json(params, 500)}")
-        logger.info(f"{prefix}[TOOL_CALL] {tool_name}")
-        logger.debug(f"{prefix}[TOOL_CALL] params={_safe_json(params)}")
+        # 规范化子任务标签
+        module_tag = "[market]" if "market" in tool_name.lower() else "[llm]"
+        self._logger.info(f"{prefix}{module_tag} 工具调用 | tool={tool_name} | params={_safe_json(params, 500)}")
+        logger.info(f"{prefix}{module_tag} 工具调用 | {tool_name}")
+        logger.debug(f"{prefix}{module_tag} params={_safe_json(params)}")
     
     def tool_result(
         self, 
@@ -227,14 +231,17 @@ class SubAgentLogger:
     ):
         """记录工具调用结果"""
         prefix = _get_trace_prefix()
+        # 规范化子任务标签
+        module_tag = "[market]" if "market" in tool_name.lower() else "[llm]"
         if success:
-            self._logger.info(f"{prefix}[TOOL_RESULT] tool={tool_name} | success=true | duration={duration:.3f}s" if duration else f"{prefix}[TOOL_RESULT] tool={tool_name} | success=true")
+            duration_str = f" | duration={duration:.3f}s" if duration else ""
+            self._logger.info(f"{prefix}{module_tag} 工具完成 | tool={tool_name} | success=true{duration_str}")
             if data:
-                self._logger.debug(f"{prefix}[TOOL_RESULT] data={_safe_json(data)}")
-            logger.info(f"{prefix}[TOOL_RESULT] {tool_name} | success")
+                self._logger.debug(f"{prefix}{module_tag} data={_safe_json(data)}")
+            logger.info(f"{prefix}{module_tag} 工具完成 | {tool_name} | success")
         else:
-            self._logger.warning(f"{prefix}[TOOL_RESULT] tool={tool_name} | success=false | error={error}")
-            logger.warning(f"{prefix}[TOOL_RESULT] {tool_name} | failed | {error}")
+            self._logger.warning(f"{prefix}{module_tag} 工具失败 | tool={tool_name} | error={error}")
+            logger.warning(f"{prefix}{module_tag} 工具失败 | {tool_name} | {error}")
     
     def llm_call(
         self, 
@@ -244,8 +251,8 @@ class SubAgentLogger:
     ):
         """记录 LLM 调用"""
         prefix = _get_trace_prefix()
-        self._logger.info(f"{prefix}[LLM_CALL] model={model} | messages={messages_count} | temp={temperature}")
-        logger.debug(f"{prefix}[LLM_CALL] model={model} | messages={messages_count}")
+        self._logger.info(f"{prefix}[llm] LLM 调用 | model={model} | messages={messages_count} | temp={temperature}")
+        logger.debug(f"{prefix}[llm] LLM 调用 | model={model} | messages={messages_count}")
     
     def llm_stream(
         self,
@@ -255,18 +262,21 @@ class SubAgentLogger:
     ):
         """记录 LLM 流式响应完成"""
         prefix = _get_trace_prefix()
-        self._logger.info(f"{prefix}[LLM_STREAM] chunks={chunk_count} | tokens={total_tokens} | duration={duration:.3f}s" if duration else f"{prefix}[LLM_STREAM] chunks={chunk_count} | tokens={total_tokens}")
-        logger.debug(f"{prefix}[LLM_STREAM] chunks={chunk_count} | tokens={total_tokens}")
+        duration_str = f" | duration={duration:.3f}s" if duration else ""
+        self._logger.info(f"{prefix}[llm] LLM 流式完成 | chunks={chunk_count} | tokens={total_tokens}{duration_str}")
+        logger.debug(f"{prefix}[llm] LLM 流式完成 | chunks={chunk_count} | tokens={total_tokens}")
     
     def done(self, agent_name: str, duration: float, success: bool = True):
         """记录 SubAgent 完成"""
         prefix = _get_trace_prefix()
+        # 规范化子任务标签
+        module_tag = "[market]" if "market" in agent_name.lower() else "[llm]" if "chat" in agent_name.lower() else "[router]"
         if success:
-            self._logger.info(f"{prefix}[SUBAGENT_DONE] agent={agent_name} | duration={duration:.3f}s")
-            logger.info(f"{prefix}[SUBAGENT_DONE] {agent_name} | {duration:.3f}s")
+            self._logger.info(f"{prefix}{module_tag} SubAgent 完成 | agent={agent_name} | duration={duration:.3f}s")
+            logger.info(f"{prefix}{module_tag} {agent_name} | {duration:.3f}s")
         else:
-            self._logger.warning(f"{prefix}[SUBAGENT_DONE] agent={agent_name} | duration={duration:.3f}s | success=false")
-            logger.warning(f"{prefix}[SUBAGENT_DONE] {agent_name} | failed")
+            self._logger.warning(f"{prefix}{module_tag} SubAgent 失败 | agent={agent_name} | duration={duration:.3f}s")
+            logger.warning(f"{prefix}{module_tag} {agent_name} | failed")
 
 
 # 全局日志记录器实例

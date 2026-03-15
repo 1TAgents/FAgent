@@ -177,8 +177,8 @@ async def router_chat_stream(request: RouterChatRequest):
     
     适用于：需要调用行情工具等外部能力的场景
     """
-    # 设置 cid 到上下文（用于日志追踪）
-    set_context(cid=str(request.cid))
+    # 设置 cid 和 mid 到上下文（用于日志追踪）
+    set_context(cid=str(request.cid), mid=str(request.message_id))
     
     try:
         async def generate():
