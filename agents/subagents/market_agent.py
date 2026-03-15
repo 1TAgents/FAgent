@@ -31,6 +31,7 @@ from ..common.market import (
     KLinePeriod,
 )
 from ..core.logging import logger, log_subagent
+from ..mcp.client import MCPClient, MCPError
 
 
 class MarketIntent(Enum):
@@ -102,7 +103,7 @@ class MarketSubAgent(BaseSubAgent):
     行情子智能体
     
     处理行情相关的查询请求：
-    - 调用 Market Service 获取数据
+    - 通过 MCP Client 调用行情工具
     - 使用 LLM 生成分析结果
     
     继承 BaseSubAgent，实现统一接口
@@ -110,10 +111,12 @@ class MarketSubAgent(BaseSubAgent):
     
     name = "market"
     
-    def __init__(self):
+    def __init__(self, mcp_base_url: str = "http://localhost:8002"):
         super().__init__()
         self.service = market_service
         self.llm = llm_service
+        self.mcp = MCPClient(base_url=mcp_base_url)
+        logger.info(f"MarketSubAgent 初始化 | MCP Server={mcp_base_url}")
     
     # ==================== BaseSubAgent 接口实现 ====================
     
@@ -122,14 +125,14 @@ class MarketSubAgent(BaseSubAgent):
         流式处理行情任务（BaseSubAgent 接口）
         
         流程：
-        1. 根据 TaskContext 获取数据
+        1. 根据 TaskContext 获取数据（MCP 调用）
         2. 使用 LLM 流式生成分析
         """
         start_time = time.time()
         log_subagent.start("MarketSubAgent", context.task_type.value, context)
         
         # 1. 根据任务类型获取数据
-        data_result = self._execute_task(context)
+        data_result = await self._execute_task(context)
         
         if not data_result.success:
             log_subagent.done("MarketSubAgent", time.time() - start_time, success=False)
@@ -226,8 +229,8 @@ class MarketSubAgent(BaseSubAgent):
         logger.warning(f"未知的 period 值: {period}，使用默认值 daily")
         return "daily"
     
-    def _execute_task(self, context: TaskContext) -> MarketResult:
-        """根据 TaskContext 执行具体任务"""
+    async def _execute_task(self, context: TaskContext) -> MarketResult:
+        """根据 TaskContext 执行具体任务（使用 MCP 调用）"""
         task_type = context.task_type
         params = context.params
         
@@ -235,11 +238,13 @@ class MarketSubAgent(BaseSubAgent):
         
         try:
             if task_type == TaskType.GET_QUOTE:
-                log_subagent.tool_call("market_service.get_quote", {"symbol": params.get("symbol", "")})
+                symbol = params.get("symbol", "")
+                market = params.get("market", "A")
+                log_subagent.tool_call("mcp.stock_quote", {"symbol": symbol, "market": market})
                 start = time.time()
-                result = self._get_quote(params.get("symbol", ""))
+                result = await self._mcp_get_quote(symbol, market)
                 log_subagent.tool_result(
-                    "market_service.get_quote",
+                    "mcp.stock_quote",
                     result.success,
                     data=result.summary[:200] if result.summary else None,
                     error=result.error,
@@ -251,20 +256,20 @@ class MarketSubAgent(BaseSubAgent):
                 # 标准化 period 参数
                 raw_period = params.get("period", "daily")
                 normalized_period = self._normalize_period(raw_period)
+                symbol = params.get("symbol", "")
+                count = params.get("count", 30)
+                market = params.get("market", "A")
                 
-                log_subagent.tool_call("market_service.get_kline", {
-                    "symbol": params.get("symbol", ""),
+                log_subagent.tool_call("mcp.stock_kline", {
+                    "symbol": symbol,
                     "period": normalized_period,
-                    "count": params.get("count", 30)
+                    "count": count,
+                    "market": market
                 })
                 start = time.time()
-                result = self._get_kline(
-                    params.get("symbol", ""),
-                    KLinePeriod(normalized_period),
-                    params.get("count", 30)
-                )
+                result = await self._mcp_get_kline(symbol, normalized_period, count, market)
                 log_subagent.tool_result(
-                    "market_service.get_kline",
+                    "mcp.stock_kline",
                     result.success,
                     data=result.summary[:200] if result.summary else None,
                     error=result.error,
@@ -273,11 +278,14 @@ class MarketSubAgent(BaseSubAgent):
                 return result
             
             elif task_type == TaskType.SEARCH_STOCK:
-                log_subagent.tool_call("market_service.search", {"keyword": params.get("keyword", "")})
+                keyword = params.get("keyword", "")
+                market = params.get("market", "A")
+                limit = params.get("limit", 10)
+                log_subagent.tool_call("mcp.stock_search", {"keyword": keyword, "market": market, "limit": limit})
                 start = time.time()
-                result = self._search_stock(params.get("keyword", ""))
+                result = await self._mcp_search(keyword, market, limit)
                 log_subagent.tool_result(
-                    "market_service.search",
+                    "mcp.stock_search",
                     result.success,
                     data=result.summary[:200] if result.summary else None,
                     error=result.error,
@@ -288,7 +296,7 @@ class MarketSubAgent(BaseSubAgent):
             elif task_type == TaskType.ANALYZE_TREND:
                 log_subagent.tool_call("market_service.analyze_trend", params)
                 start = time.time()
-                result = self._analyze_trend(
+                result = await self._analyze_trend(
                     params.get("symbol", ""),
                     params.get("count", 30)
                 )
@@ -544,6 +552,89 @@ class MarketSubAgent(BaseSubAgent):
         elif ma_fast < ma_slow * 0.99:  # 快线低于慢线 1% 以上
             return "短期均线死叉"
         return None
+    
+    # ==================== MCP 调用方法 ====================
+    
+    async def _mcp_get_quote(self, symbol: str, market: str = "A") -> MarketResult:
+        """通过 MCP 获取实时行情"""
+        try:
+            quote = await self.mcp.get_quote(symbol, market)
+            summary = quote.summary()
+            return MarketResult(
+                success=True,
+                intent=MarketIntent.GET_QUOTE,
+                data=quote.dict(),
+                summary=summary,
+            )
+        except MCPError as e:
+            logger.error(f"MCP 获取行情失败 | symbol={symbol} | error={e}")
+            return MarketResult(
+                success=False,
+                intent=MarketIntent.GET_QUOTE,
+                error=str(e),
+            )
+        except Exception as e:
+            logger.error(f"MCP 获取行情异常 | symbol={symbol} | error={e}")
+            return MarketResult(
+                success=False,
+                intent=MarketIntent.GET_QUOTE,
+                error=f"获取行情失败：{str(e)}",
+            )
+    
+    async def _mcp_get_kline(self, symbol: str, period: str, count: int, market: str = "A") -> MarketResult:
+        """通过 MCP 获取 K 线数据"""
+        try:
+            kline = await self.mcp.get_kline(symbol, period, count, market)
+            summary = kline.summary(recent_days=5)
+            return MarketResult(
+                success=True,
+                intent=MarketIntent.GET_KLINE,
+                data=kline.dict(),
+                summary=summary,
+            )
+        except MCPError as e:
+            logger.error(f"MCP 获取 K 线失败 | symbol={symbol} | error={e}")
+            return MarketResult(
+                success=False,
+                intent=MarketIntent.GET_KLINE,
+                error=str(e),
+            )
+        except Exception as e:
+            logger.error(f"MCP 获取 K 线异常 | symbol={symbol} | error={e}")
+            return MarketResult(
+                success=False,
+                intent=MarketIntent.GET_KLINE,
+                error=f"获取 K 线失败：{str(e)}",
+            )
+    
+    async def _mcp_search(self, keyword: str, market: str = "A", limit: int = 10) -> MarketResult:
+        """通过 MCP 搜索股票"""
+        try:
+            results = await self.mcp.search(keyword, market, limit)
+            summary = f"搜索到 {len(results)} 只股票："
+            for stock in results[:5]:
+                summary += f"{stock.name}({stock.symbol})，"
+            
+            return MarketResult(
+                success=True,
+                intent=MarketIntent.SEARCH_STOCK,
+                data={"items": [s.dict() for s in results]},
+                summary=summary,
+            )
+        except MCPError as e:
+            logger.error(f"MCP 搜索股票失败 | keyword={keyword} | error={e}")
+            return MarketResult(
+                success=False,
+                intent=MarketIntent.SEARCH_STOCK,
+                error=str(e),
+            )
+        except Exception as e:
+            logger.error(f"MCP 搜索股票异常 | keyword={keyword} | error={e}")
+            return MarketResult(
+                success=False,
+                intent=MarketIntent.SEARCH_STOCK,
+                error=f"搜索失败：{str(e)}",
+            )
     
     # ==================== 便捷方法 ====================
     

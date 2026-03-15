@@ -1,0 +1,628 @@
+"""
+AKShare Adapter - AKShare 数据源适配器
+
+参考文档：https://akshare.akfamily.xyz/
+
+实现 MCP 工具的标准接口，将 AKShare 数据转换为统一格式
+"""
+import logging
+from datetime import datetime, timedelta
+from typing import Optional, List, Dict, Any
+
+from ..models import (
+    StockQuote, KLineData, KLineItem, StockInfo, 
+    MarketType, KLinePeriod
+)
+from .cache_adapter import CacheAdapter, get_mcp_cache
+
+logger = logging.getLogger(__name__)
+
+
+class AKShareAdapter:
+    """
+    AKShare 数据源适配器
+    
+    将 AKShare 的 API 转换为 MCP 标准工具接口
+    
+    Args:
+        redis_url: Redis 连接 URL（可选，启用缓存）
+        cache_enabled: 是否启用缓存
+    """
+    
+    def __init__(self, redis_url: str = None, cache_enabled: bool = True):
+        self._ak = None
+        self._cache: CacheAdapter = None
+        self._init_akshare()
+        self._init_cache(redis_url, cache_enabled)
+    
+    def _init_akshare(self):
+        """延迟加载 akshare"""
+        try:
+            import akshare as ak
+            self._ak = ak
+            logger.info("AKShare Adapter 初始化成功")
+        except ImportError:
+            logger.error("AKShare 未安装，请执行：pip install akshare")
+            raise ImportError("请安装 akshare: pip install akshare")
+    
+    def _init_cache(self, redis_url: str = None, cache_enabled: bool = True):
+        """初始化缓存"""
+        if cache_enabled:
+            url = redis_url or "redis://localhost:6379"
+            self._cache = CacheAdapter(redis_url=url, enabled=True)
+            logger.info(f"MCP 缓存已启用 | redis_url={url}")
+        else:
+            self._cache = None
+            logger.info("MCP 缓存已禁用")
+    
+    @property
+    def ak(self):
+        """获取 akshare 模块"""
+        if self._ak is None:
+            self._init_akshare()
+        return self._ak
+    
+    # ==================== 工具：实时行情 ====================
+    
+    async def get_quote(self, symbol: str, market: str = "A") -> Dict[str, Any]:
+        """
+        获取实时行情（带缓存）
+        
+        Args:
+            symbol: 股票代码 (如：600519, AAPL)
+            market: 市场类型 (A=A 股，US=美股，HK=港股)
+            
+        Returns:
+            StockQuote 字典格式
+            
+        Examples:
+            >>> await adapter.get_quote("600519", "A")
+            {"symbol": "600519", "name": "贵州茅台", "price": 1700.00, ...}
+        """
+        # 1. 尝试从缓存获取
+        if self._cache:
+            cached = await self._cache.get_quote(symbol, market)
+            if cached:
+                logger.info(f"行情缓存命中 | symbol={symbol} | market={market}")
+                return cached
+        
+        # 2. 缓存未命中，调用 API
+        try:
+            market_type = MarketType(market)
+            
+            if market_type == MarketType.A_SHARE:
+                result = await self._get_a_share_quote(symbol)
+            elif market_type == MarketType.US:
+                result = await self._get_us_stock_quote(symbol)
+            elif market_type == MarketType.HK:
+                return await self._get_hk_stock_quote(symbol)
+            else:
+                raise ValueError(f"不支持的市场类型：{market}")
+            
+            # 3. 写入缓存（行情默认 60 秒）
+            if self._cache and result:
+                await self._cache.set_quote(symbol, result, ttl=60)
+            
+            return result
+                
+        except Exception as e:
+            logger.error(f"获取行情失败 | symbol={symbol} | market={market} | error={e}")
+            raise
+    
+    async def _get_a_share_quote(self, symbol: str) -> Dict[str, Any]:
+        """获取 A 股行情"""
+        # 使用更快的单股票接口
+        df = self.ak.stock_individual_info_em(symbol=symbol)
+        
+        # 解析数据
+        quote_dict = {}
+        for _, row in df.iterrows():
+            if len(row) >= 2:
+                key = str(row.iloc[0])
+                value = row.iloc[1]
+                quote_dict[key] = value
+        
+        # 提取关键字段
+        try:
+            # 获取实时行情数据
+            quote_df = self.ak.stock_zh_a_spot_em()
+            stock_data = quote_df[quote_df['代码'] == symbol]
+            
+            if stock_data.empty:
+                raise ValueError(f"未找到股票：{symbol}")
+            
+            row = stock_data.iloc[0]
+            
+            result = {
+                "symbol": symbol,
+                "name": row.get('名称', ''),
+                "market": MarketType.A_SHARE.value,
+                "price": float(row.get('最新价', 0)),
+                "open": float(row.get('今开', 0)),
+                "high": float(row.get('最高', 0)),
+                "low": float(row.get('最低', 0)),
+                "close": float(row.get('昨收', 0)),
+                "change": float(row.get('涨跌额', 0)),
+                "change_percent": float(row.get('涨跌幅', 0)),
+                "volume": int(float(row.get('成交量', 0)) * 100),  # 手→股
+                "turnover": float(row.get('成交额', 0)),
+                "amount": float(row.get('成交额', 0)) / 10000,  # 元→万元
+                "pe_ratio": float(row.get('市盈率 - 动态', 0)) if row.get('市盈率 - 动态') else None,
+                "pb_ratio": float(row.get('市净率', 0)) if row.get('市净率') else None,
+                "total_market_cap": float(row.get('总市值', 0)),
+                "float_market_cap": float(row.get('流通市值', 0)),
+                "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            }
+            
+            logger.debug(f"A 股行情查询成功 | symbol={symbol} | price={result['price']}")
+            return result
+            
+        except Exception as e:
+            logger.error(f"A 股行情解析失败 | symbol={symbol} | error={e}")
+            raise
+    
+    async def _get_us_stock_quote(self, symbol: str) -> Dict[str, Any]:
+        """获取美股行情"""
+        try:
+            # 获取美股实时行情
+            quote_df = self.ak.stock_us_spot_em()
+            stock_data = quote_df[quote_df['代码'] == symbol]
+            
+            if stock_data.empty:
+                raise ValueError(f"未找到美股：{symbol}")
+            
+            row = stock_data.iloc[0]
+            
+            result = {
+                "symbol": symbol,
+                "name": row.get('名称', ''),
+                "market": MarketType.US.value,
+                "price": float(row.get('最新价', 0)),
+                "open": float(row.get('今开', 0)),
+                "high": float(row.get('最高', 0)),
+                "low": float(row.get('最低', 0)),
+                "close": float(row.get('昨收', 0)),
+                "change": float(row.get('涨跌额', 0)),
+                "change_percent": float(row.get('涨跌幅', 0)),
+                "volume": int(float(row.get('成交量', 0))),
+                "turnover": 0.0,  # 美股 API 可能不提供
+                "amount": 0.0,
+                "pe_ratio": float(row.get('市盈率', 0)) if row.get('市盈率') else None,
+                "pb_ratio": None,
+                "total_market_cap": float(row.get('总市值', 0)) if row.get('总市值') else None,
+                "float_market_cap": None,
+                "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            }
+            
+            logger.debug(f"美股行情查询成功 | symbol={symbol} | price={result['price']}")
+            return result
+            
+        except Exception as e:
+            logger.error(f"美股行情解析失败 | symbol={symbol} | error={e}")
+            raise
+    
+    async def _get_hk_stock_quote(self, symbol: str) -> Dict[str, Any]:
+        """获取港股行情"""
+        # TODO: 实现港股行情
+        logger.warning(f"港股行情暂未支持 | symbol={symbol}")
+        raise NotImplementedError("港股行情暂未支持")
+    
+    # ==================== 工具：K 线数据 ====================
+    
+    async def get_kline(
+        self,
+        symbol: str,
+        period: str = "daily",
+        count: int = 100,
+        market: str = "A",
+        **kwargs
+    ) -> Dict[str, Any]:
+        """
+        获取 K 线数据（带缓存）
+        
+        Args:
+            symbol: 股票代码
+            period: 周期 (daily/weekly/monthly/1m/5m/15m/30m/60m)
+            count: 返回条数
+            market: 市场类型 (A=股，US=美股)
+            
+        Returns:
+            K 线数据字典
+        """
+        # 1. 尝试从缓存获取
+        if self._cache:
+            cached = await self._cache.get_kline(symbol, period, count, market)
+            if cached:
+                logger.info(f"K 线缓存命中 | symbol={symbol} | period={period} | count={count}")
+                return cached
+        
+        # 2. 缓存未命中，调用 API
+        try:
+            market_type = MarketType(market)
+            
+            if market_type == MarketType.A_SHARE:
+                result = await self._get_a_share_kline(symbol, period, count, **kwargs)
+            elif market_type == MarketType.US:
+                result = await self._get_us_stock_kline(symbol, period, count, **kwargs)
+            else:
+                raise ValueError(f"不支持的市场类型：{market}")
+            
+            # 3. 写入缓存（K 线默认 300 秒）
+            if self._cache and result:
+                await self._cache.set_kline(symbol, period, count, result, ttl=300)
+            
+            return result
+                
+        except Exception as e:
+            logger.error(f"获取 K 线失败 | symbol={symbol} | period={period} | error={e}")
+            raise
+    
+    async def _get_a_share_kline(
+        self,
+        symbol: str,
+        period: str = "daily",
+        count: int = 100,
+        **kwargs
+    ) -> Dict[str, Any]:
+        """获取 A 股 K 线"""
+        try:
+            # 计算日期范围
+            end_date = datetime.now()
+            start_date = end_date - timedelta(days=count * 2)  # 预留非交易日
+            
+            df = self.ak.stock_zh_a_hist(
+                symbol=symbol,
+                period=period,
+                start_date=start_date.strftime("%Y%m%d"),
+                end_date=end_date.strftime("%Y%m%d"),
+                adjust="qfq"  # 前复权
+            )
+            
+            if df.empty:
+                raise ValueError(f"无 K 线数据：{symbol}")
+            
+            # 取最近 count 条
+            df = df.tail(count)
+            
+            # 转换为 KLineItem 列表
+            items = []
+            for _, row in df.iterrows():
+                item = KLineItem(
+                    date=str(row.get('日期', '')),
+                    open=float(row.get('开盘', 0)),
+                    high=float(row.get('最高', 0)),
+                    low=float(row.get('最低', 0)),
+                    close=float(row.get('收盘', 0)),
+                    volume=int(float(row.get('成交量', 0)) * 100),
+                    turnover=float(row.get('成交额', 0)) if '成交额' in row else None,
+                    change_percent=float(row.get('涨跌幅', 0)) if '涨跌幅' in row else None
+                )
+                items.append(item)
+            
+            # 获取股票名称
+            name = self._get_stock_name(symbol)
+            
+            result = {
+                "symbol": symbol,
+                "name": name,
+                "period": period,
+                "items": [item.dict() for item in items]
+            }
+            
+            logger.debug(f"A 股 K 线查询成功 | symbol={symbol} | count={len(items)}")
+            return result
+            
+        except Exception as e:
+            logger.error(f"A 股 K 线解析失败 | symbol={symbol} | error={e}")
+            raise
+    
+    async def _get_us_stock_kline(
+        self,
+        symbol: str,
+        period: str = "daily",
+        count: int = 100,
+        **kwargs
+    ) -> Dict[str, Any]:
+        """获取美股 K 线"""
+        try:
+            # 计算日期范围
+            end_date = datetime.now()
+            start_date = end_date - timedelta(days=count * 2)
+            
+            df = self.ak.stock_us_hist(
+                symbol=symbol,
+                period=period,
+                start_date=start_date.strftime("%Y%m%d"),
+                end_date=end_date.strftime("%Y%m%d"),
+                adjust="qfq"
+            )
+            
+            if df.empty:
+                raise ValueError(f"无 K 线数据：{symbol}")
+            
+            df = df.tail(count)
+            
+            items = []
+            for _, row in df.iterrows():
+                item = KLineItem(
+                    date=str(row.get('日期', '')),
+                    open=float(row.get('开盘', 0)),
+                    high=float(row.get('最高', 0)),
+                    low=float(row.get('最低', 0)),
+                    close=float(row.get('收盘', 0)),
+                    volume=int(float(row.get('成交量', 0))),
+                    turnover=None,
+                    change_percent=float(row.get('涨跌幅', 0)) if '涨跌幅' in row else None
+                )
+                items.append(item)
+            
+            name = self._get_stock_name(symbol, market="US")
+            
+            result = {
+                "symbol": symbol,
+                "name": name,
+                "period": period,
+                "items": [item.dict() for item in items]
+            }
+            
+            logger.debug(f"美股 K 线查询成功 | symbol={symbol} | count={len(items)}")
+            return result
+            
+        except Exception as e:
+            logger.error(f"美股 K 线解析失败 | symbol={symbol} | error={e}")
+            raise
+    
+    # ==================== 工具：股票搜索 ====================
+    
+    async def search(self, keyword: str, market: str = "A", limit: int = 10) -> Dict[str, Any]:
+        """
+        搜索股票（带缓存）
+        
+        Args:
+            keyword: 关键词（代码或名称）
+            market: 市场类型
+            limit: 返回数量
+            
+        Returns:
+            搜索结果列表
+        """
+        # 1. 尝试从缓存获取
+        if self._cache:
+            cached = await self._cache.get_search(keyword, market, limit)
+            if cached:
+                logger.info(f"搜索缓存命中 | keyword={keyword} | market={market}")
+                return cached
+        
+        # 2. 缓存未命中，调用 API
+        try:
+            market_type = MarketType(market)
+            
+            if market_type == MarketType.A_SHARE:
+                result = await self._search_a_share(keyword, limit)
+            elif market_type == MarketType.US:
+                result = await self._search_us_stock(keyword, limit)
+            else:
+                raise ValueError(f"不支持的市场类型：{market}")
+            
+            # 3. 写入缓存（搜索默认 3600 秒）
+            if self._cache and result:
+                await self._cache.set_search(keyword, result, market, limit, ttl=3600)
+            
+            return result
+                
+        except Exception as e:
+            logger.error(f"股票搜索失败 | keyword={keyword} | error={e}")
+            raise
+    
+    async def _search_a_share(self, keyword: str, limit: int = 10) -> Dict[str, Any]:
+        """搜索 A 股"""
+        try:
+            # 获取所有 A 股列表
+            df = self.ak.stock_info_a_code_name()
+            
+            # 搜索（代码或名称）
+            mask = df['code'].str.contains(keyword, na=False) | \
+                   df['name'].str.contains(keyword, na=False)
+            results = df[mask].head(limit)
+            
+            items = []
+            for _, row in results.iterrows():
+                item = {
+                    "symbol": str(row.get('code', '')),
+                    "name": str(row.get('name', '')),
+                    "market": MarketType.A_SHARE.value
+                }
+                items.append(item)
+            
+            logger.debug(f"A 股搜索成功 | keyword={keyword} | count={len(items)}")
+            return {"items": items}
+            
+        except Exception as e:
+            logger.error(f"A 股搜索失败 | keyword={keyword} | error={e}")
+            raise
+    
+    async def _search_us_stock(self, keyword: str, limit: int = 10) -> Dict[str, Any]:
+        """搜索美股"""
+        try:
+            # 获取美股列表
+            df = self.ak.stock_us_spot_em()
+            
+            # 搜索
+            mask = df['代码'].str.contains(keyword, na=False, case=False) | \
+                   df['名称'].str.contains(keyword, na=False, case=False)
+            results = df[mask].head(limit)
+            
+            items = []
+            for _, row in results.iterrows():
+                item = {
+                    "symbol": str(row.get('代码', '')),
+                    "name": str(row.get('名称', '')),
+                    "market": MarketType.US.value
+                }
+                items.append(item)
+            
+            logger.debug(f"美股搜索成功 | keyword={keyword} | count={len(items)}")
+            return {"items": items}
+            
+        except Exception as e:
+            logger.error(f"美股搜索失败 | keyword={keyword} | error={e}")
+            raise
+    
+    # ==================== 工具：资金流向 ====================
+    
+    async def get_fund_flow(self, symbol: str, market: str = "A") -> Dict[str, Any]:
+        """
+        获取资金流向
+        
+        Args:
+            symbol: 股票代码
+            market: 市场类型
+            
+        Returns:
+            资金流向数据
+        """
+        try:
+            if market == "A":
+                # 获取个股资金流向
+                df = self.ak.stock_individual_fund_flow(symbol=symbol)
+                
+                # 解析数据
+                result = {
+                    "symbol": symbol,
+                    "market": market,
+                    "main_force_in": float(df.iloc[-1].get('主力净流入 - 即时', 0)),
+                    "main_force_out": float(df.iloc[-1].get('主力净流出 - 即时', 0)),
+                    "retail_in": float(df.iloc[-1].get('散户净流入 - 即时', 0)),
+                    "retail_out": float(df.iloc[-1].get('散户净流出 - 即时', 0)),
+                }
+                
+                logger.debug(f"资金流向查询成功 | symbol={symbol}")
+                return result
+            else:
+                logger.warning(f"暂不支持 {market} 市场的资金流向")
+                return {"symbol": symbol, "market": market, "data": None}
+                
+        except Exception as e:
+            logger.error(f"获取资金流向失败 | symbol={symbol} | error={e}")
+            raise
+    
+    # ==================== 工具：股票排行 ====================
+    
+    async def get_stock_rank(
+        self,
+        rank_type: str = "gain",
+        market: str = "A",
+        limit: int = 20
+    ) -> Dict[str, Any]:
+        """
+        获取股票排行榜
+        
+        Args:
+            rank_type: 排行类型 (gain=涨幅，loss=跌幅，turnover=成交额，volume=成交量)
+            market: 市场类型
+            limit: 返回数量
+            
+        Returns:
+            排行榜数据
+        """
+        try:
+            if market == "A":
+                if rank_type == "gain":
+                    df = self.ak.stock_rank_cxg_em()
+                elif rank_type == "loss":
+                    df = self.ak.stock_rank_cxd_em()
+                elif rank_type == "turnover":
+                    df = self.ak.stock_rank_amt_em()
+                elif rank_type == "volume":
+                    df = self.ak.stock_rank_vol_em()
+                else:
+                    raise ValueError(f"未知的排行类型：{rank_type}")
+                
+                # 取前 limit 条
+                df = df.head(limit)
+                
+                items = []
+                for _, row in df.iterrows():
+                    item = {
+                        "symbol": str(row.get('代码', '')),
+                        "name": str(row.get('名称', '')),
+                        "price": float(row.get('最新价', 0)),
+                        "change_percent": float(row.get('涨跌幅', 0)),
+                        "volume": int(float(row.get('成交量', 0))),
+                        "turnover": float(row.get('成交额', 0)),
+                    }
+                    items.append(item)
+                
+                result = {"rank_type": rank_type, "market": market, "items": items}
+                logger.debug(f"股票排行查询成功 | type={rank_type} | count={len(items)}")
+                return result
+            else:
+                logger.warning(f"暂不支持 {market} 市场的股票排行")
+                return {"rank_type": rank_type, "market": market, "items": []}
+                
+        except Exception as e:
+            logger.error(f"获取股票排行失败 | type={rank_type} | error={e}")
+            raise
+    
+    # ==================== 工具：财务指标 ====================
+    
+    async def get_financial_indicator(self, symbol: str, market: str = "A") -> Dict[str, Any]:
+        """
+        获取财务指标
+        
+        Args:
+            symbol: 股票代码
+            market: 市场类型
+            
+        Returns:
+            财务指标数据
+        """
+        try:
+            if market == "A":
+                # 获取财务指标
+                df = self.ak.stock_financial_analysis_indicator(symbol=symbol)
+                
+                # 取最新一期数据
+                if not df.empty:
+                    latest = df.iloc[-1]
+                    result = {
+                        "symbol": symbol,
+                        "market": market,
+                        "date": str(latest.get('报告期', '')),
+                        "pe_ratio": float(latest.get('市盈率', 0)) if latest.get('市盈率') else None,
+                        "pb_ratio": float(latest.get('市净率', 0)) if latest.get('市净率') else None,
+                        "roe": float(latest.get('净资产收益率 (%)', 0)) if latest.get('净资产收益率 (%)') else None,
+                        "gross_margin": float(latest.get('销售毛利率 (%)', 0)) if latest.get('销售毛利率 (%)') else None,
+                        "debt_ratio": float(latest.get('资产负债率 (%)', 0)) if latest.get('资产负债率 (%)') else None,
+                    }
+                    logger.debug(f"财务指标查询成功 | symbol={symbol}")
+                    return result
+                else:
+                    return {"symbol": symbol, "market": market, "data": None}
+            else:
+                logger.warning(f"暂不支持 {market} 市场的财务指标")
+                return {"symbol": symbol, "market": market, "data": None}
+                
+        except Exception as e:
+            logger.error(f"获取财务指标失败 | symbol={symbol} | error={e}")
+            raise
+    
+    # ==================== 辅助方法 ====================
+    
+    def _get_stock_name(self, symbol: str, market: str = "A") -> str:
+        """获取股票名称"""
+        try:
+            if market == "A":
+                df = self.ak.stock_info_a_code_name()
+                result = df[df['code'] == symbol]
+                if not result.empty:
+                    return result.iloc[0]['name']
+            elif market == "US":
+                df = self.ak.stock_us_spot_em()
+                result = df[df['代码'] == symbol]
+                if not result.empty:
+                    return result.iloc[0]['名称']
+        except Exception as e:
+            logger.warning(f"获取股票名称失败 | symbol={symbol} | error={e}")
+        
+        return ""
