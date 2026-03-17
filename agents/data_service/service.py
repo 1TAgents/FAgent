@@ -376,11 +376,10 @@ class DataService:
             同步结果
         """
         try:
-            stocks = await self.sync_manager.sync_stock_list()
+            count = await self.sync_manager.sync_stock_list()
             return {
                 "success": True,
-                "count": len(stocks) if stocks else 0,
-                "stocks": stocks
+                "count": count,
             }
         except Exception as e:
             return {

@@ -262,7 +262,7 @@ async def sync_historical_background(background_tasks: BackgroundTasks):
 async def get_stats():
     """获取数据统计"""
     try:
-        stats = await data_service.get_stats()
+        stats = data_service.get_stats()
         
         # 添加数据库大小
         import os
