@@ -32,7 +32,7 @@ router = APIRouter(prefix="/backtest", tags=["backtest"])
 @router.post("/run")
 async def run_backtest(request: BacktestRequest) -> BacktestResponse:
     """
-    执行回测（支持向量化快速回测）
+    执行回测（使用真实数据库数据）
     
     Args:
         request: 回测请求
@@ -45,19 +45,24 @@ async def run_backtest(request: BacktestRequest) -> BacktestResponse:
     try:
         logger.info(f"收到回测请求 | strategy={request.strategy_name}, symbol={request.symbol}")
         
-        # 1. 加载真实数据
+        # 1. 从 SQLite 数据库加载真实数据
         data_loader = get_data_loader()
         data = data_loader.load_klines(
             symbol=request.symbol,
             start_date=request.start_date,
-            end_date=request.end_date
+            end_date=request.end_date,
+            period="daily",
+            adjust="qfq"  # 前复权
         )
         
         if data.empty:
+            logger.warning(f"无数据 | symbol={request.symbol}, range={request.start_date}~{request.end_date}")
             return BacktestResponse(
                 success=False,
-                error=f"无数据：{request.symbol}"
+                error=f"无数据：{request.symbol}，请先同步数据或检查日期范围"
             )
+        
+        logger.info(f"数据加载完成 | symbol={request.symbol}, rows={len(data)}")
         
         # 2. 尝试向量化回测（更快）
         try:

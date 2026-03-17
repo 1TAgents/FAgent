@@ -294,12 +294,166 @@ class VectorizedBollinger:
         }
 
 
+class VectorizedKDJ:
+    """
+    KDJ 策略（向量化版本）
+    
+    KDJ 是随机指标，适用于震荡市
+    """
+    
+    def __init__(self, n: int = 9, m1: int = 3, m2: int = 3):
+        """
+        初始化
+        
+        Args:
+            n: RSV 计算周期（默认 9）
+            m1: K 值平滑周期（默认 3）
+            m2: D 值平滑周期（默认 3）
+        """
+        self.n = n
+        self.m1 = m1
+        self.m2 = m2
+    
+    def generate_signals(self, data: pd.DataFrame) -> pd.DataFrame:
+        """生成 KDJ 信号"""
+        df = data.copy()
+        
+        # 计算 RSV（未成熟随机值）
+        lowest_low = df['low'].rolling(window=self.n).min()
+        highest_high = df['high'].rolling(window=self.n).max()
+        
+        rsv = (df['close'] - lowest_low) / (highest_high - lowest_low) * 100
+        
+        # 计算 K 值（3 日移动平均）
+        df['k'] = rsv.ewm(com=self.m1-1, adjust=False).mean()
+        
+        # 计算 D 值（K 的 3 日移动平均）
+        df['d'] = df['k'].ewm(com=self.m2-1, adjust=False).mean()
+        
+        # 计算 J 值（3 倍 K 减 2 倍 D）
+        df['j'] = 3 * df['k'] - 2 * df['d']
+        
+        # 生成信号
+        df['signal'] = 0
+        
+        # K 上穿 D（金叉）→ 买入
+        golden_cross = (
+            (df['k'] > df['d']) & 
+            (df['k'].shift(1) <= df['d'].shift(1))
+        )
+        df.loc[golden_cross, 'signal'] = 1
+        
+        # K 下穿 D（死叉）→ 卖出
+        death_cross = (
+            (df['k'] < df['d']) & 
+            (df['k'].shift(1) >= df['d'].shift(1))
+        )
+        df.loc[death_cross, 'signal'] = -1
+        
+        # 超卖区域（K<20）→ 买入信号增强
+        df.loc[df['k'] < 20, 'signal'] = 1
+        
+        # 超买区域（K>80）→ 卖出信号增强
+        df.loc[df['k'] > 80, 'signal'] = -1
+        
+        return df
+    
+    def backtest(self, data: pd.DataFrame, initial_capital: float = 100000.0) -> Dict:
+        """快速回测"""
+        df = data.copy()
+        
+        df['returns'] = df['close'].pct_change()
+        df['strategy_returns'] = df['signal'].shift(1) * df['returns']
+        df['cumulative_returns'] = (1 + df['strategy_returns']).cumprod()
+        df['equity'] = initial_capital * df['cumulative_returns']
+        
+        total_returns = df['cumulative_returns'].iloc[-1] - 1
+        daily_returns = df['strategy_returns'].dropna()
+        sharpe = np.sqrt(252) * daily_returns.mean() / daily_returns.std() if daily_returns.std() > 0 else 0
+        
+        rolling_max = df['equity'].cummax()
+        drawdown = (df['equity'] - rolling_max) / rolling_max
+        
+        return {
+            'total_returns': total_returns,
+            'sharpe_ratio': sharpe,
+            'max_drawdown': drawdown.min(),
+            'trades': df['signal'].abs().sum(),
+            'equity_curve': df['equity'].tolist(),
+            'dates': df.index.tolist()
+        }
+
+
+class VectorizedMomentum:
+    """
+    动量策略（向量化版本）
+    
+    买入过去表现好的股票，卖出表现差的
+    """
+    
+    def __init__(self, lookback: int = 20, threshold: float = 0.05):
+        """
+        初始化
+        
+        Args:
+            lookback: 回看周期（默认 20 日）
+            threshold: 动量阈值（默认 5%）
+        """
+        self.lookback = lookback
+        self.threshold = threshold
+    
+    def generate_signals(self, data: pd.DataFrame) -> pd.DataFrame:
+        """生成动量信号"""
+        df = data.copy()
+        
+        # 计算动量（N 日收益率）
+        df['momentum'] = df['close'].pct_change(periods=self.lookback)
+        
+        # 生成信号
+        df['signal'] = 0
+        
+        # 动量为正且超过阈值 → 买入
+        df.loc[df['momentum'] > self.threshold, 'signal'] = 1
+        
+        # 动量为负且低于阈值 → 卖出
+        df.loc[df['momentum'] < -self.threshold, 'signal'] = -1
+        
+        return df
+    
+    def backtest(self, data: pd.DataFrame, initial_capital: float = 100000.0) -> Dict:
+        """快速回测"""
+        df = data.copy()
+        
+        df['returns'] = df['close'].pct_change()
+        df['strategy_returns'] = df['signal'].shift(1) * df['returns']
+        df['cumulative_returns'] = (1 + df['strategy_returns']).cumprod()
+        df['equity'] = initial_capital * df['cumulative_returns']
+        
+        total_returns = df['cumulative_returns'].iloc[-1] - 1
+        daily_returns = df['strategy_returns'].dropna()
+        sharpe = np.sqrt(252) * daily_returns.mean() / daily_returns.std() if daily_returns.std() > 0 else 0
+        
+        rolling_max = df['equity'].cummax()
+        drawdown = (df['equity'] - rolling_max) / rolling_max
+        
+        return {
+            'total_returns': total_returns,
+            'sharpe_ratio': sharpe,
+            'max_drawdown': drawdown.min(),
+            'trades': df['signal'].abs().sum(),
+            'equity_curve': df['equity'].tolist(),
+            'dates': df.index.tolist()
+        }
+
+
 # 策略工厂
 STRATEGY_MAP = {
     'dual_ma': VectorizedDualMA,
     'rsi': VectorizedRSI,
     'macd': VectorizedMACD,
     'bollinger': VectorizedBollinger,
+    'kdj': VectorizedKDJ,
+    'momentum': VectorizedMomentum,
 }
 
 
