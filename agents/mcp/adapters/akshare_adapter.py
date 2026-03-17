@@ -993,3 +993,243 @@ class AKShareAdapter:
             logger.warning(f"获取指数名称失败 | symbol={symbol} | error={e}")
         
         return ""
+    
+    # ==================== 工具：龙虎榜 ====================
+    
+    async def get_stock_bill(self, date: str = None, symbol: str = None) -> Dict[str, Any]:
+        """
+        获取龙虎榜数据
+        
+        Args:
+            date: 日期（YYYY-MM-DD 格式，不传则默认最近一个交易日）
+            symbol: 股票代码（可选，不传则返回全市场龙虎榜）
+            
+        Returns:
+            龙虎榜数据
+            
+        Examples:
+            >>> await adapter.get_stock_bill()  # 全市场龙虎榜
+            >>> await adapter.get_stock_bill(symbol="600519")  # 单只股票龙虎榜
+        """
+        try:
+            if symbol:
+                # 查询单只股票龙虎榜
+                df = self.ak.stock_lhb_stock_detail_em(symbol=symbol)
+                
+                if df.empty:
+                    return {"symbol": symbol, "items": [], "message": "无龙虎榜数据"}
+                
+                items = []
+                for _, row in df.iterrows():
+                    item = {
+                        "trade_date": str(row.get('交易日期', '')),
+                        "explanation": str(row.get('上榜原因', '')),
+                        "buy_amount": float(row.get('买入金额', 0)) if '买入金额' in row else None,
+                        "sell_amount": float(row.get('卖出金额', 0)) if '卖出金额' in row else None,
+                        "net_amount": float(row.get('净买入额', 0)) if '净买入额' in row else None,
+                    }
+                    items.append(item)
+                
+                result = {"symbol": symbol, "items": items}
+                logger.debug(f"个股龙虎榜查询成功 | symbol={symbol} | count={len(items)}")
+                return result
+            else:
+                # 查询全市场龙虎榜（指定日期）
+                query_date = date or datetime.now().strftime("%Y%m%d")
+                df = self.ak.stock_lhb_detail_em(start_date=query_date, end_date=query_date)
+                
+                if df.empty:
+                    return {"date": date, "items": [], "message": "无龙虎榜数据"}
+                
+                # 按股票分组
+                grouped = df.groupby('代码')
+                items = []
+                for code, group in grouped.head(5).iterrows():  # 每只股票最多 5 条
+                    row = group.iloc[0]
+                    item = {
+                        "symbol": str(row.get('代码', '')),
+                        "name": str(row.get('名称', '')),
+                        "close": float(row.get('收盘价', 0)),
+                        "change_percent": float(row.get('涨跌幅', 0)),
+                        "turnover": float(row.get('成交额', 0)),
+                        "net_amount": float(row.get('净买入额', 0)) if '净买入额' in row else None,
+                        "explanation": str(row.get('上榜原因', '')),
+                    }
+                    items.append(item)
+                
+                result = {"date": date or datetime.now().strftime("%Y-%m-%d"), "items": items}
+                logger.debug(f"全市场龙虎榜查询成功 | date={date} | count={len(items)}")
+                return result
+                
+        except Exception as e:
+            logger.error(f"获取龙虎榜失败 | date={date}, symbol={symbol} | error={e}")
+            raise
+    
+    # ==================== 工具：涨跌停统计 ====================
+    
+    async def get_limit_up_stats(self, date: str = None) -> Dict[str, Any]:
+        """
+        获取涨跌停池统计
+        
+        Args:
+            date: 日期（YYYY-MM-DD 格式，不传则默认最近一个交易日）
+            
+        Returns:
+            涨跌停统计
+        """
+        try:
+            query_date = date or datetime.now().strftime("%Y%m%d")
+            
+            # 涨停池
+            zt_df = self.ak.stock_zt_pool_em(date=query_date)
+            zt_count = len(zt_df) if not zt_df.empty else 0
+            
+            # 跌停池
+            dt_df = self.ak.stock_zt_pool_dt_em(date=query_date)
+            dt_count = len(dt_df) if not dt_df.empty else 0
+            
+            # 涨停股池详情（前 20 只）
+            zt_stocks = []
+            if not zt_df.empty:
+                for _, row in zt_df.head(20).iterrows():
+                    zt_stocks.append({
+                        "symbol": str(row.get('代码', '')),
+                        "name": str(row.get('名称', '')),
+                        "price": float(row.get('最新价', 0)),
+                        "change_percent": float(row.get('涨跌幅', 0)),
+                        "limit_up_reason": str(row.get('涨停原因', '')) if '涨停原因' in row else None,
+                        "limit_up_time": str(row.get('首次涨停时间', '')) if '首次涨停时间' in row else None,
+                    })
+            
+            result = {
+                "date": date or datetime.now().strftime("%Y-%m-%d"),
+                "limit_up_count": zt_count,
+                "limit_down_count": dt_count,
+                "limit_up_stocks": zt_stocks,
+            }
+            
+            logger.debug(f"涨跌停统计查询成功 | date={date} | 涨停={zt_count}, 跌停={dt_count}")
+            return result
+                
+        except Exception as e:
+            logger.error(f"获取涨跌停统计失败 | date={date} | error={e}")
+            raise
+    
+    # ==================== 工具：大宗交易 ====================
+    
+    async def get_block_trade(self, date: str = None, symbol: str = None) -> Dict[str, Any]:
+        """
+        获取大宗交易数据
+        
+        Args:
+            date: 日期（YYYY-MM-DD 格式，不传则默认最近一个交易日）
+            symbol: 股票代码（可选）
+            
+        Returns:
+            大宗交易数据
+        """
+        try:
+            query_date = date or datetime.now().strftime("%Y%m%d")
+            
+            if symbol:
+                # 单只股票大宗交易
+                df = self.ak.stock_block_trade_detail_em(symbol=symbol)
+            else:
+                # 全市场大宗交易
+                df = self.ak.stock_block_trade_em(start_date=query_date, end_date=query_date)
+            
+            if df.empty:
+                return {"date": date, "symbol": symbol, "items": [], "message": "无大宗交易数据"}
+            
+            items = []
+            for _, row in df.head(50).iterrows():
+                item = {
+                    "symbol": str(row.get('证券代码', '')),
+                    "name": str(row.get('证券简称', '')),
+                    "trade_date": str(row.get('交易日期', '')),
+                    "price": float(row.get('成交价', 0)),
+                    "volume": int(float(row.get('成交量', 0))) if '成交量' in row else None,
+                    "amount": float(row.get('成交额', 0)) if '成交额' in row else None,
+                    "buyer": str(row.get('买方营业部', '')) if '买方营业部' in row else None,
+                    "seller": str(row.get('卖方营业部', '')) if '卖方营业部' in row else None,
+                }
+                items.append(item)
+            
+            result = {
+                "date": date or datetime.now().strftime("%Y-%m-%d"),
+                "symbol": symbol,
+                "items": items
+            }
+            
+            logger.debug(f"大宗交易查询成功 | date={date}, symbol={symbol} | count={len(items)}")
+            return result
+                
+        except Exception as e:
+            logger.error(f"获取大宗交易失败 | date={date}, symbol={symbol} | error={e}")
+            raise
+    
+    # ==================== 工具：融资融券 ====================
+    
+    async def get_margin_data(self, symbol: str = None, market: str = "SH", date: str = None) -> Dict[str, Any]:
+        """
+        获取融资融券数据
+        
+        Args:
+            symbol: 股票代码（可选，不传则返回市场汇总）
+            market: 市场（SH=上交所，SZ=深交所）
+            date: 日期（可选）
+            
+        Returns:
+            融资融券数据
+        """
+        try:
+            if symbol:
+                # 个股融资融券历史
+                df = self.ak.stock_margin_underlying_info_szse(symbol=symbol)
+                
+                if df.empty:
+                    return {"symbol": symbol, "items": [], "message": "无融资融券数据"}
+                
+                items = []
+                for _, row in df.tail(20).iterrows():
+                    item = {
+                        "trade_date": str(row.get('交易日期', '')),
+                        "financing_balance": float(row.get('融资余额', 0)) if '融资余额' in row else None,
+                        "financing_buy": float(row.get('融资买入额', 0)) if '融资买入额' in row else None,
+                        "securities_lending_balance": float(row.get('融券余量', 0)) if '融券余量' in row else None,
+                        "securities_sell": float(row.get('融券卖出量', 0)) if '融券卖出量' in row else None,
+                    }
+                    items.append(item)
+                
+                result = {"symbol": symbol, "items": items}
+                logger.debug(f"个股融资融券查询成功 | symbol={symbol} | count={len(items)}")
+                return result
+            else:
+                # 市场融资融券汇总
+                if market == "SH":
+                    df = self.ak.stock_margin_sse(start_date=date or (datetime.now() - timedelta(days=30)).strftime("%Y%m%d"),
+                                                  end_date=date or datetime.now().strftime("%Y%m%d"))
+                else:
+                    df = self.ak.stock_margin_szse(start_date=date or (datetime.now() - timedelta(days=30)).strftime("%Y%m%d"),
+                                                   end_date=date or datetime.now().strftime("%Y%m%d"))
+                
+                if df.empty:
+                    return {"market": market, "items": [], "message": "无融资融券数据"}
+                
+                items = []
+                for _, row in df.tail(10).iterrows():
+                    item = {
+                        "trade_date": str(row.get('交易日期', '')),
+                        "financing_balance": float(row.get('融资余额', 0)) if '融资余额' in row else None,
+                        "securities_lending_balance": float(row.get('融券余额', 0)) if '融券余额' in row else None,
+                        "total_balance": float(row.get('融资融券余额', 0)) if '融资融券余额' in row else None,
+                    }
+                    items.append(item)
+                
+                result = {"market": market, "items": items}
+                logger.debug(f"市场融资融券查询成功 | market={market} | count={len(items)}")
+                return result
+                
+        except Exception as e:
+            logger.error(f"获取融资融券失败 | symbol={symbol}, market={market} | error={e}")
+            raise

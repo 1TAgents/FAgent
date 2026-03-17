@@ -401,6 +401,96 @@ async def lifespan(app: FastAPI):
         }
     )
     
+    # ==================== 新增工具：龙虎榜 ====================
+    
+    tool_registry.register(
+        name="stock_bill",
+        handler=adapter.get_stock_bill,
+        description="获取龙虎榜数据（每日榜单或个股历史）",
+        parameters={
+            "type": "object",
+            "properties": {
+                "date": {
+                    "type": "string",
+                    "description": "日期（YYYY-MM-DD 格式，不传则默认最近一个交易日）"
+                },
+                "symbol": {
+                    "type": "string",
+                    "description": "股票代码（可选，不传则返回全市场龙虎榜）"
+                }
+            },
+            "required": []
+        }
+    )
+    
+    # ==================== 新增工具：涨跌停统计 ====================
+    
+    tool_registry.register(
+        name="stock_limit_up",
+        handler=adapter.get_limit_up_stats,
+        description="获取涨跌停池统计（涨停/跌停数量及详情）",
+        parameters={
+            "type": "object",
+            "properties": {
+                "date": {
+                    "type": "string",
+                    "description": "日期（YYYY-MM-DD 格式，不传则默认最近一个交易日）"
+                }
+            },
+            "required": []
+        }
+    )
+    
+    # ==================== 新增工具：大宗交易 ====================
+    
+    tool_registry.register(
+        name="stock_block_trade",
+        handler=adapter.get_block_trade,
+        description="获取大宗交易数据（全市场或单只股票）",
+        parameters={
+            "type": "object",
+            "properties": {
+                "date": {
+                    "type": "string",
+                    "description": "日期（YYYY-MM-DD 格式，不传则默认最近一个交易日）"
+                },
+                "symbol": {
+                    "type": "string",
+                    "description": "股票代码（可选）"
+                }
+            },
+            "required": []
+        }
+    )
+    
+    # ==================== 新增工具：融资融券 ====================
+    
+    tool_registry.register(
+        name="stock_margin",
+        handler=adapter.get_margin_data,
+        description="获取融资融券数据（市场汇总或个股历史）",
+        parameters={
+            "type": "object",
+            "properties": {
+                "symbol": {
+                    "type": "string",
+                    "description": "股票代码（可选，不传则返回市场汇总）"
+                },
+                "market": {
+                    "type": "string",
+                    "description": "市场（SH=上交所，SZ=深交所）",
+                    "enum": ["SH", "SZ"],
+                    "default": "SH"
+                },
+                "date": {
+                    "type": "string",
+                    "description": "日期（可选）"
+                }
+            },
+            "required": []
+        }
+    )
+    
     logger.info(f"已注册 {tool_registry.count} 个工具")
     logger.info("日志目录：logs/mcp/")
     logger.info("数据服务：SQLite + Redis 缓存 + 定时同步")

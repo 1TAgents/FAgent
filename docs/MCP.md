@@ -40,6 +40,10 @@ MCP（Model Context Protocol）服务为 FAgent 提供标准化的金融数据�
 - `industry_quote` - 行业板块行情 ✨
 - `industry_kline` - 行业 K 线 ✨
 - `industry_detail` - 行业成分股 ✨
+- `stock_bill` - 龙虎榜数据 ✨
+- `stock_limit_up` - 涨跌停统计 ✨
+- `stock_block_trade` - 大宗交易 ✨
+- `stock_margin` - 融资融券 ✨
 
 ## 架构
 
@@ -372,6 +376,116 @@ curl -X POST http://localhost:8002/tool/call \
 ```
 
 **缓存 TTL：** 3600 秒（1 小时）
+
+---
+
+### 12. stock_bill - 龙虎榜 ✨
+
+获取每日龙虎榜数据或单只股票龙虎榜历史。
+
+**参数：**
+| 参数 | 类型 | 必填 | 默认值 | 说明 |
+|------|------|------|--------|------|
+| date | string | ❌ | null | 日期（YYYY-MM-DD 格式，不传则默认最近一个交易日） |
+| symbol | string | ❌ | null | 股票代码（可选，不传则返回全市场龙虎榜） |
+
+**调用示例：**
+```bash
+# 查询全市场龙虎榜（最近一个交易日）
+curl -X POST http://localhost:8002/tool/call \
+  -H "Content-Type: application/json" \
+  -d '{"tool_name": "stock_bill"}'
+
+# 查询单只股票龙虎榜历史
+curl -X POST http://localhost:8002/tool/call \
+  -H "Content-Type: application/json" \
+  -d '{"tool_name": "stock_bill", "arguments": {"symbol": "600519"}}'
+```
+
+---
+
+### 13. stock_limit_up - 涨跌停统计 ✨
+
+获取市场涨跌停池统计，包括涨停/跌停数量和涨停股详情。
+
+**参数：**
+| 参数 | 类型 | 必填 | 默认值 | 说明 |
+|------|------|------|--------|------|
+| date | string | ❌ | null | 日期（YYYY-MM-DD 格式，不传则默认最近一个交易日） |
+
+**调用示例：**
+```bash
+curl -X POST http://localhost:8002/tool/call \
+  -H "Content-Type: application/json" \
+  -d '{"tool_name": "stock_limit_up"}'
+```
+
+**返回示例：**
+```json
+{
+  "success": true,
+  "data": {
+    "date": "2026-03-17",
+    "limit_up_count": 58,
+    "limit_down_count": 3,
+    "limit_up_stocks": [
+      {"symbol": "600519", "name": "贵州茅台", "price": 1700.00, "limit_up_reason": "白酒板块走强"},
+      ...
+    ]
+  }
+}
+```
+
+---
+
+### 14. stock_block_trade - 大宗交易 ✨
+
+获取大宗交易数据，支持全市场或单只股票查询。
+
+**参数：**
+| 参数 | 类型 | 必填 | 默认值 | 说明 |
+|------|------|------|--------|------|
+| date | string | ❌ | null | 日期（YYYY-MM-DD 格式） |
+| symbol | string | ❌ | null | 股票代码（可选） |
+
+**调用示例：**
+```bash
+# 查询全市场大宗交易
+curl -X POST http://localhost:8002/tool/call \
+  -H "Content-Type: application/json" \
+  -d '{"tool_name": "stock_block_trade"}'
+
+# 查询单只股票大宗交易历史
+curl -X POST http://localhost:8002/tool/call \
+  -H "Content-Type: application/json" \
+  -d '{"tool_name": "stock_block_trade", "arguments": {"symbol": "600519"}}'
+```
+
+---
+
+### 15. stock_margin - 融资融券 ✨
+
+获取融资融券数据，支持市场汇总或个股历史查询。
+
+**参数：**
+| 参数 | 类型 | 必填 | 默认值 | 说明 |
+|------|------|------|--------|------|
+| symbol | string | ❌ | null | 股票代码（可选，不传则返回市场汇总） |
+| market | string | ❌ | "SH" | 市场（SH=上交所，SZ=深交所） |
+| date | string | ❌ | null | 日期（可选） |
+
+**调用示例：**
+```bash
+# 查询上交所融资融券汇总
+curl -X POST http://localhost:8002/tool/call \
+  -H "Content-Type: application/json" \
+  -d '{"tool_name": "stock_margin"}'
+
+# 查询个股融资融券历史
+curl -X POST http://localhost:8002/tool/call \
+  -H "Content-Type: application/json" \
+  -d '{"tool_name": "stock_margin", "arguments": {"symbol": "600519"}}'
+```
 
 ---
 
