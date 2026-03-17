@@ -44,6 +44,8 @@ MCP（Model Context Protocol）服务为 FAgent 提供标准化的金融数据�
 - `stock_limit_up` - 涨跌停统计 ✨
 - `stock_block_trade` - 大宗交易 ✨
 - `stock_margin` - 融资融券 ✨
+- `backtest_run` - 策略回测引擎 ✨
+- `backtest_strategies` - 列出可用策略 ✨
 
 ## 架构
 
@@ -485,6 +487,80 @@ curl -X POST http://localhost:8002/tool/call \
 curl -X POST http://localhost:8002/tool/call \
   -H "Content-Type: application/json" \
   -d '{"tool_name": "stock_margin", "arguments": {"symbol": "600519"}}'
+```
+
+---
+
+### 16. backtest_run - 策略回测 ✨
+
+执行策略回测，支持多种经典交易策略。
+
+**可用策略：**
+| 策略名 | 说明 | 参数 |
+|--------|------|------|
+| `dual_ma` | 双均线交叉策略 | short_period(5), long_period(20) |
+| `rsi` | RSI 相对强弱策略 | rsi_period(14), oversold(30), overbought(70) |
+| `bollinger` | 布林带策略 | period(20), std_dev(2) |
+
+**参数：**
+| 参数 | 类型 | 必填 | 默认值 | 说明 |
+|------|------|------|--------|------|
+| strategy_name | string | ✅ | - | 策略名称（dual_ma/rsi/bollinger） |
+| symbol | string | ✅ | - | 回测标的（股票代码） |
+| start_date | string | ✅ | - | 开始日期（YYYY-MM-DD） |
+| end_date | string | ✅ | - | 结束日期（YYYY-MM-DD） |
+| initial_capital | number | ❌ | 100000 | 初始资金 |
+| params | object | ❌ | {} | 策略参数 |
+
+**调用示例：**
+```bash
+# 双均线策略回测
+curl -X POST http://localhost:8002/tool/call \
+  -H "Content-Type: application/json" \
+  -d '{
+    "tool_name": "backtest_run",
+    "arguments": {
+      "strategy_name": "dual_ma",
+      "symbol": "600519",
+      "start_date": "2025-01-01",
+      "end_date": "2025-12-31",
+      "initial_capital": 100000,
+      "params": {"short_period": 5, "long_period": 20}
+    }
+  }'
+```
+
+**返回示例：**
+```json
+{
+  "success": true,
+  "data": {
+    "summary": "【dual_ma】回测报告\n回测区间：2025-01-01 ~ 2025-12-31\n总收益率：+15.23% | 年化：+15.23%\n夏普比率：1.25 | 最大回撤：-8.50%\n胜率：55.0% | 交易次数：20 | 盈亏比：1.80",
+    "report": {
+      "metrics": {
+        "total_return": 15.23,
+        "annual_return": 15.23,
+        "sharpe_ratio": 1.25,
+        "max_drawdown": 8.50,
+        "win_rate": 55.0,
+        "total_trades": 20
+      }
+    }
+  }
+}
+```
+
+---
+
+### 17. backtest_strategies - 列出策略 ✨
+
+列出所有可用的回测策略。
+
+**调用示例：**
+```bash
+curl -X POST http://localhost:8002/tool/call \
+  -H "Content-Type: application/json" \
+  -d '{"tool_name": "backtest_strategies"}'
 ```
 
 ---

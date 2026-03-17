@@ -22,6 +22,8 @@ from .tools import tool_registry
 from .adapters.akshare_adapter import AKShareAdapter
 from .middleware import RateLimitMiddleware, APIKeyMiddleware, RequestLogMiddleware
 from agents.data_service import get_data_service
+from agents.backtest.api import run_backtest, list_strategies, generate_mock_data
+from agents.backtest.models import BacktestRequest, StrategyConfig
 
 # 配置日志
 logging.basicConfig(
@@ -488,6 +490,105 @@ async def lifespan(app: FastAPI):
                 }
             },
             "required": []
+        }
+    )
+    
+    # ==================== 新增工具：策略回测 ====================
+    
+    async def run_backtest_tool(
+        strategy_name: str,
+        symbol: str,
+        start_date: str,
+        end_date: str,
+        initial_capital: float = 100000.0,
+        params: dict = None
+    ) -> dict:
+        """回测工具包装器"""
+        from agents.backtest.api import run_backtest
+        from agents.backtest.models import BacktestRequest
+        
+        request = BacktestRequest(
+            strategy_name=strategy_name,
+            symbol=symbol,
+            start_date=start_date,
+            end_date=end_date,
+            initial_capital=initial_capital,
+            params=params or {}
+        )
+        
+        response = await run_backtest(request)
+        
+        if response.success:
+            return {
+                "success": True,
+                "report": response.report.model_dump() if response.report else None,
+                "summary": response.report.summary() if response.report else None
+            }
+        else:
+            return {
+                "success": False,
+                "error": response.error
+            }
+    
+    tool_registry.register(
+        name="backtest_run",
+        handler=run_backtest_tool,
+        description="执行策略回测（支持双均线/RSI/布林带等策略）",
+        parameters={
+            "type": "object",
+            "properties": {
+                "strategy_name": {
+                    "type": "string",
+                    "description": "策略名称（dual_ma/rsi/bollinger）",
+                    "enum": ["dual_ma", "rsi", "bollinger"]
+                },
+                "symbol": {
+                    "type": "string",
+                    "description": "回测标的（股票代码）"
+                },
+                "start_date": {
+                    "type": "string",
+                    "description": "开始日期（YYYY-MM-DD）"
+                },
+                "end_date": {
+                    "type": "string",
+                    "description": "结束日期（YYYY-MM-DD）"
+                },
+                "initial_capital": {
+                    "type": "number",
+                    "description": "初始资金",
+                    "default": 100000.0
+                },
+                "params": {
+                    "type": "object",
+                    "description": "策略参数（如 short_period, long_period 等）",
+                    "default": {}
+                }
+            },
+            "required": ["strategy_name", "symbol", "start_date", "end_date"]
+        }
+    )
+    
+    async def list_strategies_tool() -> dict:
+        """列出策略工具包装器"""
+        from agents.backtest.strategies import STRATEGY_REGISTRY
+        
+        strategies = {}
+        for name, cls in STRATEGY_REGISTRY.items():
+            strategies[name] = {
+                "name": cls.__name__,
+                "description": cls.__doc__.split('\n')[0] if cls.__doc__ else "",
+            }
+        
+        return {"strategies": strategies}
+    
+    tool_registry.register(
+        name="backtest_strategies",
+        handler=list_strategies_tool,
+        description="列出所有可用回测策略",
+        parameters={
+            "type": "object",
+            "properties": {}
         }
     )
     
