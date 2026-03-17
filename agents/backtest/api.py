@@ -264,3 +264,139 @@ async def get_report(report_id: str) -> Dict[str, Any]:
     TODO: 实现报告存储和查询
     """
     return {"error": "Not implemented"}
+
+
+@router.post("/validate")
+async def validate_strategy(request: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    执行策略验证（支持多种验证方式）
+    
+    Args:
+        request: 验证请求，包含：
+            - strategy_name: 策略名称
+            - symbol: 股票代码
+            - start_date: 开始日期
+            - end_date: 结束日期
+            - validation_mode: 验证方式 (holdout | walk_forward | expanding_window | auto)
+            - validation_config: 验证器配置（可选）
+            - param_grid: 参数网格（可选，用于优化）
+            - initial_capital: 初始资金（默认 100000）
+    
+    Returns:
+        验证报告
+    """
+    start_time = time.time()
+    
+    try:
+        logger.info(
+            f"收到验证请求 | strategy={request.get('strategy_name')} | "
+            f"validation_mode={request.get('validation_mode', 'auto')}"
+        )
+        
+        # 1. 加载数据
+        data_loader = get_data_loader()
+        data = data_loader.load_klines(
+            symbol=request["symbol"],
+            start_date=request["start_date"],
+            end_date=request["end_date"],
+            period="daily",
+            adjust="qfq"
+        )
+        
+        if data.empty:
+            return {
+                "success": False,
+                "error": f"无数据：{request['symbol']}，请先同步数据或检查日期范围"
+            }
+        
+        logger.info(f"数据加载完成 | rows={len(data)}")
+        
+        # 2. 创建验证器引擎
+        from .validator_engine import create_validator_engine
+        
+        validator_type = request.get("validation_mode", "auto")
+        validation_config = request.get("validation_config", {})
+        initial_capital = request.get("initial_capital", 100000.0)
+        
+        engine = create_validator_engine(
+            validator_type=validator_type,
+            validator_config=validation_config,
+            initial_capital=initial_capital
+        )
+        
+        # 3. 执行验证
+        param_grid = request.get("param_grid")
+        default_params = request.get("default_params", {})
+        
+        report = engine.run(
+            strategy_name=request["strategy_name"],
+            data=data,
+            param_grid=param_grid,
+            default_params=default_params
+        )
+        
+        elapsed = time.time() - start_time
+        logger.info(f"验证完成 | time={elapsed:.2f}s, rounds={report.num_rounds}")
+        
+        # 4. 返回报告
+        return {
+            "success": True,
+            "report": report.to_dict(),
+            "elapsed_seconds": elapsed
+        }
+        
+    except Exception as e:
+        logger.error(f"验证失败 | error={e}")
+        import traceback
+        return {
+            "success": False,
+            "error": str(e),
+            "traceback": traceback.format_exc()
+        }
+
+
+@router.get("/validators")
+async def list_validators() -> Dict[str, Any]:
+    """列出所有可用的验证器类型"""
+    return {
+        "validators": [
+            {
+                "type": "holdout",
+                "name": "固定分割验证",
+                "description": "将数据按固定比例分为训练集和测试集",
+                "suitable_for": "长期策略（参数稳定）",
+                "default_config": {
+                    "train_ratio": 0.6
+                }
+            },
+            {
+                "type": "walk_forward",
+                "name": "滚动窗口验证",
+                "description": "使用滚动窗口进行多轮验证",
+                "suitable_for": "中短期策略（参数随市场变化）",
+                "default_config": {
+                    "window_size": 120,
+                    "step_size": 20,
+                    "test_size": 20
+                }
+            },
+            {
+                "type": "expanding_window",
+                "name": "扩展窗口验证",
+                "description": "训练集逐步扩展，测试集滚动",
+                "suitable_for": "参数稳定的策略，希望用更多历史数据",
+                "default_config": {
+                    "initial_window": 120,
+                    "step_size": 20,
+                    "test_size": 20
+                }
+            },
+            {
+                "type": "auto",
+                "name": "自动选择",
+                "description": "根据策略类型自动选择验证方式（默认使用 walk_forward）",
+                "suitable_for": "通用",
+                "default_config": {}
+            }
+        ]
+    }

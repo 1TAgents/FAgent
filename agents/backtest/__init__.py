@@ -11,6 +11,14 @@ from .strategies import (
     DualMovingAverageStrategy, RSIStrategy, BollingerBandsStrategy,
     get_strategy_class, STRATEGY_REGISTRY
 )
+from .validators import (
+    BacktestValidator, HoldoutValidator, WalkForwardValidator, ExpandingWindowValidator,
+    create_validator
+)
+from .validator_engine import (
+    ValidatorEngine, ValidationReport, RoundResult, OverfittingAnalysis,
+    create_validator_engine
+)
 
 __all__ = [
     # 模型
@@ -24,4 +32,9 @@ __all__ = [
     # 策略
     'DualMovingAverageStrategy', 'RSIStrategy', 'BollingerBandsStrategy',
     'get_strategy_class', 'STRATEGY_REGISTRY',
+    
+    # 验证器
+    'BacktestValidator', 'HoldoutValidator', 'WalkForwardValidator', 'ExpandingWindowValidator',
+    'create_validator', 'ValidatorEngine', 'ValidationReport', 'RoundResult',
+    'OverfittingAnalysis', 'create_validator_engine',
 ]
