@@ -11,7 +11,7 @@ from typing import Optional, List, Dict, Any
 
 from ..models import (
     StockQuote, KLineData, KLineItem, StockInfo, 
-    MarketType, KLinePeriod
+    MarketType, KLinePeriod, IndexQuote, IndustryQuote, IndustryDetail
 )
 from .cache_adapter import CacheAdapter, get_mcp_cache
 
@@ -624,5 +624,372 @@ class AKShareAdapter:
                     return result.iloc[0]['名称']
         except Exception as e:
             logger.warning(f"获取股票名称失败 | symbol={symbol} | error={e}")
+        
+        return ""
+    
+    # ==================== 工具：指数行情 ====================
+    
+    async def get_index_quote(self, symbol: str) -> Dict[str, Any]:
+        """
+        获取指数实时行情
+        
+        Args:
+            symbol: 指数代码（如：000300, 000001, 399006）
+            
+        Returns:
+            IndexQuote 字典格式
+            
+        Examples:
+            >>> await adapter.get_index_quote("000300")
+            {"symbol": "000300", "name": "沪深 300", "price": 3500.00, ...}
+        """
+        # 1. 尝试从缓存获取
+        if self._cache:
+            cached = await self._cache.get_index_quote(symbol)
+            if cached:
+                logger.info(f"指数行情缓存命中 | symbol={symbol}")
+                return cached
+        
+        # 2. 缓存未命中，调用 API
+        try:
+            # 获取所有指数行情
+            df = self.ak.stock_zh_index_spot_em()
+            
+            # 查找指定指数
+            stock_data = df[df['代码'] == symbol]
+            
+            if stock_data.empty:
+                raise ValueError(f"未找到指数：{symbol}")
+            
+            row = stock_data.iloc[0]
+            
+            result = {
+                "symbol": symbol,
+                "name": row.get('名称', ''),
+                "price": float(row.get('最新价', 0)),
+                "open": float(row.get('今开', 0)),
+                "high": float(row.get('最高', 0)),
+                "low": float(row.get('最低', 0)),
+                "close": float(row.get('昨收', 0)),
+                "change": float(row.get('涨跌额', 0)),
+                "change_percent": float(row.get('涨跌幅', 0)),
+                "volume": int(float(row.get('成交量', 0)) * 100),  # 手→股
+                "turnover": float(row.get('成交额', 0)),
+                "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            }
+            
+            # 3. 写入缓存（指数行情默认 60 秒）
+            if self._cache and result:
+                await self._cache.set_index_quote(symbol, result, ttl=60)
+            
+            logger.debug(f"指数行情查询成功 | symbol={symbol} | price={result['price']}")
+            return result
+                
+        except Exception as e:
+            logger.error(f"获取指数行情失败 | symbol={symbol} | error={e}")
+            raise
+    
+    # ==================== 工具：指数 K 线 ====================
+    
+    async def get_index_kline(
+        self,
+        symbol: str,
+        period: str = "daily",
+        count: int = 100
+    ) -> Dict[str, Any]:
+        """
+        获取指数 K 线数据
+        
+        Args:
+            symbol: 指数代码
+            period: 周期（daily/weekly/monthly）
+            count: 返回条数
+            
+        Returns:
+            K 线数据字典
+        """
+        # 1. 尝试从缓存获取
+        if self._cache:
+            cached = await self._cache.get_index_kline(symbol, period, count)
+            if cached:
+                logger.info(f"指数 K 线缓存命中 | symbol={symbol} | period={period}")
+                return cached
+        
+        # 2. 缓存未命中，调用 API
+        try:
+            # 计算日期范围
+            end_date = datetime.now()
+            start_date = end_date - timedelta(days=count * 2)
+            
+            df = self.ak.stock_zh_index_daily_em(
+                symbol=symbol,
+                period=period,
+                start_date=start_date.strftime("%Y%m%d"),
+                end_date=end_date.strftime("%Y%m%d")
+            )
+            
+            if df.empty:
+                raise ValueError(f"无 K 线数据：{symbol}")
+            
+            df = df.tail(count)
+            
+            # 转换为 KLineItem 列表
+            items = []
+            for _, row in df.iterrows():
+                item = KLineItem(
+                    date=str(row.get('日期', '')),
+                    open=float(row.get('开盘', 0)),
+                    high=float(row.get('最高', 0)),
+                    low=float(row.get('最低', 0)),
+                    close=float(row.get('收盘', 0)),
+                    volume=int(float(row.get('成交量', 0)) * 100),
+                    turnover=float(row.get('成交额', 0)) if '成交额' in row else None,
+                    change_percent=float(row.get('涨跌幅', 0)) if '涨跌幅' in row else None
+                )
+                items.append(item)
+            
+            # 获取指数名称
+            name = self._get_index_name(symbol)
+            
+            result = {
+                "symbol": symbol,
+                "name": name,
+                "period": period,
+                "items": [item.dict() for item in items]
+            }
+            
+            # 3. 写入缓存（K 线默认 300 秒）
+            if self._cache and result:
+                await self._cache.set_index_kline(symbol, period, count, result, ttl=300)
+            
+            logger.debug(f"指数 K 线查询成功 | symbol={symbol} | count={len(items)}")
+            return result
+                
+        except Exception as e:
+            logger.error(f"获取指数 K 线失败 | symbol={symbol} | period={period} | error={e}")
+            raise
+    
+    # ==================== 工具：行业板块行情 ====================
+    
+    async def get_industry_quote(self, industry_name: str = None) -> Dict[str, Any]:
+        """
+        获取行业板块行情
+        
+        Args:
+            industry_name: 行业名称（可选，不传则返回所有行业）
+            
+        Returns:
+            行业行情数据（单个行业或行业列表）
+            
+        Examples:
+            >>> await adapter.get_industry_quote()  # 所有行业
+            >>> await adapter.get_industry_quote("半导体")  # 单个行业
+        """
+        try:
+            # 获取所有行业板块
+            df = self.ak.stock_board_industry_name_em()
+            
+            if industry_name:
+                # 查询单个行业
+                mask = df['板块名称'] == industry_name
+                if not mask.any():
+                    # 尝试模糊匹配
+                    mask = df['板块名称'].str.contains(industry_name, na=False)
+                df = df[mask]
+                
+                if df.empty:
+                    raise ValueError(f"未找到行业：{industry_name}")
+                
+                row = df.iloc[0]
+                result = {
+                    "name": row.get('板块名称', ''),
+                    "index_code": str(row.get('板块代码', '')),
+                    "price": float(row.get('最新价', 0)),
+                    "change": float(row.get('涨跌额', 0)),
+                    "change_percent": float(row.get('涨跌幅', 0)),
+                    "volume": int(float(row.get('成交量', 0)) * 100),
+                    "turnover": float(row.get('成交额', 0)),
+                    "lead_stock": None,
+                    "lead_stock_symbol": None,
+                    "lead_stock_change": None,
+                    "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                }
+                
+                logger.debug(f"行业行情查询成功 | industry={industry_name}")
+                return result
+            else:
+                # 返回所有行业（按涨跌幅排序）
+                df = df.sort_values('涨跌幅', ascending=False)
+                
+                items = []
+                for _, row in df.iterrows():
+                    item = {
+                        "name": row.get('板块名称', ''),
+                        "index_code": str(row.get('板块代码', '')),
+                        "price": float(row.get('最新价', 0)),
+                        "change": float(row.get('涨跌额', 0)),
+                        "change_percent": float(row.get('涨跌幅', 0)),
+                        "volume": int(float(row.get('成交量', 0)) * 100),
+                        "turnover": float(row.get('成交额', 0)),
+                    }
+                    items.append(item)
+                
+                result = {"industries": items, "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
+                logger.debug(f"行业板块查询成功 | count={len(items)}")
+                return result
+                
+        except Exception as e:
+            logger.error(f"获取行业板块失败 | industry={industry_name} | error={e}")
+            raise
+    
+    # ==================== 工具：行业 K 线 ====================
+    
+    async def get_industry_kline(
+        self,
+        industry_name: str,
+        period: str = "daily",
+        count: int = 100
+    ) -> Dict[str, Any]:
+        """
+        获取行业指数 K 线数据
+        
+        Args:
+            industry_name: 行业名称（如：半导体、银行、医药）
+            period: 周期（daily/weekly/monthly）
+            count: 返回条数
+            
+        Returns:
+            K 线数据字典
+        """
+        # 1. 尝试从缓存获取
+        if self._cache:
+            cached = await self._cache.get_industry_kline(industry_name, period, count)
+            if cached:
+                logger.info(f"行业 K 线缓存命中 | industry={industry_name}")
+                return cached
+        
+        # 2. 缓存未命中，调用 API
+        try:
+            # 计算日期范围
+            end_date = datetime.now()
+            start_date = end_date - timedelta(days=count * 2)
+            
+            df = self.ak.stock_board_industry_hist_em(
+                board=industry_name,
+                period=period,
+                start_date=start_date.strftime("%Y%m%d"),
+                end_date=end_date.strftime("%Y%m%d")
+            )
+            
+            if df.empty:
+                raise ValueError(f"无 K 线数据：{industry_name}")
+            
+            df = df.tail(count)
+            
+            items = []
+            for _, row in df.iterrows():
+                item = KLineItem(
+                    date=str(row.get('日期', '')),
+                    open=float(row.get('开盘', 0)),
+                    high=float(row.get('最高', 0)),
+                    low=float(row.get('最低', 0)),
+                    close=float(row.get('收盘', 0)),
+                    volume=int(float(row.get('成交量', 0)) * 100),
+                    turnover=float(row.get('成交额', 0)) if '成交额' in row else None,
+                    change_percent=float(row.get('涨跌幅', 0)) if '涨跌幅' in row else None
+                )
+                items.append(item)
+            
+            result = {
+                "industry_name": industry_name,
+                "period": period,
+                "items": [item.dict() for item in items]
+            }
+            
+            # 3. 写入缓存
+            if self._cache and result:
+                await self._cache.set_industry_kline(industry_name, period, count, result, ttl=300)
+            
+            logger.debug(f"行业 K 线查询成功 | industry={industry_name} | count={len(items)}")
+            return result
+                
+        except Exception as e:
+            logger.error(f"获取行业 K 线失败 | industry={industry_name} | error={e}")
+            raise
+    
+    # ==================== 工具：行业成分股 ====================
+    
+    async def get_industry_detail(self, industry_name: str) -> Dict[str, Any]:
+        """
+        获取行业成分股详情
+        
+        Args:
+            industry_name: 行业名称
+            
+        Returns:
+            行业成分股列表
+        """
+        # 1. 尝试从缓存获取
+        if self._cache:
+            cached = await self._cache.get_industry_detail(industry_name)
+            if cached:
+                logger.info(f"行业成分股缓存命中 | industry={industry_name}")
+                return cached
+        
+        # 2. 缓存未命中，调用 API
+        try:
+            df = self.ak.stock_board_industry_cons_em(symbol=industry_name)
+            
+            if df.empty:
+                raise ValueError(f"未找到行业：{industry_name}")
+            
+            stocks = []
+            for _, row in df.iterrows():
+                stock = {
+                    "symbol": str(row.get('代码', '')),
+                    "name": str(row.get('名称', '')),
+                    "price": float(row.get('最新价', 0)) if '最新价' in row else None,
+                    "change_percent": float(row.get('涨跌幅', 0)) if '涨跌幅' in row else None,
+                    "weight": float(row.get('权重 (%)', 0)) if '权重 (%)' in row else None,
+                }
+                stocks.append(stock)
+            
+            # 获取行业代码
+            index_code = ""
+            board_df = self.ak.stock_board_industry_name_em()
+            match = board_df[board_df['板块名称'] == industry_name]
+            if not match.empty:
+                index_code = str(match.iloc[0]['板块代码'])
+            
+            result = {
+                "industry_name": industry_name,
+                "index_code": index_code,
+                "stock_count": len(stocks),
+                "stocks": stocks,
+                "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            }
+            
+            # 3. 写入缓存（成分股默认 3600 秒）
+            if self._cache and result:
+                await self._cache.set_industry_detail(industry_name, result, ttl=3600)
+            
+            logger.debug(f"行业成分股查询成功 | industry={industry_name} | count={len(stocks)}")
+            return result
+                
+        except Exception as e:
+            logger.error(f"获取行业成分股失败 | industry={industry_name} | error={e}")
+            raise
+    
+    # ==================== 辅助方法：指数名称 ====================
+    
+    def _get_index_name(self, symbol: str) -> str:
+        """获取指数名称"""
+        try:
+            df = self.ak.stock_zh_index_spot_em()
+            result = df[df['代码'] == symbol]
+            if not result.empty:
+                return result.iloc[0]['名称']
+        except Exception as e:
+            logger.warning(f"获取指数名称失败 | symbol={symbol} | error={e}")
         
         return ""

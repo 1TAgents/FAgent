@@ -35,6 +35,11 @@ MCP（Model Context Protocol）服务为 FAgent 提供标准化的金融数据�
 - `data_quote` - 行情（优先数据库/缓存）
 - `data_kline` - K 线（数据库自动补充）
 - `data_sync` - 手动同步单只股票
+- `index_quote` - 主流指数行情（沪深 300/中证 500/上证 50 等）✨
+- `index_kline` - 指数 K 线数据 ✨
+- `industry_quote` - 行业板块行情 ✨
+- `industry_kline` - 行业 K 线 ✨
+- `industry_detail` - 行业成分股 ✨
 
 ## 架构
 
@@ -211,6 +216,162 @@ curl -X POST http://localhost:8002/tool/call \
   -H "Content-Type: application/json" \
   -d '{"tool_name": "stock_financial", "arguments": {"symbol": "600519"}}'
 ```
+
+---
+
+### 7. index_quote - 指数行情 ✨
+
+获取主流指数实时行情（沪深 300/中证 500/上证 50/科创 50/创业板指等）。
+
+**参数：**
+| 参数 | 类型 | 必填 | 默认值 | 说明 |
+|------|------|------|--------|------|
+| symbol | string | ✅ | - | 指数代码（如：000300, 000001, 399006） |
+
+**主流指数代码：**
+| 代码 | 名称 |
+|------|------|
+| 000001 | 上证指数 |
+| 000016 | 上证 50 |
+| 000300 | 沪深 300 |
+| 000688 | 科创 50 |
+| 000905 | 中证 500 |
+| 399001 | 深证成指 |
+| 399006 | 创业板指 |
+
+**调用示例：**
+```bash
+curl -X POST http://localhost:8002/tool/call \
+  -H "Content-Type: application/json" \
+  -d '{"tool_name": "index_quote", "arguments": {"symbol": "000300"}}'
+```
+
+**返回示例：**
+```json
+{
+  "success": true,
+  "data": {
+    "symbol": "000300",
+    "name": "沪深 300",
+    "price": 3500.00,
+    "change": 25.5,
+    "change_percent": 0.73,
+    "volume": 123456789,
+    "turnover": 9876543210.50,
+    "timestamp": "2026-03-17 15:00:00"
+  }
+}
+```
+
+**缓存 TTL：** 60 秒
+
+---
+
+### 8. index_kline - 指数 K 线 ✨
+
+获取指数 K 线历史数据，支持多种周期。
+
+**参数：**
+| 参数 | 类型 | 必填 | 默认值 | 说明 |
+|------|------|------|--------|------|
+| symbol | string | ✅ | - | 指数代码 |
+| period | string | ❌ | "daily" | 周期（daily/weekly/monthly） |
+| count | integer | ❌ | 100 | 返回条数（1-1000） |
+
+**调用示例：**
+```bash
+curl -X POST http://localhost:8002/tool/call \
+  -H "Content-Type: application/json" \
+  -d '{"tool_name": "index_kline", "arguments": {"symbol": "000300", "period": "daily", "count": 30}}'
+```
+
+**缓存 TTL：** 300 秒（5 分钟）
+
+---
+
+### 9. industry_quote - 行业板块行情 ✨
+
+获取行业板块实时行情，可查询单个行业或所有行业涨幅榜。
+
+**参数：**
+| 参数 | 类型 | 必填 | 默认值 | 说明 |
+|------|------|------|--------|------|
+| industry_name | string | ❌ | null | 行业名称（如：半导体、银行、医药；不传则返回所有行业） |
+
+**调用示例：**
+```bash
+# 查询所有行业（按涨跌幅排序）
+curl -X POST http://localhost:8002/tool/call \
+  -H "Content-Type: application/json" \
+  -d '{"tool_name": "industry_quote"}'
+
+# 查询单个行业
+curl -X POST http://localhost:8002/tool/call \
+  -H "Content-Type: application/json" \
+  -d '{"tool_name": "industry_quote", "arguments": {"industry_name": "半导体"}}'
+```
+
+**缓存 TTL：** 60 秒
+
+---
+
+### 10. industry_kline - 行业 K 线 ✨
+
+获取行业指数 K 线历史数据。
+
+**参数：**
+| 参数 | 类型 | 必填 | 默认值 | 说明 |
+|------|------|------|--------|------|
+| industry_name | string | ✅ | - | 行业名称（如：半导体、银行、医药） |
+| period | string | ❌ | "daily" | 周期（daily/weekly/monthly） |
+| count | integer | ❌ | 100 | 返回条数（1-1000） |
+
+**调用示例：**
+```bash
+curl -X POST http://localhost:8002/tool/call \
+  -H "Content-Type: application/json" \
+  -d '{"tool_name": "industry_kline", "arguments": {"industry_name": "半导体", "period": "daily", "count": 30}}'
+```
+
+**缓存 TTL：** 300 秒（5 分钟）
+
+---
+
+### 11. industry_detail - 行业成分股 ✨
+
+获取行业成分股列表，包含成分股代码、名称、权重等信息。
+
+**参数：**
+| 参数 | 类型 | 必填 | 默认值 | 说明 |
+|------|------|------|--------|------|
+| industry_name | string | ✅ | - | 行业名称（如：半导体、银行、医药） |
+
+**调用示例：**
+```bash
+curl -X POST http://localhost:8002/tool/call \
+  -H "Content-Type: application/json" \
+  -d '{"tool_name": "industry_detail", "arguments": {"industry_name": "半导体"}}'
+```
+
+**返回示例：**
+```json
+{
+  "success": true,
+  "data": {
+    "industry_name": "半导体",
+    "index_code": "BK0917",
+    "stock_count": 150,
+    "stocks": [
+      {"symbol": "688981", "name": "中芯国际", "weight": 5.2},
+      {"symbol": "002371", "name": "北方华创", "weight": 4.8},
+      ...
+    ],
+    "timestamp": "2026-03-17 15:00:00"
+  }
+}
+```
+
+**缓存 TTL：** 3600 秒（1 小时）
 
 ---
 

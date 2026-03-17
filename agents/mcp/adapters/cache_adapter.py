@@ -253,6 +253,161 @@ class CacheAdapter:
         key = self._make_search_key(keyword, market, limit)
         return await self.set(key, data, ttl)
     
+    # ==================== 指数相关缓存方法 ====================
+    
+    def _make_index_quote_key(self, symbol: str) -> str:
+        """生成指数行情缓存键"""
+        return f"index_quote:{symbol}"
+    
+    async def get_index_quote(self, symbol: str) -> Optional[Dict]:
+        """获取指数行情缓存"""
+        key = self._make_index_quote_key(symbol)
+        return await self.get(key)
+    
+    async def set_index_quote(
+        self,
+        symbol: str,
+        data: Dict,
+        ttl: int = 60
+    ) -> bool:
+        """
+        设置指数行情缓存
+        
+        Args:
+            symbol: 指数代码
+            data: 指数行情数据
+            ttl: 过期时间（秒），指数行情默认 1 分钟
+        """
+        key = self._make_index_quote_key(symbol)
+        return await self.set(key, data, ttl)
+    
+    def _make_index_kline_key(self, symbol: str, period: str, count: int) -> str:
+        """生成指数 K 线缓存键"""
+        return f"index_kline:{symbol}:{period}:{count}"
+    
+    async def get_index_kline(
+        self,
+        symbol: str,
+        period: str,
+        count: int
+    ) -> Optional[Dict]:
+        """获取指数 K 线缓存"""
+        key = self._make_index_kline_key(symbol, period, count)
+        return await self.get(key)
+    
+    async def set_index_kline(
+        self,
+        symbol: str,
+        period: str,
+        count: int,
+        data: Dict,
+        ttl: int = 300
+    ) -> bool:
+        """
+        设置指数 K 线缓存
+        
+        Args:
+            symbol: 指数代码
+            period: 周期
+            count: 条数
+            data: K 线数据
+            ttl: 过期时间（秒），K 线默认 5 分钟
+        """
+        key = self._make_index_kline_key(symbol, period, count)
+        return await self.set(key, data, ttl)
+    
+    # ==================== 行业相关缓存方法 ====================
+    
+    def _make_industry_quote_key(self, industry_name: str) -> str:
+        """生成行业行情缓存键"""
+        safe_name = industry_name.replace(":", "_").replace(" ", "_")
+        return f"industry_quote:{safe_name}"
+    
+    async def get_industry_quote(self, industry_name: str) -> Optional[Dict]:
+        """获取行业行情缓存"""
+        key = self._make_industry_quote_key(industry_name)
+        return await self.get(key)
+    
+    async def set_industry_quote(
+        self,
+        industry_name: str,
+        data: Dict,
+        ttl: int = 60
+    ) -> bool:
+        """
+        设置行业行情缓存
+        
+        Args:
+            industry_name: 行业名称
+            data: 行业行情数据
+            ttl: 过期时间（秒），行业行情默认 1 分钟
+        """
+        key = self._make_industry_quote_key(industry_name)
+        return await self.set(key, data, ttl)
+    
+    def _make_industry_kline_key(self, industry_name: str, period: str, count: int) -> str:
+        """生成行业 K 线缓存键"""
+        safe_name = industry_name.replace(":", "_").replace(" ", "_")
+        return f"industry_kline:{safe_name}:{period}:{count}"
+    
+    async def get_industry_kline(
+        self,
+        industry_name: str,
+        period: str,
+        count: int
+    ) -> Optional[Dict]:
+        """获取行业 K 线缓存"""
+        key = self._make_industry_kline_key(industry_name, period, count)
+        return await self.get(key)
+    
+    async def set_industry_kline(
+        self,
+        industry_name: str,
+        period: str,
+        count: int,
+        data: Dict,
+        ttl: int = 300
+    ) -> bool:
+        """
+        设置行业 K 线缓存
+        
+        Args:
+            industry_name: 行业名称
+            period: 周期
+            count: 条数
+            data: K 线数据
+            ttl: 过期时间（秒），K 线默认 5 分钟
+        """
+        key = self._make_industry_kline_key(industry_name, period, count)
+        return await self.set(key, data, ttl)
+    
+    def _make_industry_detail_key(self, industry_name: str) -> str:
+        """生成行业成分股缓存键"""
+        safe_name = industry_name.replace(":", "_").replace(" ", "_")
+        return f"industry_detail:{safe_name}"
+    
+    async def get_industry_detail(self, industry_name: str) -> Optional[Dict]:
+        """获取行业成分股缓存"""
+        key = self._make_industry_detail_key(industry_name)
+        return await self.get(key)
+    
+    async def set_industry_detail(
+        self,
+        industry_name: str,
+        data: Dict,
+        ttl: int = 3600
+    ) -> bool:
+        """
+        设置行业成分股缓存
+        
+        Args:
+            industry_name: 行业名称
+            data: 成分股数据
+            ttl: 过期时间（秒），成分股默认 1 小时
+        """
+        key = self._make_industry_detail_key(industry_name)
+        return await self.set(key, data, ttl)
+    
     async def close(self):
         """关闭 Redis 连接"""
         if self._redis:

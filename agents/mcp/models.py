@@ -148,3 +148,81 @@ class ToolDefinition(BaseModel):
     name: str = Field(..., description="工具名称")
     description: str = Field(..., description="工具描述")
     parameters: Dict[str, Any] = Field(default_factory=dict, description="参数定义 (JSON Schema)")
+
+
+# ==================== 指数数据模型 ====================
+
+class IndexQuote(BaseModel):
+    """指数实时行情"""
+    symbol: str = Field(..., description="指数代码（如：000300, 000001）")
+    name: str = Field(..., description="指数名称（如：沪深 300, 上证指数）")
+    
+    # 价格信息
+    price: float = Field(0.0, description="当前点位")
+    open: float = Field(0.0, description="开盘点位")
+    high: float = Field(0.0, description="最高点位")
+    low: float = Field(0.0, description="最低点位")
+    close: float = Field(0.0, description="昨收点位")
+    
+    # 涨跌信息
+    change: float = Field(0.0, description="涨跌点")
+    change_percent: float = Field(0.0, description="涨跌幅%")
+    
+    # 成交信息
+    volume: int = Field(0, description="成交量（手）")
+    turnover: float = Field(0.0, description="成交额（元）")
+    
+    # 时间戳
+    timestamp: Optional[str] = Field(None, description="数据时间")
+    
+    def summary(self) -> str:
+        """生成摘要（供 LLM 使用）"""
+        return (
+            f"{self.name}({self.symbol}) 当前点位 {self.price:.2f}，"
+            f"涨跌 {self.change:+.2f} ({self.change_percent:+.2f}%)，"
+            f"成交量 {self.volume/10000:.1f}万手"
+        )
+
+
+# ==================== 行业板块数据模型 ====================
+
+class IndustryQuote(BaseModel):
+    """行业板块行情"""
+    name: str = Field(..., description="行业名称（如：半导体、银行、医药）")
+    index_code: str = Field(..., description="行业指数代码")
+    
+    # 价格信息
+    price: float = Field(0.0, description="当前点位")
+    change: float = Field(0.0, description="涨跌点")
+    change_percent: float = Field(0.0, description="涨跌幅%")
+    
+    # 成交信息
+    volume: int = Field(0, description="成交量（手）")
+    turnover: float = Field(0.0, description="成交额（元）")
+    
+    # 领涨股信息
+    lead_stock: Optional[str] = Field(None, description="领涨股名称")
+    lead_stock_symbol: Optional[str] = Field(None, description="领涨股代码")
+    lead_stock_change: Optional[float] = Field(None, description="领涨股涨幅%")
+    
+    # 时间戳
+    timestamp: Optional[str] = Field(None, description="数据时间")
+    
+    def summary(self) -> str:
+        """生成摘要（供 LLM 使用）"""
+        summary = f"{self.name} 行业指数 {self.price:.2f} 点 ({self.change_percent:+.2f}%)"
+        if self.lead_stock:
+            summary += f"，领涨：{self.lead_stock}({self.lead_stock_change:+.2f}%)"
+        return summary
+
+
+class IndustryDetail(BaseModel):
+    """行业成分股详情"""
+    industry_name: str = Field(..., description="行业名称")
+    index_code: str = Field(..., description="行业指数代码")
+    stock_count: int = Field(..., description="成分股数量")
+    stocks: List[Dict[str, Any]] = Field(default_factory=list, description="成分股列表")
+    
+    def summary(self) -> str:
+        """生成摘要"""
+        return f"{self.industry_name}({self.index_code}) 共 {self.stock_count} 只成分股"

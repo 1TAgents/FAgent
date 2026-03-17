@@ -285,6 +285,122 @@ async def lifespan(app: FastAPI):
         }
     )
     
+    # ==================== 新增工具：指数行情 ====================
+    
+    tool_registry.register(
+        name="index_quote",
+        handler=adapter.get_index_quote,
+        description="获取主流指数实时行情（沪深 300/中证 500/上证 50/科创 50/创业板指等）",
+        parameters={
+            "type": "object",
+            "properties": {
+                "symbol": {
+                    "type": "string",
+                    "description": "指数代码（如：000300=沪深 300, 000001=上证指数，000905=中证 500）"
+                }
+            },
+            "required": ["symbol"]
+        }
+    )
+    
+    # ==================== 新增工具：指数 K 线 ====================
+    
+    tool_registry.register(
+        name="index_kline",
+        handler=adapter.get_index_kline,
+        description="获取指数 K 线数据（支持日线/周线/月线）",
+        parameters={
+            "type": "object",
+            "properties": {
+                "symbol": {
+                    "type": "string",
+                    "description": "指数代码"
+                },
+                "period": {
+                    "type": "string",
+                    "description": "K 线周期",
+                    "enum": ["daily", "weekly", "monthly"],
+                    "default": "daily"
+                },
+                "count": {
+                    "type": "integer",
+                    "description": "返回条数",
+                    "default": 100,
+                    "minimum": 1,
+                    "maximum": 1000
+                }
+            },
+            "required": ["symbol"]
+        }
+    )
+    
+    # ==================== 新增工具：行业板块行情 ====================
+    
+    tool_registry.register(
+        name="industry_quote",
+        handler=adapter.get_industry_quote,
+        description="获取行业板块行情（可查询单个行业或所有行业涨幅榜）",
+        parameters={
+            "type": "object",
+            "properties": {
+                "industry_name": {
+                    "type": "string",
+                    "description": "行业名称（如：半导体、银行、医药；不传则返回所有行业）"
+                }
+            },
+            "required": []
+        }
+    )
+    
+    # ==================== 新增工具：行业 K 线 ====================
+    
+    tool_registry.register(
+        name="industry_kline",
+        handler=adapter.get_industry_kline,
+        description="获取行业指数 K 线数据（支持日线/周线/月线）",
+        parameters={
+            "type": "object",
+            "properties": {
+                "industry_name": {
+                    "type": "string",
+                    "description": "行业名称（如：半导体、银行、医药）"
+                },
+                "period": {
+                    "type": "string",
+                    "description": "K 线周期",
+                    "enum": ["daily", "weekly", "monthly"],
+                    "default": "daily"
+                },
+                "count": {
+                    "type": "integer",
+                    "description": "返回条数",
+                    "default": 100,
+                    "minimum": 1,
+                    "maximum": 1000
+                }
+            },
+            "required": ["industry_name"]
+        }
+    )
+    
+    # ==================== 新增工具：行业成分股 ====================
+    
+    tool_registry.register(
+        name="industry_detail",
+        handler=adapter.get_industry_detail,
+        description="获取行业成分股列表（包含成分股代码、名称、权重等）",
+        parameters={
+            "type": "object",
+            "properties": {
+                "industry_name": {
+                    "type": "string",
+                    "description": "行业名称（如：半导体、银行、医药）"
+                }
+            },
+            "required": ["industry_name"]
+        }
+    )
+    
     logger.info(f"已注册 {tool_registry.count} 个工具")
     logger.info("日志目录：logs/mcp/")
     logger.info("数据服务：SQLite + Redis 缓存 + 定时同步")
