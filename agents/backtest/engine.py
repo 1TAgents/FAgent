@@ -113,9 +113,14 @@ class BacktestEngine:
         metrics = self._calculate_metrics(benchmark_data)
         
         # 5. 生成报告
+        symbol_val = data.get('symbol', 'UNKNOWN') if hasattr(data, 'get') else 'UNKNOWN'
+        # 如果是 Series，取第一个值
+        if hasattr(symbol_val, 'iloc'):
+            symbol_val = symbol_val.iloc[0] if len(symbol_val) > 0 else 'UNKNOWN'
+        
         report = BacktestReport(
             strategy_name=self.config.name,
-            symbol=data.get('symbol', 'UNKNOWN') if hasattr(data, 'get') else 'UNKNOWN',
+            symbol=str(symbol_val),
             start_date=str(dates[0].strftime("%Y-%m-%d")) if isinstance(dates[0], datetime) else str(dates[0]),
             end_date=str(dates[-1].strftime("%Y-%m-%d")) if isinstance(dates[-1], datetime) else str(dates[-1]),
             trading_days=len(data),
