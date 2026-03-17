@@ -592,6 +592,86 @@ async def lifespan(app: FastAPI):
         }
     )
     
+    # ==================== 新增工具：参数网格搜索 ====================
+    
+    async def backtest_grid_search(
+        strategy_name: str,
+        symbol: str,
+        start_date: str,
+        end_date: str,
+        param_grid: dict,
+        initial_capital: float = 100000.0
+    ) -> dict:
+        """网格搜索工具包装器"""
+        from agents.backtest.api import grid_search
+        
+        response = await grid_search(
+            strategy_name=strategy_name,
+            symbol=symbol,
+            start_date=start_date,
+            end_date=end_date,
+            param_grid=param_grid,
+            initial_capital=initial_capital
+        )
+        
+        if response.get('success'):
+            best = response.get('best_result', {})
+            return {
+                "success": True,
+                "best_params": response.get('best_params'),
+                "best_performance": {
+                    "sharpe_ratio": best.get('sharpe_ratio', 0),
+                    "total_returns": f"{best.get('total_returns', 0):.2%}",
+                    "max_drawdown": f"{best.get('max_drawdown', 0):.2%}"
+                },
+                "total_combinations": response.get('total_combinations'),
+                "elapsed_seconds": response.get('elapsed_seconds'),
+                "top_results": response.get('all_results', [])[:5]
+            }
+        else:
+            return {
+                "success": False,
+                "error": response.get('error')
+            }
+    
+    tool_registry.register(
+        name="backtest_grid_search",
+        handler=backtest_grid_search,
+        description="参数网格搜索（自动寻找最优策略参数）",
+        parameters={
+            "type": "object",
+            "properties": {
+                "strategy_name": {
+                    "type": "string",
+                    "description": "策略名称（dual_ma/rsi/macd/bollinger）",
+                    "enum": ["dual_ma", "rsi", "macd", "bollinger"]
+                },
+                "symbol": {
+                    "type": "string",
+                    "description": "股票代码"
+                },
+                "start_date": {
+                    "type": "string",
+                    "description": "开始日期（YYYY-MM-DD）"
+                },
+                "end_date": {
+                    "type": "string",
+                    "description": "结束日期（YYYY-MM-DD）"
+                },
+                "param_grid": {
+                    "type": "object",
+                    "description": "参数网格（如 {\"short_period\": [5, 10, 20], \"long_period\": [20, 50, 100]}）"
+                },
+                "initial_capital": {
+                    "type": "number",
+                    "description": "初始资金",
+                    "default": 100000.0
+                }
+            },
+            "required": ["strategy_name", "symbol", "start_date", "end_date", "param_grid"]
+        }
+    )
+    
     logger.info(f"已注册 {tool_registry.count} 个工具")
     logger.info("日志目录：logs/mcp/")
     logger.info("数据服务：SQLite + Redis 缓存 + 定时同步")

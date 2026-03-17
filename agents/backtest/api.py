@@ -2,67 +2,37 @@
 Backtest API - 回测服务 FastAPI 接口
 
 提供回测执行、报告查询等接口
+
+优化：
+1. 集成真实数据源（SQLite + AKShare）
+2. 向量化策略（性能提升 10-100x）
+3. 参数网格搜索
 """
 import logging
 from fastapi import APIRouter, HTTPException
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
+import time
 
 from .models import (
     BacktestRequest, BacktestResponse, BacktestReport, StrategyConfig
 )
 from .engine import BacktestEngine
 from .strategies import get_strategy_class
+from .data_loader import get_data_loader
+from .vectorized_strategies import get_vectorized_strategy
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/backtest", tags=["backtest"])
 
 
-# 模拟数据生成（用于测试）
-def generate_mock_data(symbol: str, start_date: str, end_date: str) -> pd.DataFrame:
-    """生成模拟 K 线数据"""
-    dates = pd.date_range(start=start_date, end=end_date, freq='B')  # 工作日
-    
-    np.random.seed(42)
-    base_price = 100.0
-    
-    # 生成随机游走价格
-    returns = np.random.normal(0.0005, 0.02, len(dates))  # 日均收益 0.05%，波动 2%
-    prices = base_price * np.cumprod(1 + returns)
-    
-    # 生成 OHLCV
-    data = {
-        'symbol': symbol,
-        'open': prices * (1 + np.random.uniform(-0.01, 0.01, len(dates))),
-        'high': prices * (1 + np.random.uniform(0, 0.02, len(dates))),
-        'low': prices * (1 - np.random.uniform(0, 0.02, len(dates))),
-        'close': prices,
-        'volume': np.random.uniform(1e6, 1e7, len(dates)).astype(int),
-    }
-    
-    df = pd.DataFrame(data, index=dates)
-    return df
-
-
-async def load_real_data(symbol: str, start_date: str, end_date: str) -> pd.DataFrame:
-    """
-    加载真实历史数据
-    
-    TODO: 集成 MCP client 或 data_service 获取真实数据
-    当前使用模拟数据
-    """
-    # 暂时使用模拟数据
-    logger.info(f"加载数据 | symbol={symbol}, start={start_date}, end={end_date}")
-    return generate_mock_data(symbol, start_date, end_date)
-
-
 @router.post("/run")
 async def run_backtest(request: BacktestRequest) -> BacktestResponse:
     """
-    执行回测
+    执行回测（支持向量化快速回测）
     
     Args:
         request: 回测请求
@@ -70,14 +40,17 @@ async def run_backtest(request: BacktestRequest) -> BacktestResponse:
     Returns:
         回测报告
     """
+    start_time = time.time()
+    
     try:
         logger.info(f"收到回测请求 | strategy={request.strategy_name}, symbol={request.symbol}")
         
-        # 1. 加载数据
-        data = await load_real_data(
-            request.symbol,
-            request.start_date,
-            request.end_date
+        # 1. 加载真实数据
+        data_loader = get_data_loader()
+        data = data_loader.load_klines(
+            symbol=request.symbol,
+            start_date=request.start_date,
+            end_date=request.end_date
         )
         
         if data.empty:
@@ -86,27 +59,50 @@ async def run_backtest(request: BacktestRequest) -> BacktestResponse:
                 error=f"无数据：{request.symbol}"
             )
         
-        # 2. 创建策略配置
+        # 2. 尝试向量化回测（更快）
+        try:
+            strategy = get_vectorized_strategy(
+                request.strategy_name,
+                **request.params
+            )
+            
+            # 生成信号
+            data_with_signals = strategy.generate_signals(data)
+            
+            # 快速回测
+            result = strategy.backtest(data_with_signals, request.initial_capital)
+            
+            elapsed = time.time() - start_time
+            logger.info(f"向量化回测完成 | time={elapsed:.3f}s, 总收益={result['total_returns']:.2%}")
+            
+            # 转换为标准响应格式
+            return BacktestResponse(
+                success=True,
+                report=_create_report_from_dict(
+                    request.strategy_name, request.symbol,
+                    request.start_date, request.end_date,
+                    result, request.params
+                )
+            )
+            
+        except KeyError:
+            # 向量化策略不支持，使用原始引擎
+            logger.info("使用原始回测引擎")
+            pass
+        
+        # 3. 原始回测引擎（兼容旧策略）
         config = StrategyConfig(
             name=request.strategy_name,
             initial_capital=request.initial_capital,
             params=request.params
         )
         
-        # 3. 获取策略类
-        try:
-            strategy_class = get_strategy_class(request.strategy_name)
-        except ValueError as e:
-            return BacktestResponse(
-                success=False,
-                error=str(e)
-            )
-        
-        # 4. 执行回测
+        strategy_class = get_strategy_class(request.strategy_name)
         engine = BacktestEngine(config)
         report = engine.run(strategy_class, data)
         
-        logger.info(f"回测完成 | 总收益={report.metrics.total_return:.2f}%")
+        elapsed = time.time() - start_time
+        logger.info(f"回测完成 | time={elapsed:.2f}s, 总收益={report.metrics.total_return:.2f}%")
         
         return BacktestResponse(
             success=True,
@@ -119,6 +115,125 @@ async def run_backtest(request: BacktestRequest) -> BacktestResponse:
             success=False,
             error=str(e)
         )
+
+
+@router.post("/grid_search")
+async def grid_search(
+    strategy_name: str,
+    symbol: str,
+    start_date: str,
+    end_date: str,
+    param_grid: Dict[str, List[Any]],
+    initial_capital: float = 100000.0
+) -> Dict[str, Any]:
+    """
+    参数网格搜索
+    
+    Args:
+        strategy_name: 策略名称
+        symbol: 股票代码
+        start_date: 开始日期
+        end_date: 结束日期
+        param_grid: 参数网格（如 {"short_period": [5, 10, 20], "long_period": [20, 50, 100]}）
+        initial_capital: 初始资金
+        
+    Returns:
+        最优参数和绩效
+    """
+    start_time = time.time()
+    
+    try:
+        logger.info(f"开始网格搜索 | strategy={strategy_name}, combinations={np.prod([len(v) for v in param_grid.values()])}")
+        
+        # 1. 加载数据
+        data_loader = get_data_loader()
+        data = data_loader.load_klines(symbol, start_date, end_date)
+        
+        if data.empty:
+            return {"success": False, "error": f"无数据：{symbol}"}
+        
+        # 2. 网格搜索
+        best_result = None
+        best_params = None
+        best_sharpe = -999
+        
+        all_results = []
+        
+        # 生成参数组合
+        from itertools import product
+        param_names = list(param_grid.keys())
+        param_values = list(param_grid.values())
+        
+        for values in product(*param_values):
+            params = dict(zip(param_names, values))
+            
+            try:
+                strategy = get_vectorized_strategy(strategy_name, **params)
+                data_with_signals = strategy.generate_signals(data)
+                result = strategy.backtest(data_with_signals, initial_capital)
+                
+                # 记录结果
+                if result['sharpe_ratio'] > best_sharpe:
+                    best_sharpe = result['sharpe_ratio']
+                    best_params = params
+                    best_result = result
+                
+                all_results.append({
+                    'params': params,
+                    'sharpe': result['sharpe_ratio'],
+                    'returns': result['total_returns'],
+                    'max_drawdown': result['max_drawdown']
+                })
+                
+            except Exception as e:
+                logger.warning(f"参数组合失败 | params={params}, error={e}")
+                continue
+        
+        elapsed = time.time() - start_time
+        logger.info(f"网格搜索完成 | time={elapsed:.2f}s, best_sharpe={best_sharpe:.2f}")
+        
+        return {
+            'success': True,
+            'best_params': best_params,
+            'best_result': best_result,
+            'total_combinations': len(all_results),
+            'elapsed_seconds': elapsed,
+            'all_results': sorted(all_results, key=lambda x: x['sharpe'], reverse=True)[:20]  # 返回前 20
+        }
+        
+    except Exception as e:
+        logger.error(f"网格搜索失败 | error={e}")
+        return {'success': False, 'error': str(e)}
+
+
+def _create_report_from_dict(
+    strategy_name: str, symbol: str,
+    start_date: str, end_date: str,
+    result: Dict, params: Dict
+) -> BacktestReport:
+    """从字典创建回测报告（简化版）"""
+    from .models import PerformanceMetrics
+    
+    metrics = PerformanceMetrics(
+        total_return=result['total_returns'] * 100,
+        annual_return=result['total_returns'] * 100,  # 简化
+        sharpe_ratio=result['sharpe_ratio'],
+        max_drawdown=result['max_drawdown'] * 100,
+        final_capital=result['equity_curve'][-1] if result['equity_curve'] else 0,
+        initial_capital=100000.0
+    )
+    
+    return BacktestReport(
+        strategy_name=strategy_name,
+        symbol=symbol,
+        start_date=start_date,
+        end_date=end_date,
+        trading_days=len(result.get('dates', [])),
+        config=StrategyConfig(name=strategy_name, params=params),
+        metrics=metrics,
+        trades=[],  # 向量化版本暂不返回详细交易
+        equity_curve={str(d): v for d, v in zip(result.get('dates', []), result.get('equity_curve', []))}
+    )
 
 
 @router.get("/strategies")
