@@ -162,7 +162,7 @@ class DataSyncManager:
         limit: int = 500
     ) -> int:
         """
-        同步指定范围的 K 线数据
+        同步指定范围的 K 线数据（智能增量同步）
         
         Args:
             symbol: 股票代码
@@ -175,10 +175,14 @@ class DataSyncManager:
             同步的记录数
         """
         try:
-            ak = self._get_ak()
-            logger.debug(f"开始同步 K 线 | symbol={symbol}, start={start_date}, end={end_date}")
+            # 1. 检查数据库已有数据
+            existing = self.db.get_kline(symbol, "daily", count=limit)
             
-            # 计算日期范围
+            if existing and len(existing) >= limit * 0.9:
+                logger.debug(f"数据已充足，跳过 | symbol={symbol}, count={len(existing)}")
+                return 0
+            
+            # 2. 计算需要同步的日期范围
             if not end_date:
                 end_dt = datetime.now()
             else:
@@ -189,7 +193,24 @@ class DataSyncManager:
             else:
                 start_dt = datetime.strptime(str(start_date).replace("-", ""), "%Y%m%d")
             
-            # 从 AKShare 获取
+            # 如果数据库已有部分数据，只同步缺失的部分
+            if existing:
+                last_date_str = existing[-1]['date']
+                last_date = datetime.strptime(last_date_str.replace("-", ""), "%Y%m%d")
+                
+                # 如果最后一条数据是最近的，说明数据已经更新
+                if (end_dt - last_date).days <= 1:
+                    logger.debug(f"数据已是最新，跳过 | symbol={symbol}, last={last_date_str}")
+                    return 0
+                
+                # 只同步缺失的日期
+                start_dt = last_date + timedelta(days=1)
+                logger.info(f"增量同步 | symbol={symbol}, from={last_date_str}, to={end_dt.strftime('%Y%m%d')}")
+            else:
+                logger.info(f"首次同步 | symbol={symbol}, from={start_dt.strftime('%Y%m%d')}, to={end_dt.strftime('%Y%m%d')}")
+            
+            # 3. 从 AKShare 获取
+            ak = self._get_ak()
             df = ak.stock_zh_a_hist(
                 symbol=symbol,
                 period="daily",
@@ -221,10 +242,10 @@ class DataSyncManager:
                 }
                 klines.append(kline)
             
-            # 保存到数据库
+            # 4. 保存到数据库
             self.db.save_kline(symbol, "daily", klines)
             
-            logger.debug(f"K 线已同步 | symbol={symbol} | count={len(klines)}")
+            logger.info(f"K 线已同步 | symbol={symbol} | 新增={len(klines)}, 总计={len(existing) + len(klines) if existing else len(klines)}")
             return len(klines)
             
         except Exception as e:
