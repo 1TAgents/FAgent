@@ -9,6 +9,7 @@ from datetime import datetime, timedelta
 import asyncio
 
 from .database import StockDatabase
+from .coverage_manager import CoverageManager
 from .cache import DataCache
 
 logger = logging.getLogger(__name__)
@@ -35,6 +36,7 @@ class DataSyncManager:
         self.db = db
         self.cache = cache
         self._ak = None
+        self.coverage = CoverageManager(db.db_path)  # 数据覆盖范围管理器
     
     def _get_ak(self):
         """延迟加载 AKShare"""
@@ -162,94 +164,93 @@ class DataSyncManager:
         limit: int = 500
     ) -> int:
         """
-        同步指定范围的 K 线数据（智能增量同步）
+        同步指定范围的 K 线数据（基于覆盖范围的智能增量同步）
         
         Args:
             symbol: 股票代码
-            days: 同步天数（当 start_date/end_date 未指定时使用）
-            start_date: 开始日期（YYYYMMDD 或 YYYY-MM-DD）
-            end_date: 结束日期（YYYYMMDD 或 YYYY-MM-DD）
+            days: 同步天数
+            start_date: 开始日期
+            end_date: 结束日期
             limit: 同步条数限制
             
         Returns:
             同步的记录数
         """
         try:
-            # 1. 检查数据库已有数据
-            existing = self.db.get_kline(symbol, "daily", count=limit)
-            
-            if existing and len(existing) >= limit * 0.9:
-                logger.debug(f"数据已充足，跳过 | symbol={symbol}, count={len(existing)}")
-                return 0
-            
-            # 2. 计算需要同步的日期范围
+            # 1. 计算请求的日期范围
             if not end_date:
                 end_dt = datetime.now()
+                end_date = end_dt.strftime("%Y-%m-%d")
             else:
                 end_dt = datetime.strptime(str(end_date).replace("-", ""), "%Y%m%d")
             
             if not start_date:
                 start_dt = end_dt - timedelta(days=days)
+                start_date = start_dt.strftime("%Y-%m-%d")
             else:
                 start_dt = datetime.strptime(str(start_date).replace("-", ""), "%Y%m%d")
             
-            # 如果数据库已有部分数据，只同步缺失的部分
-            if existing:
-                last_date_str = existing[-1]['date']
-                last_date = datetime.strptime(last_date_str.replace("-", ""), "%Y%m%d")
-                
-                # 如果最后一条数据是最近的，说明数据已经更新
-                if (end_dt - last_date).days <= 1:
-                    logger.debug(f"数据已是最新，跳过 | symbol={symbol}, last={last_date_str}")
-                    return 0
-                
-                # 只同步缺失的日期
-                start_dt = last_date + timedelta(days=1)
-                logger.info(f"增量同步 | symbol={symbol}, from={last_date_str}, to={end_dt.strftime('%Y%m%d')}")
-            else:
-                logger.info(f"首次同步 | symbol={symbol}, from={start_dt.strftime('%Y%m%d')}, to={end_dt.strftime('%Y%m%d')}")
-            
-            # 3. 从 AKShare 获取
-            ak = self._get_ak()
-            df = ak.stock_zh_a_hist(
-                symbol=symbol,
-                period="daily",
-                start_date=start_dt.strftime("%Y%m%d"),
-                end_date=end_dt.strftime("%Y%m%d"),
-                adjust="qfq"
+            # 2. 使用覆盖范围管理器检查是否需要同步
+            should_sync, reason = self.coverage.should_sync(
+                symbol, "daily", start_date, end_date
             )
             
-            if df.empty:
-                logger.warning(f"无 K 线数据 | symbol={symbol}")
+            if not should_sync:
+                logger.debug(f"跳过同步 | symbol={symbol}, reason={reason}")
                 return 0
             
-            # 限制条数
-            if len(df) > limit:
-                df = df.tail(limit)
+            # 3. 计算缺失范围
+            missing_ranges = self.coverage.calculate_missing_ranges(
+                symbol, "daily", start_date, end_date
+            )
             
-            # 转换为字典列表
-            klines = []
-            for _, row in df.iterrows():
-                kline = {
-                    "date": str(row.get('日期', '')),
-                    "open": float(row.get('开盘', 0)),
-                    "high": float(row.get('最高', 0)),
-                    "low": float(row.get('最低', 0)),
-                    "close": float(row.get('收盘', 0)),
-                    "volume": int(float(row.get('成交量', 0)) * 100),
-                    "turnover": float(row.get('成交额', 0)) if '成交额' in row else None,
-                    "change_percent": float(row.get('涨跌幅', 0)) if '涨跌幅' in row else None
-                }
-                klines.append(kline)
+            # 4. 同步缺失数据
+            total_synced = 0
+            ak = self._get_ak()
             
-            # 4. 保存到数据库
-            self.db.save_kline(symbol, "daily", klines)
+            for range in missing_ranges:
+                logger.info(f"同步缺失范围 | symbol={symbol}, {range['start']}~{range['end']}")
+                
+                df = ak.stock_zh_a_hist(
+                    symbol=symbol,
+                    period="daily",
+                    start_date=range['start'].replace("-", ""),
+                    end_date=range['end'].replace("-", ""),
+                    adjust="qfq"
+                )
+                
+                if df.empty:
+                    logger.warning(f"无数据 | symbol={symbol}, range={range}")
+                    continue
+                
+                # 转换为字典列表
+                klines = []
+                for _, row in df.iterrows():
+                    kline = {
+                        "date": str(row.get('日期', '')),
+                        "open": float(row.get('开盘', 0)),
+                        "high": float(row.get('最高', 0)),
+                        "low": float(row.get('最低', 0)),
+                        "close": float(row.get('收盘', 0)),
+                        "volume": int(float(row.get('成交量', 0)) * 100),
+                        "turnover": float(row.get('成交额', 0)),
+                        "change_percent": float(row.get('涨跌幅', 0))
+                    }
+                    klines.append(kline)
+                
+                # 保存到数据库
+                self.db.save_kline(symbol, "daily", klines)
+                total_synced += len(klines)
             
-            logger.info(f"K 线已同步 | symbol={symbol} | 新增={len(klines)}, 总计={len(existing) + len(klines) if existing else len(klines)}")
-            return len(klines)
+            # 5. 更新覆盖范围
+            if total_synced > 0:
+                self.coverage.refresh_coverage_from_klines(symbol, "daily")
+                logger.info(f"同步完成 | symbol={symbol}, 新增={total_synced}")
+            
+            return total_synced
             
         except Exception as e:
-            logger.warning(f"单只股票 K 线同步失败 | symbol={symbol} | error={e}")
+            logger.warning(f"同步失败 | symbol={symbol}, error={e}")
             self.db.log_sync("kline_single", symbol=symbol, status="failed", error=str(e))
             return 0
     
