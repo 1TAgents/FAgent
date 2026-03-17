@@ -151,32 +151,60 @@ class DataSyncManager:
         Returns:
             同步的记录数
         """
+        return await self.sync_kline_range(symbol, days=days, limit=500)
+    
+    async def sync_kline_range(
+        self,
+        symbol: str,
+        days: int = 365,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+        limit: int = 500
+    ) -> int:
+        """
+        同步指定范围的 K 线数据
+        
+        Args:
+            symbol: 股票代码
+            days: 同步天数（当 start_date/end_date 未指定时使用）
+            start_date: 开始日期（YYYYMMDD 或 YYYY-MM-DD）
+            end_date: 结束日期（YYYYMMDD 或 YYYY-MM-DD）
+            limit: 同步条数限制
+            
+        Returns:
+            同步的记录数
+        """
         try:
             ak = self._get_ak()
+            logger.debug(f"开始同步 K 线 | symbol={symbol}, start={start_date}, end={end_date}")
             
             # 计算日期范围
-            end_date = datetime.now()
-            start_date = end_date - timedelta(days=days)
+            if not end_date:
+                end_dt = datetime.now()
+            else:
+                end_dt = datetime.strptime(str(end_date).replace("-", ""), "%Y%m%d")
             
-            # 检查数据库已有数据
-            existing = self.db.get_kline(symbol, "daily", start_date.strftime("%Y-%m-%d"), None, days)
-            
-            if existing and len(existing) >= days:
-                logger.debug(f"K 线已充足，跳过 | symbol={symbol}")
-                return 0
+            if not start_date:
+                start_dt = end_dt - timedelta(days=days)
+            else:
+                start_dt = datetime.strptime(str(start_date).replace("-", ""), "%Y%m%d")
             
             # 从 AKShare 获取
             df = ak.stock_zh_a_hist(
                 symbol=symbol,
                 period="daily",
-                start_date=start_date.strftime("%Y%m%d"),
-                end_date=end_date.strftime("%Y%m%d"),
+                start_date=start_dt.strftime("%Y%m%d"),
+                end_date=end_dt.strftime("%Y%m%d"),
                 adjust="qfq"
             )
             
             if df.empty:
                 logger.warning(f"无 K 线数据 | symbol={symbol}")
                 return 0
+            
+            # 限制条数
+            if len(df) > limit:
+                df = df.tail(limit)
             
             # 转换为字典列表
             klines = []

@@ -368,6 +368,73 @@ class DataService:
         logger.info(f"同步单只股票 | symbol={symbol}")
         await self.sync_manager.sync_stock_kline(symbol)
     
+    async def sync_stock_list(self) -> Dict[str, Any]:
+        """
+        同步股票列表
+        
+        Returns:
+            同步结果
+        """
+        try:
+            stocks = await self.sync_manager.sync_stock_list()
+            return {
+                "success": True,
+                "count": len(stocks) if stocks else 0,
+                "stocks": stocks
+            }
+        except Exception as e:
+            return {
+                "success": False,
+                "error": str(e)
+            }
+    
+    async def sync_klines(
+        self,
+        symbol: str,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+        limit: int = 500
+    ) -> Dict[str, Any]:
+        """
+        同步单只股票 K 线数据
+        
+        Args:
+            symbol: 股票代码
+            start_date: 开始日期（YYYYMMDD）
+            end_date: 结束日期（YYYYMMDD）
+            limit: 同步条数限制
+            
+        Returns:
+            同步结果
+        """
+        try:
+            count = await self.sync_manager.sync_kline_range(
+                symbol=symbol,
+                start_date=start_date,
+                end_date=end_date,
+                limit=limit
+            )
+            return {
+                "success": True,
+                "symbol": symbol,
+                "count": count
+            }
+        except Exception as e:
+            logger.error(f"同步 K 线失败 | symbol={symbol} | error={e}")
+            return {
+                "success": False,
+                "error": str(e)
+            }
+    
+    async def get_stats(self) -> Dict[str, Any]:
+        """
+        获取数据统计信息（异步版本）
+        
+        Returns:
+            统计信息字典
+        """
+        return self.get_stats()
+    
     # ==================== 统计信息 ====================
     
     def get_stats(self) -> Dict[str, Any]:
