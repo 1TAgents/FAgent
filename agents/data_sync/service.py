@@ -334,7 +334,7 @@ async def run_historical_sync():
     1. 优先同步沪深 300 成分股
     2. 然后同步中证 500
     3. 最后同步其他股票
-    4. 速度：1 只/秒
+    4. 速度：快速同步（0.1 秒/只，网络请求本身约 0.5-2 秒）
     """
     sync_state.is_syncing = True
     sync_state.current_task = "historical_sync"
@@ -367,6 +367,7 @@ async def run_historical_sync():
         total = len(all_stocks_ordered)
         synced = 0
         failed = 0
+        last_log_time = datetime.now()
         
         for i, symbol in enumerate(all_stocks_ordered):
             sync_state.synced_stocks = synced
@@ -378,18 +379,31 @@ async def run_historical_sync():
                 end_date = datetime.now()
                 start_date = end_date - timedelta(days=365)
                 
-                await data_service.sync_klines(
-                    symbol=symbol,
-                    start_date=start_date.strftime("%Y%m%d"),
-                    end_date=end_date.strftime("%Y%m%d"),
-                    limit=500
+                # 使用 asyncio.wait_for 设置超时（10 秒）
+                await asyncio.wait_for(
+                    data_service.sync_klines(
+                        symbol=symbol,
+                        start_date=start_date.strftime("%Y%m%d"),
+                        end_date=end_date.strftime("%Y%m%d"),
+                        limit=500
+                    ),
+                    timeout=10.0
                 )
                 
                 synced += 1
                 
-                # 每 100 只记录一次
-                if synced % 100 == 0:
-                    logger.info(f"已同步 {synced}/{total} 只股票")
+                # 每 100 只或每分钟记录一次
+                now = datetime.now()
+                if synced % 100 == 0 or (now - last_log_time).total_seconds() > 60:
+                    elapsed = (now - sync_state.start_time).total_seconds() / 60
+                    speed = synced / elapsed if elapsed > 0 else 0
+                    logger.info(f"已同步 {synced}/{total} 只 | 速度：{speed:.1f}只/分钟")
+                    last_log_time = now
+                
+            except asyncio.TimeoutError:
+                failed += 1
+                logger.warning(f"同步超时 | symbol={symbol}")
+                sync_state.errors.append(f"{symbol}: 超时")
                 
             except Exception as e:
                 failed += 1
@@ -398,16 +412,14 @@ async def run_historical_sync():
                 if failed % 10 == 0:
                     sync_state.errors.append(f"批量失败：{failed} 只")
             
-            # 限速：1 只/秒（避免触发 API 限流）
-            await asyncio.sleep(1)
-            
-            # 每同步 100 只，休息 10 秒
-            if synced % 100 == 0:
-                logger.info("休息 10 秒...")
-                await asyncio.sleep(10)
+            # 不主动等待，让网络请求自然限速（约 0.5-2 秒/只）
+            # 如果太快，每 50 只休息 1 秒
+            if synced % 50 == 0:
+                await asyncio.sleep(0.5)
         
         sync_state.last_sync_time = datetime.now()
-        logger.info(f"历史数据同步完成 | 成功：{synced}, 失败：{failed}")
+        elapsed_total = (sync_state.last_sync_time - sync_state.start_time).total_seconds() / 60
+        logger.info(f"历史数据同步完成 | 成功：{synced}, 失败：{failed}, 总耗时：{elapsed_total:.1f}分钟")
         
     except Exception as e:
         logger.error(f"历史数据同步失败 | error={e}")
