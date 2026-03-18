@@ -634,3 +634,79 @@ async def get_available_models():
             ],
             "default": "mimo-v2-flash"
         }
+
+
+# ==================== 模块化接口（股票/期货） ====================
+
+class MarketChatRequest(BaseModel):
+    """市场模块聊天请求"""
+    message: str
+    mode: Optional[str] = None  # "stock" | "future" | None=自动识别
+    context: Optional[Dict[str, Any]] = None
+
+
+class MarketChatResponse(BaseModel):
+    """市场模块聊天响应"""
+    reply: str
+    data: Optional[Dict[str, Any]] = None
+    suggestions: Optional[List[str]] = None
+    mode: str
+
+
+@router.post("/market/chat", response_model=MarketChatResponse)
+async def market_chat(request: MarketChatRequest):
+    """
+    市场模块聊天接口（股票/期货）
+    
+    通过 MainRouter 路由到对应模块
+    
+    Args:
+        message: 用户消息
+        mode: 模式（stock/future/None=自动识别）
+    
+    Returns:
+        {
+            "reply": str,
+            "data": dict (optional),
+            "suggestions": list,
+            "mode": str,
+        }
+    """
+    try:
+        from router.main_router import main_router
+        
+        result = main_router.process(
+            message=request.message,
+            mode=request.mode
+        )
+        
+        return MarketChatResponse(
+            reply=result.get("reply", ""),
+            data=result.get("data"),
+            suggestions=result.get("suggestions"),
+            mode=result.get("mode", "unknown"),
+        )
+        
+    except Exception as e:
+        logger.error(f"[MARKET] 市场模块聊天失败 | error={e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/market/modules")
+async def get_market_modules():
+    """
+    获取可用市场模块信息
+    
+    Returns:
+        {
+            "stock": {"name": "stock", "display_name": "📈 股票", "available": True},
+            "future": {"name": "future", "display_name": "📉 期货", "available": True},
+        }
+    """
+    try:
+        from router.main_router import main_router
+        return main_router.get_module_info()
+        
+    except Exception as e:
+        logger.error(f"[MARKET] 获取模块信息失败 | error={e}")
+        raise HTTPException(status_code=500, detail=str(e))
