@@ -183,22 +183,22 @@ class FutureModule(MarketModule):
     ) -> Dict[str, Any]:
         """执行期货回测"""
         try:
-            # TODO: 实现期货回测
-            return {
-                "success": True,
-                "report": {
-                    "total_return": 0.25,
-                    "annual_return": 0.20,
-                    "sharpe_ratio": 1.5,
-                    "max_drawdown": 0.15,
-                    "total_trades": 80,
-                    "win_rate": 0.60,
-                    "long_trades": 45,      # 期货特有：做多次数
-                    "short_trades": 35,     # 期货特有：做空次数
-                },
-                "trades": [],
-                "equity_curve": {},
-            }
+            from .strategies import get_strategy
+            from .backtest import FutureBacktestEngine
+            
+            strategy_class = get_strategy(strategy_id)
+            engine = FutureBacktestEngine()
+            
+            return engine.run(
+                strategy_class=strategy_class,
+                symbol=symbol,
+                start_date=start_date,
+                end_date=end_date,
+                initial_capital=initial_capital,
+                params=params,
+                margin_rate=0.10,
+                allow_short=True
+            )
             
         except Exception as e:
             logger.error(f"回测失败 | error={e}")

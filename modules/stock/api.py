@@ -174,20 +174,20 @@ class StockModule(MarketModule):
     ) -> Dict[str, Any]:
         """执行股票回测"""
         try:
-            # TODO: 实现回测
-            return {
-                "success": True,
-                "report": {
-                    "total_return": 0.15,
-                    "annual_return": 0.12,
-                    "sharpe_ratio": 1.2,
-                    "max_drawdown": 0.18,
-                    "total_trades": 50,
-                    "win_rate": 0.55,
-                },
-                "trades": [],
-                "equity_curve": {},
-            }
+            from .strategies import get_strategy
+            from .backtest import StockBacktestEngine
+            
+            strategy_class = get_strategy(strategy_id)
+            engine = StockBacktestEngine()
+            
+            return engine.run(
+                strategy_class=strategy_class,
+                symbol=symbol,
+                start_date=start_date,
+                end_date=end_date,
+                initial_capital=initial_capital,
+                params=params
+            )
             
         except Exception as e:
             logger.error(f"回测失败 | error={e}")
