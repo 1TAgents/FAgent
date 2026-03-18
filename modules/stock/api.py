@@ -156,18 +156,8 @@ class StockModule(MarketModule):
     def list_strategies(self) -> List[Dict[str, Any]]:
         """获取股票策略列表"""
         try:
-            # TODO: 实现策略列表
-            return [
-                {
-                    "id": "dual_ma",
-                    "name": "双均线策略",
-                    "description": "经典趋势跟踪策略",
-                    "params": {
-                        "short_period": 5,
-                        "long_period": 20,
-                    },
-                },
-            ]
+            from .strategies import list_strategies
+            return list_strategies()
             
         except Exception as e:
             logger.error(f"获取策略列表失败 | error={e}")

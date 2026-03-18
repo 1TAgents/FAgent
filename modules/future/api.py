@@ -165,28 +165,8 @@ class FutureModule(MarketModule):
     def list_strategies(self) -> List[Dict[str, Any]]:
         """获取期货策略列表"""
         try:
-            return [
-                {
-                    "id": "future_dual_ma",
-                    "name": "期货双均线策略",
-                    "description": "支持做多和做空的双均线策略",
-                    "params": {
-                        "short_period": 10,
-                        "long_period": 30,
-                        "allow_short": True,
-                    },
-                },
-                {
-                    "id": "future_rsi",
-                    "name": "期货 RSI 策略",
-                    "description": "基于 RSI 超买超卖的震荡策略",
-                    "params": {
-                        "rsi_period": 14,
-                        "oversold": 30,
-                        "overbought": 70,
-                    },
-                },
-            ]
+            from .strategies import list_strategies
+            return list_strategies()
             
         except Exception as e:
             logger.error(f"获取策略列表失败 | error={e}")
