@@ -11,6 +11,7 @@ from rich.console import Console
 from rich.panel import Panel
 
 from . import __version__
+from .commands.session import session
 
 # 创建全局 console 实例
 console = Console()
@@ -31,6 +32,10 @@ def cli():
         fagent test all             运行所有测试
     """
     pass
+
+
+# 注册命令组
+cli.add_command(session)
 
 
 @cli.command()
