@@ -173,3 +173,115 @@ class MemoryDatabase:
         count = cursor.fetchone()[0]
         conn.close()
         return count
+    
+    # ==================== 原始消息操作 ====================
+    
+    def save_message(self, msg: "RawMessage"):
+        """保存原始消息"""
+        from memory.models.message import Role, MessageStatus
+        
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            INSERT OR REPLACE INTO raw_messages VALUES 
+            (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (
+            msg.cid, msg.mid, msg.parent_mid,
+            msg.role.value, msg.content, msg.content_hash,
+            msg.timestamp, msg.sequence_num,
+            msg.tool_name, msg.tool_call_id, msg.tool_response_size,
+            json.dumps(msg.attachments), json.dumps(msg.metadata),
+            msg.status.value, msg.created_at, msg.updated_at
+        ))
+        
+        # 更新会话元数据
+        self._update_conversation(msg.cid, msg.mid, conn)
+        
+        conn.commit()
+        conn.close()
+    
+    def get_message(self, cid: str, mid: str) -> Optional["RawMessage"]:
+        """获取单条消息"""
+        from memory.models.message import RawMessage, Role, MessageStatus
+        
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        cursor.execute('SELECT * FROM raw_messages WHERE cid = ? AND mid = ?', (cid, mid))
+        row = cursor.fetchone()
+        conn.close()
+        
+        if row:
+            return RawMessage(
+                cid=row[0], mid=row[1], parent_mid=row[2],
+                role=Role(row[3]), content=row[4], content_hash=row[5],
+                timestamp=row[6], sequence_num=row[7],
+                tool_name=row[8], tool_call_id=row[9], tool_response_size=row[10],
+                attachments=json.loads(row[11]) if row[11] else [],
+                metadata=json.loads(row[12]) if row[12] else {},
+                status=MessageStatus(row[13]), created_at=row[14], updated_at=row[15]
+            )
+        return None
+    
+    def get_messages(self, cid: str, start: int = 0, limit: int = 100) -> List["RawMessage"]:
+        """获取会话消息（分页）"""
+        from memory.models.message import RawMessage, Role, MessageStatus
+        
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            SELECT * FROM raw_messages 
+            WHERE cid = ? 
+            ORDER BY sequence_num ASC 
+            LIMIT ? OFFSET ?
+        ''', (cid, limit, start))
+        
+        messages = []
+        for row in cursor.fetchall():
+            msg = RawMessage(
+                cid=row[0], mid=row[1], parent_mid=row[2],
+                role=Role(row[3]), content=row[4], content_hash=row[5],
+                timestamp=row[6], sequence_num=row[7],
+                tool_name=row[8], tool_call_id=row[9], tool_response_size=row[10],
+                attachments=json.loads(row[11]) if row[11] else [],
+                metadata=json.loads(row[12]) if row[12] else {},
+                status=MessageStatus(row[13]), created_at=row[14], updated_at=row[15]
+            )
+            messages.append(msg)
+        
+        conn.close()
+        return messages
+    
+    def delete_message(self, cid: str, mid: str) -> bool:
+        """删除消息"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        cursor.execute('DELETE FROM raw_messages WHERE cid = ? AND mid = ?', (cid, mid))
+        deleted = cursor.rowcount > 0
+        
+        conn.commit()
+        conn.close()
+        return deleted
+    
+    def _update_conversation(self, cid: str, last_mid: str, conn):
+        """更新会话元数据"""
+        cursor = conn.cursor()
+        
+        # 获取消息数
+        cursor.execute('SELECT COUNT(*) FROM raw_messages WHERE cid = ?', (cid,))
+        count = cursor.fetchone()[0]
+        
+        # 获取时间戳
+        cursor.execute('SELECT timestamp FROM raw_messages WHERE cid = ? AND mid = ?', (cid, last_mid))
+        timestamp = cursor.fetchone()[0]
+        
+        # 插入或更新
+        cursor.execute('''
+            INSERT OR REPLACE INTO conversations VALUES 
+            (?, ?, ?, ?, ?, ?, ?)
+        ''', (
+            cid, None, timestamp, timestamp, count, last_mid, 'active'
+        ))
