@@ -480,11 +480,17 @@ assert len(results["results"]) > 0
 
 | 日期 | 任务 | 状态 | 备注 |
 |------|------|------|------|
-| 2026-04-08 | CLI 工具开发 | ✅ 全部完成 | 20 个命令，5 个测试 |
-| Phase 1-1: ID 体系 | ✅ 完成 | MemoryID 类，生成/解析 |
-| Phase 1-2: 数据模型 | ✅ 完成 | 4 个核心模型 |
-| Phase 1-3: 数据库初始化 | ✅ 完成 | 5 个表，索引 |
-| Phase 2: API 层 | ⏳ 下一步 | 原始消息存储 + 检索 |
+| CLI 工具开发 | ✅ 全部完成 | 20 个命令，5 个测试文件 |
+| Phase 1: Memory 基础 | ✅ 全部完成 | ID/模型/数据库 |
+| - Phase 1-1: ID 体系 | ✅ 完成 | MemoryID 类 |
+| - Phase 1-2: 数据模型 | ✅ 完成 | 4 个模型 |
+| - Phase 1-3: 数据库 | ✅ 完成 | 5 个表 |
+| Phase 2: 存储 API | ✅ 全部完成 | CRUD 操作 |
+| - 消息存储 | ✅ 完成 | save/get/list/delete |
+| - 摘要存储 | ✅ 完成 | save/get/list |
+| - 工具响应 | ✅ 完成 | save/get |
+| Memory Manager | ✅ 完成 | 统一入口 |
+| Phase 3: 逐渐披露 API | ⏳ 下一步 | CLI 集成 |
 | - CLI-1: CLI 框架 | ✅ 完成 | click + rich 框架 |
 | - CLI-2: 会话管理 | ✅ 完成 | 5 个命令 |
 | - CLI-3: 消息操作 | ✅ 完成 | 4 个命令 |
