@@ -22,7 +22,7 @@ from .tools import tool_registry
 from .adapters.akshare_adapter import AKShareAdapter
 from .middleware import RateLimitMiddleware, APIKeyMiddleware, RequestLogMiddleware
 from agents.data_service import get_data_service
-from agents.backtest.api import run_backtest, list_strategies, generate_mock_data
+from agents.backtest.api import run_backtest, list_strategies
 from agents.backtest.models import BacktestRequest, StrategyConfig
 
 # 配置日志

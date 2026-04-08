@@ -19,16 +19,46 @@ logger = logging.getLogger(__name__)
 # 可用模型列表（供前端展示）
 AVAILABLE_MODELS = [
     {
-        "id": "mimo-v2-flash",
-        "name": "Mimo V2 Flash",
-        "description": "小米极速模型，响应快速",
-        "model_id": "xiaomi/mimo-v2-flash:free",
+        "id": "qwen3.5-plus",
+        "name": "Qwen 3.5 Plus",
+        "description": "通用问答主模型",
+        "model_id": "qwen3.5-plus",
     },
     {
-        "id": "glm-4.5-air",
-        "name": "GLM 4.5 Air",
-        "description": "智谱通用模型，能力均衡",
-        "model_id": "z-ai/glm-4.5-air:free",
+        "id": "qwen3-max-2026-01-23",
+        "name": "Qwen 3 Max",
+        "description": "更强推理与复杂任务",
+        "model_id": "qwen3-max-2026-01-23",
+    },
+    {
+        "id": "qwen3-coder-next",
+        "name": "Qwen 3 Coder Next",
+        "description": "偏代码与 Agent 场景",
+        "model_id": "qwen3-coder-next",
+    },
+    {
+        "id": "qwen3-coder-plus",
+        "name": "Qwen 3 Coder Plus",
+        "description": "高质量代码生成与修复",
+        "model_id": "qwen3-coder-plus",
+    },
+    {
+        "id": "glm-5",
+        "name": "GLM 5",
+        "description": "通用能力均衡",
+        "model_id": "glm-5",
+    },
+    {
+        "id": "kimi-k2.5",
+        "name": "Kimi K2.5",
+        "description": "长上下文与通用问答",
+        "model_id": "kimi-k2.5",
+    },
+    {
+        "id": "MiniMax-M2.5",
+        "name": "MiniMax M2.5",
+        "description": "可选的通用模型",
+        "model_id": "MiniMax-M2.5",
     },
 ]
 
@@ -41,7 +71,8 @@ class LLMService:
     
     def __init__(self):
         base_url = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
-        api_key = os.getenv("openrounter_p")
+        # 兼容标准变量名和历史拼写错误变量名
+        api_key = os.getenv("OPENROUTER_API_KEY") or os.getenv("openrounter_p")
         
         self.mock_mode = False
         self.default_model = os.getenv("LLM_MODEL", "xiaomi/mimo-v2-flash:free")

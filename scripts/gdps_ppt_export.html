@@ -1,0 +1,437 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FAgent GDPS 路演 PPT</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #000; }
+        
+        .slide {
+            width: 1280px;
+            height: 720px;
+            background: linear-gradient(135deg, #1e3a5f 0%, #0f2744 100%);
+            color: white;
+            padding: 60px;
+            position: relative;
+            page-break-after: always;
+        }
+        
+        .slide-number {
+            position: absolute;
+            bottom: 30px;
+            right: 40px;
+            font-size: 14px;
+            opacity: 0.6;
+        }
+        
+        h1 { font-size: 72px; margin-bottom: 20px; }
+        h2 { font-size: 48px; margin-bottom: 30px; color: #60A5FA; }
+        h3 { font-size: 32px; margin-bottom: 20px; }
+        p { font-size: 24px; line-height: 1.6; margin-bottom: 20px; }
+        
+        .subtitle { font-size: 36px; color: #93C5FD; margin-bottom: 40px; }
+        .slogan { font-size: 28px; color: #BFDBFE; font-style: italic; }
+        
+        .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; }
+        .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 30px; }
+        .grid-4 { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 24px; }
+        
+        .card {
+            background: rgba(255,255,255,0.1);
+            border-radius: 16px;
+            padding: 30px;
+            border: 1px solid rgba(255,255,255,0.2);
+        }
+        
+        .card h4 { font-size: 24px; margin-bottom: 12px; color: #60A5FA; }
+        .card p { font-size: 18px; opacity: 0.9; }
+        
+        .highlight { color: #FCD34D; font-weight: 600; }
+        .accent { color: #60A5FA; }
+        
+        table { width: 100%; border-collapse: collapse; margin: 30px 0; }
+        th, td { padding: 16px; text-align: left; border: 1px solid rgba(255,255,255,0.3); }
+        th { background: rgba(96,165,250,0.3); font-size: 22px; }
+        td { font-size: 20px; }
+        
+        .footer { margin-top: 40px; padding-top: 30px; border-top: 2px solid rgba(255,255,255,0.3); }
+        
+        .big-number { font-size: 80px; font-weight: 700; color: #60A5FA; }
+        
+        .flow { display: flex; align-items: center; gap: 20px; font-size: 28px; margin: 40px 0; }
+        .flow-arrow { color: #60A5FA; font-size: 40px; }
+    </style>
+</head>
+<body>
+    <!-- P1: 封面 -->
+    <div class="slide">
+        <div style="text-align: center; margin-top: 150px;">
+            <h1>FAgent</h1>
+            <div class="subtitle">对话式 AI 交易助手</div>
+            <div class="slogan" style="margin-top: 60px;">
+                用自然语言对话，让每个人都能像专业交易员一样思考和交易
+            </div>
+            <div class="footer" style="border: none; margin-top: 150px; opacity: 0.8;">
+                <p style="font-size: 22px;">参赛队伍：[队伍名称]</p>
+                <p style="font-size: 22px;">2026 年 3 月</p>
+            </div>
+        </div>
+        <div class="slide-number">1</div>
+    </div>
+
+    <!-- P2: 痛点 -->
+    <div class="slide">
+        <h2>投资者面临的三大困境</h2>
+        <div class="grid-3">
+            <div class="card">
+                <h4>📊 信息过载</h4>
+                <p>海量行情、新闻、财报无从下手</p>
+                <p class="highlight" style="margin-top: 20px; font-size: 32px;">3+ 小时/天</p>
+                <p style="font-size: 16px; opacity: 0.8;">散户收集信息时间</p>
+            </div>
+            <div class="card">
+                <h4>🎯 策略缺失</h4>
+                <p>凭感觉交易，没有系统化方法</p>
+                <p class="highlight" style="margin-top: 20px; font-size: 32px;">80%</p>
+                <p style="font-size: 16px; opacity: 0.8;">散户无固定策略</p>
+            </div>
+            <div class="card">
+                <h4>😰 执行偏差</h4>
+                <p>情绪化决策，追涨杀跌</p>
+                <p class="highlight" style="margin-top: 20px; font-size: 32px;">90%</p>
+                <p style="font-size: 16px; opacity: 0.8;">亏损源于非理性</p>
+            </div>
+        </div>
+        <div class="footer" style="text-align: center; font-size: 28px; font-style: italic;">
+            "不是市场太难，而是普通人缺乏专业的交易工具和纪律"
+        </div>
+        <div class="slide-number">2</div>
+    </div>
+
+    <!-- P3: 解决方案 -->
+    <div class="slide">
+        <h2>FAgent 是什么？</h2>
+        <div style="text-align: center; margin: 60px 0;">
+            <p class="big-number accent">对话式 AI 交易助手</p>
+        </div>
+        <div class="flow" style="justify-content: center;">
+            <span>🗣️ 说人话</span>
+            <span class="flow-arrow">→</span>
+            <span>📊 查行情</span>
+            <span class="flow-arrow">→</span>
+            <span>🎯 定策略</span>
+            <span class="flow-arrow">→</span>
+            <span>📈 做回测</span>
+            <span class="flow-arrow">→</span>
+            <span>🤖 辅决策</span>
+        </div>
+        <table>
+            <tr>
+                <th>传统方式</th>
+                <th>FAgent 方式</th>
+            </tr>
+            <tr>
+                <td>打开多个 APP 查数据</td>
+                <td class="highlight">一句话查询</td>
+            </tr>
+            <tr>
+                <td>手动计算技术指标</td>
+                <td class="highlight">AI 自动分析</td>
+            </tr>
+            <tr>
+                <td>凭感觉制定策略</td>
+                <td class="highlight">策略库 + 回测验证</td>
+            </tr>
+            <tr>
+                <td>情绪化交易</td>
+                <td class="highlight">数据驱动决策</td>
+            </tr>
+        </table>
+        <div class="slide-number">3</div>
+    </div>
+
+    <!-- P4: 核心功能 -->
+    <div class="slide">
+        <h2>四大核心能力</h2>
+        <div class="grid-4">
+            <div class="card">
+                <h4>🗣️ 对话式查询</h4>
+                <p>"贵州茅台最近怎么样？"</p>
+                <p style="margin-top: 15px; font-size: 16px;">AI 自动获取行情、技术指标、资金流向</p>
+            </div>
+            <div class="card">
+                <h4>🎯 策略制定</h4>
+                <p>自然语言描述策略想法</p>
+                <p style="margin-top: 15px; font-size: 16px;">AI 转化为可执行代码，策略库累积复用</p>
+            </div>
+            <div class="card">
+                <h4>📈 策略回测</h4>
+                <p>基于历史数据验证</p>
+                <p style="margin-top: 15px; font-size: 16px;">输出收益、夏普比率、最大回撤，过拟合检测</p>
+            </div>
+            <div class="card">
+                <h4>🔄 自动化复盘</h4>
+                <p>交易记录分析</p>
+                <p style="margin-top: 15px; font-size: 16px;">盈亏归因 + 行为识别，生成改进建议</p>
+            </div>
+        </div>
+        <div class="footer" style="background: rgba(252,211,77,0.2); border-radius: 12px; padding: 20px;">
+            <p style="font-size: 22px;">💡 接下来 3 分钟，现场演示以上功能 →</p>
+        </div>
+        <div class="slide-number">4</div>
+    </div>
+
+    <!-- P4.5: Demo 演示 -->
+    <div class="slide">
+        <h2>现场演示</h2>
+        <div style="text-align: center; margin-top: 100px;">
+            <p class="big-number">🎬 Demo Time</p>
+            <p style="margin-top: 40px; font-size: 32px; opacity: 0.9;">3 分钟</p>
+            <div style="margin-top: 60px; text-align: left; display: inline-block;">
+                <p style="font-size: 26px;">📌 Demo 1: 对话查询 - "帮我看看贵州茅台现在怎么样"</p>
+                <p style="font-size: 26px; margin-top: 20px;">📌 Demo 2: 策略回测 - "用双均线策略回测茅台，过去一年"</p>
+                <p style="font-size: 26px; margin-top: 20px;">📌 Demo 3: 策略库 - "你们有哪些策略可以用？"</p>
+            </div>
+        </div>
+        <div class="slide-number">5</div>
+    </div>
+
+    <!-- P5: 技术架构 -->
+    <div class="slide">
+        <h2>三层架构设计</h2>
+        <div style="margin: 50px 100px;">
+            <div class="card" style="margin-bottom: 20px; background: rgba(96,165,250,0.3);">
+                <h4>Frontend (React 19)</h4>
+                <p>市场切换 + 对话界面 + 数据可视化</p>
+            </div>
+            <div style="text-align: center; font-size: 40px; color: #60A5FA;">↓</div>
+            <div class="card" style="margin-bottom: 20px; background: rgba(96,165,250,0.3);">
+                <h4>Backend (FastAPI)</h4>
+                <p>会话管理 + 路由分发 + MCP 服务</p>
+            </div>
+            <div style="text-align: center; font-size: 40px; color: #60A5FA;">↓</div>
+            <div class="card" style="background: rgba(96,165,250,0.3);">
+                <h4>Agents (多智能体系统)</h4>
+                <p>Router → SubAgents → Tools</p>
+            </div>
+        </div>
+        <div class="grid-4 footer" style="margin-top: 30px;">
+            <div style="text-align: center;">
+                <div style="font-size: 40px;">🎯</div>
+                <p style="font-size: 16px; margin-top: 10px;">多 Agent 路由<br>100% 准确率</p>
+            </div>
+            <div style="text-align: center;">
+                <div style="font-size: 40px;">🔌</div>
+                <p style="font-size: 16px; margin-top: 10px;">MCP 协议<br>14 个标准化工具</p>
+            </div>
+            <div style="text-align: center;">
+                <div style="font-size: 40px;">🧩</div>
+                <p style="font-size: 16px; margin-top: 10px;">模块化设计<br>股票/期货独立</p>
+            </div>
+            <div style="text-align: center;">
+                <div style="font-size: 40px;">📚</div>
+                <p style="font-size: 16px; margin-top: 10px;">策略知识库<br>Skill 化存储</p>
+            </div>
+        </div>
+        <div class="slide-number">6</div>
+    </div>
+
+    <!-- P6: 竞争优势 -->
+    <div class="slide">
+        <h2>我们有什么不同？</h2>
+        <table>
+            <tr>
+                <th>维度</th>
+                <th>传统软件</th>
+                <th>通用 AI</th>
+                <th class="highlight">FAgent</th>
+            </tr>
+            <tr>
+                <td>交互方式</td>
+                <td>复杂菜单</td>
+                <td>通用对话</td>
+                <td class="highlight">专业对话</td>
+            </tr>
+            <tr>
+                <td>数据能力</td>
+                <td>实时行情</td>
+                <td>无数据</td>
+                <td class="highlight">本地化 + 缓存</td>
+            </tr>
+            <tr>
+                <td>策略支持</td>
+                <td>固定指标</td>
+                <td>无法回测</td>
+                <td class="highlight">可回测验证</td>
+            </tr>
+            <tr>
+                <td>市场覆盖</td>
+                <td>单一市场</td>
+                <td>无</td>
+                <td class="highlight">股票 + 期货</td>
+            </tr>
+        </table>
+        <div class="grid-3 footer" style="margin-top: 30px;">
+            <div class="card" style="text-align: center;">
+                <div style="font-size: 40px;">🧠</div>
+                <h4 style="margin-top: 15px;">策略知识库</h4>
+                <p>累积的策略 Skill<br>越用越聪明</p>
+            </div>
+            <div class="card" style="text-align: center;">
+                <div style="font-size: 40px;">📊</div>
+                <h4 style="margin-top: 15px;">回测引擎</h4>
+                <p>内置验证机制<br>避免纸上谈兵</p>
+            </div>
+            <div class="card" style="text-align: center;">
+                <div style="font-size: 40px;">📈</div>
+                <h4 style="margin-top: 15px;">多市场支持</h4>
+                <p>股票/期货统一架构<br>扩展性强</p>
+            </div>
+        </div>
+        <div class="slide-number">7</div>
+    </div>
+
+    <!-- P7: 市场机会 -->
+    <div class="slide">
+        <h2>目标市场</h2>
+        <div class="grid-2">
+            <div>
+                <div class="big-number">2.2 亿</div>
+                <p style="font-size: 28px;">中国个人投资者</p>
+                <div style="margin: 40px 0; padding-left: 30px; border-left: 4px solid #60A5FA;">
+                    <p style="font-size: 24px;">└─ <strong>5000 万</strong> 活跃投资者</p>
+                    <p style="font-size: 24px; margin-top: 15px;">&nbsp;&nbsp;&nbsp;&nbsp;└─ <strong class="highlight">1000 万</strong> 目标用户 (20%)</p>
+                </div>
+            </div>
+            <div>
+                <h3 style="color: #60A5FA;">市场趋势</h3>
+                <div class="card" style="margin-bottom: 20px;">
+                    <h4>📈 AI 投顾渗透率</h4>
+                    <p>2024 年 15% → 2027 年 40%</p>
+                </div>
+                <div class="card" style="margin-bottom: 20px;">
+                    <h4>📱 移动端交易</h4>
+                    <p>占比超 90%，对话交互更自然</p>
+                </div>
+                <div class="card">
+                    <h4>🤖 大模型成熟</h4>
+                    <p>GPT-4/Claude 使专业对话成为可能</p>
+                </div>
+            </div>
+        </div>
+        <div class="footer">
+            <p><strong>切入点：</strong>个人投资者 → 小型私募 → 券商/银行合作</p>
+        </div>
+        <div class="slide-number">8</div>
+    </div>
+
+    <!-- P8: 商业模式 -->
+    <div class="slide">
+        <h2>收入来源</h2>
+        <div class="grid-4">
+            <div class="card" style="text-align: center;">
+                <h4>Free</h4>
+                <p style="font-size: 18px; margin: 20px 0;">基础功能</p>
+                <div class="big-number" style="font-size: 48px;">¥0</div>
+            </div>
+            <div class="card" style="text-align: center; border-color: #60A5FA;">
+                <h4>标准版</h4>
+                <p style="font-size: 18px; margin: 20px 0;">无限查询</p>
+                <div class="big-number" style="font-size: 48px;">¥29<span style="font-size: 24px;">/月</span></div>
+            </div>
+            <div class="card" style="text-align: center; border-color: #FCD34D;">
+                <h4>Pro 版</h4>
+                <p style="font-size: 18px; margin: 20px 0;">无限回测 + 高级策略</p>
+                <div class="big-number" style="font-size: 48px;">¥99<span style="font-size: 24px;">/月</span></div>
+            </div>
+            <div class="card" style="text-align: center;">
+                <h4>机构版</h4>
+                <p style="font-size: 18px; margin: 20px 0;">私有化部署</p>
+                <div class="big-number" style="font-size: 48px;">¥5 万<span style="font-size: 24px;">/年</span></div>
+            </div>
+        </div>
+        <div class="footer" style="text-align: center; margin-top: 50px;">
+            <p style="font-size: 24px;">获客成本：<strong class="highlight">¥50</strong>&nbsp;&nbsp;|&nbsp;&nbsp;生命周期价值：<strong class="highlight">¥350</strong>&nbsp;&nbsp;|&nbsp;&nbsp;LTV/CAC: <strong class="highlight">7x</strong></p>
+        </div>
+        <div class="slide-number">9</div>
+    </div>
+
+    <!-- P9: 发展计划 -->
+    <div class="slide">
+        <h2>Roadmap 2026</h2>
+        <div style="display: flex; justify-content: space-between; margin: 60px 0;">
+            <div style="text-align: center; width: 23%;">
+                <div style="font-size: 60px;">✅</div>
+                <h3 style="margin-top: 20px;">Q1</h3>
+                <p style="font-size: 18px; margin-top: 15px;">模块化架构</p>
+                <p style="font-size: 18px;">策略库 4 个</p>
+                <p style="font-size: 18px; color: #FCD34D;">1000 用户</p>
+            </div>
+            <div style="text-align: center; width: 23%;">
+                <div style="font-size: 60px;">🔄</div>
+                <h3 style="margin-top: 20px;">Q2</h3>
+                <p style="font-size: 18px; margin-top: 15px;">自动交易</p>
+                <p style="font-size: 18px;">社交功能</p>
+                <p style="font-size: 18px; color: #FCD34D;">1 万用户</p>
+            </div>
+            <div style="text-align: center; width: 23%;">
+                <div style="font-size: 60px;">📅</div>
+                <h3 style="margin-top: 20px;">Q3</h3>
+                <p style="font-size: 18px; margin-top: 15px;">券商对接</p>
+                <p style="font-size: 18px;">机构版</p>
+                <p style="font-size: 18px; color: #FCD34D;">10 万用户</p>
+            </div>
+            <div style="text-align: center; width: 23%;">
+                <div style="font-size: 60px;">📅</div>
+                <h3 style="margin-top: 20px;">Q4</h3>
+                <p style="font-size: 18px; margin-top: 15px;">移动端 APP</p>
+                <p style="font-size: 18px;">海外市场</p>
+                <p style="font-size: 18px; color: #FCD34D;">50 万用户</p>
+            </div>
+        </div>
+        <div class="footer">
+            <p><strong>关键里程碑：</strong>03 月模块化 → 06 月自动交易 → 09 月机构版 → 12 月移动端</p>
+        </div>
+        <div class="slide-number">10</div>
+    </div>
+
+    <!-- P10: 团队 & 融资 -->
+    <div class="slide">
+        <h2>核心团队 & 融资计划</h2>
+        <div class="grid-3">
+            <div class="card" style="text-align: center;">
+                <div style="font-size: 60px;">👤</div>
+                <h4 style="margin-top: 20px;">产品经理</h4>
+                <p style="font-size: 18px; opacity: 0.8;">前 XX 券商<br>量化产品经理</p>
+            </div>
+            <div class="card" style="text-align: center;">
+                <div style="font-size: 60px;">👨‍💻</div>
+                <h4 style="margin-top: 20px;">技术负责人</h4>
+                <p style="font-size: 18px; opacity: 0.8;">5 年 AI/量化<br>开发经验</p>
+            </div>
+            <div class="card" style="text-align: center;">
+                <div style="font-size: 60px;">👨‍💼</div>
+                <h4 style="margin-top: 20px;">策略顾问</h4>
+                <p style="font-size: 18px; opacity: 0.8;">XX 基金<br>前投资经理</p>
+            </div>
+        </div>
+        <div class="footer" style="text-align: center; margin-top: 50px; background: rgba(96,165,250,0.2); padding: 30px; border-radius: 16px;">
+            <h3 style="color: #60A5FA; margin-bottom: 20px;">种子轮：¥200 万</h3>
+            <p style="font-size: 20px;">40% 技术研发 &nbsp;|&nbsp; 30% 团队建设 &nbsp;|&nbsp; 20% 市场推广 &nbsp;|&nbsp; 10% 运营储备</p>
+            <p style="margin-top: 30px; font-size: 22px;">📧 [邮箱] &nbsp;|&nbsp; 📱 [电话] &nbsp;|&nbsp; 🌐 [官网/GitHub]</p>
+        </div>
+        <div class="slide-number">11</div>
+    </div>
+
+    <!-- P11: 结束页 -->
+    <div class="slide" style="text-align: center;">
+        <div style="margin-top: 200px;">
+            <h1 style="font-size: 96px;">谢谢！</h1>
+            <div class="subtitle" style="margin-top: 40px;">Q&A</div>
+        </div>
+        <div class="slide-number">12</div>
+    </div>
+</body>
+</html>

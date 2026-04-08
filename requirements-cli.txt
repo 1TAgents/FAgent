@@ -1,0 +1,4 @@
+# FAgent CLI 依赖
+click>=8.0.0        # CLI 框架
+rich>=12.0.0        # 终端美化输出
+prompt-toolkit>=3.0 # 交互式输入

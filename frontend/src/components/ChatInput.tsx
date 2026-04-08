@@ -2,23 +2,29 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Send, Square, ChevronDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
+import type { AvailableModel } from '@/lib/api';
 
 interface ChatInputProps {
   onSend: (content: string) => void;
   isLoading: boolean;
   onStop: () => void;
   model?: string;
+  models?: AvailableModel[];
   onModelChange?: (model: string) => void;
 }
 
-const models = [
-  { id: "mimo-v2-flash", name: "Mimo v2 Flash" },
-  { id: "glm-4.5-air", name: "GLM-4.5 Air" },
-  { id: "qwen3-coder", name: "Qwen3 Coder" },
-  { id: "gpt-oss-120b", name: "GPT-OSS 120B" },
+const fallbackModels: AvailableModel[] = [
+  { id: 'qwen3.5-plus', name: 'Qwen 3.5 Plus' },
 ];
 
-export function ChatInput({ onSend, isLoading, onStop, model = "mimo-v2-flash", onModelChange }: ChatInputProps) {
+export function ChatInput({
+  onSend,
+  isLoading,
+  onStop,
+  model = 'qwen3.5-plus',
+  models = fallbackModels,
+  onModelChange
+}: ChatInputProps) {
   const [input, setInput] = useState('');
   const [isModelMenuOpen, setIsModelMenuOpen] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -60,12 +66,12 @@ export function ChatInput({ onSend, isLoading, onStop, model = "mimo-v2-flash", 
     }
   }, [input]);
 
-  const currentModel = models.find(m => m.id === model) || models[0];
+  const currentModel = models.find(m => m.id === model) || models[0] || fallbackModels[0];
 
   return (
     <div className="stretch mx-2 flex flex-row gap-3 last:mb-2 md:mx-4 md:last:mb-6 lg:mx-auto lg:max-w-2xl xl:max-w-3xl">
       <div className="relative flex h-full flex-1 flex-col">
-        <div className="relative rounded-xl bg-white dark:bg-[#40414f] shadow-[0_0_0_1px_rgba(0,0,0,0.05)] dark:shadow-none border border-gray-200 dark:border-transparent overflow-hidden">
+        <div className="relative rounded-xl bg-white dark:bg-[#40414f] shadow-[0_0_0_1px_rgba(0,0,0,0.05)] dark:shadow-none border border-gray-200 dark:border-transparent overflow-visible">
           <Textarea
             ref={textareaRef}
             className="min-h-[24px] w-full resize-none border-0 shadow-none focus-visible:ring-0 px-4 py-4 pr-24 bg-transparent text-gray-900 dark:text-gray-100 placeholder:text-gray-400"

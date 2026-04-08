@@ -6,7 +6,9 @@ AKShare Adapter - AKShare 数据源适配器
 实现 MCP 工具的标准接口，将 AKShare 数据转换为统一格式
 """
 import logging
+import sqlite3
 from datetime import datetime, timedelta
+from pathlib import Path
 from typing import Optional, List, Dict, Any
 
 from ..models import (
@@ -29,10 +31,13 @@ class AKShareAdapter:
         cache_enabled: 是否启用缓存
     """
     
-    def __init__(self, redis_url: str = None, cache_enabled: bool = True):
+    def __init__(self, redis_url: str = None, cache_enabled: bool = True, data_db_path: str = "data/stock_data.db"):
         self._ak = None
+        self._rq = None
         self._cache: CacheAdapter = None
+        self._data_db_path = Path(data_db_path)
         self._init_akshare()
+        self._init_rqdata()
         self._init_cache(redis_url, cache_enabled)
     
     def _init_akshare(self):
@@ -54,6 +59,17 @@ class AKShareAdapter:
         else:
             self._cache = None
             logger.info("MCP 缓存已禁用")
+
+    def _init_rqdata(self):
+        """初始化 RQData（可选）"""
+        try:
+            import rqdatac as rq
+            rq.init()
+            self._rq = rq
+            logger.info("RQData 初始化成功，将优先使用聚宽数据")
+        except Exception as e:
+            self._rq = None
+            logger.warning(f"RQData 不可用，回退到本地库/AKShare | error={e}")
     
     @property
     def ak(self):
@@ -61,6 +77,401 @@ class AKShareAdapter:
         if self._ak is None:
             self._init_akshare()
         return self._ak
+
+    def _get_db_connection(self) -> Optional[sqlite3.Connection]:
+        """获取本地 SQLite 连接"""
+        if not self._data_db_path.exists():
+            return None
+        conn = sqlite3.connect(self._data_db_path)
+        conn.row_factory = sqlite3.Row
+        return conn
+
+    def _to_order_book_id(self, symbol: str) -> str:
+        """将股票代码转为聚宽 order_book_id"""
+        if "." in symbol:
+            return symbol
+        exchange = "XSHG" if symbol.startswith(("5", "6", "9")) else "XSHE"
+        return f"{symbol}.{exchange}"
+
+    def _lookup_local_stock_name(self, symbol: str) -> str:
+        """优先从本地聚宽库读取股票名称"""
+        conn = self._get_db_connection()
+        if conn is None:
+            return ""
+
+        try:
+            cursor = conn.cursor()
+            for sql in (
+                "SELECT name FROM stock_info WHERE symbol = ? LIMIT 1",
+                "SELECT name FROM stocks WHERE symbol = ? LIMIT 1",
+            ):
+                try:
+                    row = cursor.execute(sql, (symbol,)).fetchone()
+                    if row and row[0]:
+                        return str(row[0])
+                except sqlite3.OperationalError:
+                    continue
+        finally:
+            conn.close()
+
+        return ""
+
+    def _get_a_share_quote_from_local_db(self, symbol: str) -> Optional[Dict[str, Any]]:
+        """从本地聚宽历史库生成行情快照"""
+        conn = self._get_db_connection()
+        if conn is None:
+            return None
+
+        try:
+            cursor = conn.cursor()
+            rows = []
+
+            try:
+                rows = cursor.execute(
+                    """
+                    SELECT datetime, open_price, high_price, low_price, close_price, volume, turnover
+                    FROM bar_data
+                    WHERE symbol = ? AND interval = '1d'
+                    ORDER BY datetime DESC
+                    LIMIT 2
+                    """,
+                    (symbol,),
+                ).fetchall()
+            except sqlite3.OperationalError:
+                rows = []
+
+            if rows:
+                latest = rows[0]
+                prev_close = float(rows[1]["close_price"]) if len(rows) > 1 else float(latest["open_price"])
+                latest_close = float(latest["close_price"])
+                change = latest_close - prev_close
+                change_percent = (change / prev_close * 100) if prev_close else 0.0
+                turnover = float(latest["turnover"]) if latest["turnover"] is not None else 0.0
+
+                return {
+                    "symbol": symbol,
+                    "name": self._lookup_local_stock_name(symbol) or symbol,
+                    "market": MarketType.A_SHARE.value,
+                    "price": latest_close,
+                    "open": float(latest["open_price"]),
+                    "high": float(latest["high_price"]),
+                    "low": float(latest["low_price"]),
+                    "close": prev_close,
+                    "change": change,
+                    "change_percent": change_percent,
+                    "volume": int(float(latest["volume"])),
+                    "turnover": turnover,
+                    "amount": turnover / 10000 if turnover else 0.0,
+                    "pe_ratio": None,
+                    "pb_ratio": None,
+                    "total_market_cap": None,
+                    "float_market_cap": None,
+                    "timestamp": str(latest["datetime"]),
+                }
+
+            try:
+                rows = cursor.execute(
+                    """
+                    SELECT date, open, high, low, close, volume, turnover, change_percent
+                    FROM klines
+                    WHERE symbol = ? AND period = 'daily'
+                    ORDER BY date DESC
+                    LIMIT 2
+                    """,
+                    (symbol,),
+                ).fetchall()
+            except sqlite3.OperationalError:
+                rows = []
+
+            if rows:
+                latest = rows[0]
+                prev_close = float(rows[1]["close"]) if len(rows) > 1 else float(latest["open"])
+                latest_close = float(latest["close"])
+                change = latest_close - prev_close
+                change_percent = (change / prev_close * 100) if prev_close else 0.0
+                turnover = float(latest["turnover"]) if latest["turnover"] is not None else 0.0
+
+                return {
+                    "symbol": symbol,
+                    "name": self._lookup_local_stock_name(symbol) or symbol,
+                    "market": MarketType.A_SHARE.value,
+                    "price": latest_close,
+                    "open": float(latest["open"]),
+                    "high": float(latest["high"]),
+                    "low": float(latest["low"]),
+                    "close": prev_close,
+                    "change": change,
+                    "change_percent": float(latest["change_percent"]) if latest["change_percent"] is not None else change_percent,
+                    "volume": int(float(latest["volume"])),
+                    "turnover": turnover,
+                    "amount": turnover / 10000 if turnover else 0.0,
+                    "pe_ratio": None,
+                    "pb_ratio": None,
+                    "total_market_cap": None,
+                    "float_market_cap": None,
+                    "timestamp": str(latest["date"]),
+                }
+        finally:
+            conn.close()
+
+        return None
+
+    def _get_a_share_kline_from_local_db(self, symbol: str, period: str = "daily", count: int = 100) -> Optional[Dict[str, Any]]:
+        """从本地聚宽库读取 K 线"""
+        conn = self._get_db_connection()
+        if conn is None:
+            return None
+
+        try:
+            cursor = conn.cursor()
+            items: List[KLineItem] = []
+
+            if period == "daily":
+                try:
+                    rows = cursor.execute(
+                        """
+                        SELECT datetime, open_price, high_price, low_price, close_price, volume, turnover
+                        FROM bar_data
+                        WHERE symbol = ? AND interval = '1d'
+                        ORDER BY datetime DESC
+                        LIMIT ?
+                        """,
+                        (symbol, count),
+                    ).fetchall()
+                except sqlite3.OperationalError:
+                    rows = []
+
+                for row in reversed(rows):
+                    items.append(
+                        KLineItem(
+                            date=str(row["datetime"])[:10],
+                            open=float(row["open_price"]),
+                            high=float(row["high_price"]),
+                            low=float(row["low_price"]),
+                            close=float(row["close_price"]),
+                            volume=int(float(row["volume"])),
+                            turnover=float(row["turnover"]) if row["turnover"] is not None else None,
+                            change_percent=None,
+                        )
+                    )
+
+            if not items:
+                try:
+                    rows = cursor.execute(
+                        """
+                        SELECT date, open, high, low, close, volume, turnover, change_percent
+                        FROM klines
+                        WHERE symbol = ? AND period = ?
+                        ORDER BY date DESC
+                        LIMIT ?
+                        """,
+                        (symbol, period, count),
+                    ).fetchall()
+                except sqlite3.OperationalError:
+                    rows = []
+
+                for row in reversed(rows):
+                    items.append(
+                        KLineItem(
+                            date=str(row["date"]),
+                            open=float(row["open"]),
+                            high=float(row["high"]),
+                            low=float(row["low"]),
+                            close=float(row["close"]),
+                            volume=int(float(row["volume"])),
+                            turnover=float(row["turnover"]) if row["turnover"] is not None else None,
+                            change_percent=float(row["change_percent"]) if row["change_percent"] is not None else None,
+                        )
+                    )
+
+            if not items:
+                return None
+
+            return {
+                "symbol": symbol,
+                "name": self._lookup_local_stock_name(symbol) or symbol,
+                "period": period,
+                "items": [item.dict() for item in items],
+            }
+        finally:
+            conn.close()
+
+    def _search_a_share_from_local_db(self, keyword: str, limit: int = 10) -> Optional[Dict[str, Any]]:
+        """从本地聚宽库搜索股票"""
+        conn = self._get_db_connection()
+        if conn is None:
+            return None
+
+        try:
+            cursor = conn.cursor()
+            items: List[Dict[str, Any]] = []
+            seen = set()
+            like_keyword = f"%{keyword}%"
+
+            queries = (
+                """
+                SELECT symbol, name, list_date, industry, area
+                FROM stock_info
+                WHERE symbol LIKE ? OR name LIKE ?
+                ORDER BY symbol
+                LIMIT ?
+                """,
+                """
+                SELECT symbol, name, list_date, industry, area
+                FROM stocks
+                WHERE symbol LIKE ? OR name LIKE ?
+                ORDER BY symbol
+                LIMIT ?
+                """,
+            )
+
+            for sql in queries:
+                try:
+                    rows = cursor.execute(sql, (like_keyword, like_keyword, limit)).fetchall()
+                except sqlite3.OperationalError:
+                    rows = []
+
+                for row in rows:
+                    symbol = str(row["symbol"])
+                    if symbol in seen:
+                        continue
+                    seen.add(symbol)
+                    items.append(
+                        {
+                            "symbol": symbol,
+                            "name": str(row["name"]),
+                            "market": MarketType.A_SHARE.value,
+                            "list_date": str(row["list_date"]) if row["list_date"] else None,
+                            "industry": str(row["industry"]) if row["industry"] else None,
+                            "area": str(row["area"]) if row["area"] else None,
+                        }
+                    )
+                    if len(items) >= limit:
+                        return {"items": items}
+        finally:
+            conn.close()
+
+        return {"items": items} if items else None
+
+    def _get_a_share_quote_from_rqdata(self, symbol: str) -> Optional[Dict[str, Any]]:
+        """从 RQData 获取实时行情"""
+        if self._rq is None:
+            return None
+
+        try:
+            tick = self._rq.get_current_tick(self._to_order_book_id(symbol))
+            if not tick:
+                return None
+
+            getter = tick.get if isinstance(tick, dict) else lambda key, default=None: getattr(tick, key, default)
+            prev_close = getter("prev_close", getter("pre_close", 0)) or 0
+            last_price = getter("last", getter("price", 0)) or 0
+            open_price = getter("open", prev_close or last_price) or 0
+            high_price = getter("high", last_price or open_price) or 0
+            low_price = getter("low", last_price or open_price) or 0
+            volume = int(float(getter("volume", 0) or 0))
+            turnover = float(getter("turnover", getter("total_turnover", 0)) or 0)
+            change = last_price - prev_close if prev_close else 0.0
+            change_percent = (change / prev_close * 100) if prev_close else 0.0
+            tick_time = getter("datetime", None)
+
+            return {
+                "symbol": symbol,
+                "name": self._lookup_local_stock_name(symbol) or symbol,
+                "market": MarketType.A_SHARE.value,
+                "price": float(last_price or 0),
+                "open": float(open_price or 0),
+                "high": float(high_price or 0),
+                "low": float(low_price or 0),
+                "close": float(prev_close or 0),
+                "change": float(change),
+                "change_percent": float(change_percent),
+                "volume": volume,
+                "turnover": turnover,
+                "amount": turnover / 10000 if turnover else 0.0,
+                "pe_ratio": None,
+                "pb_ratio": None,
+                "total_market_cap": None,
+                "float_market_cap": None,
+                "timestamp": str(tick_time) if tick_time else datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            }
+        except Exception as e:
+            logger.warning(f"RQData 实时行情失败，回退到本地/AKShare | symbol={symbol} | error={e}")
+            return None
+
+    def _get_a_share_kline_from_rqdata(self, symbol: str, count: int = 100) -> Optional[Dict[str, Any]]:
+        """从 RQData 获取日线"""
+        if self._rq is None:
+            return None
+
+        try:
+            end_date = datetime.now().strftime("%Y-%m-%d")
+            start_date = (datetime.now() - timedelta(days=max(count * 3, 60))).strftime("%Y-%m-%d")
+            df = self._rq.get_price(
+                order_book_ids=self._to_order_book_id(symbol),
+                start_date=start_date,
+                end_date=end_date,
+                frequency="1d",
+                adjust_type="pre",
+            )
+            if df is None or df.empty:
+                return None
+
+            items = []
+            for idx, row in df.tail(count).iterrows():
+                items.append(
+                    KLineItem(
+                        date=idx.strftime("%Y-%m-%d") if hasattr(idx, "strftime") else str(idx)[:10],
+                        open=float(row.get("open", 0)),
+                        high=float(row.get("high", 0)),
+                        low=float(row.get("low", 0)),
+                        close=float(row.get("close", 0)),
+                        volume=int(float(row.get("volume", 0))),
+                        turnover=float(row.get("turnover", 0)) if row.get("turnover") is not None else None,
+                        change_percent=None,
+                    )
+                )
+
+            return {
+                "symbol": symbol,
+                "name": self._lookup_local_stock_name(symbol) or symbol,
+                "period": "daily",
+                "items": [item.dict() for item in items],
+            }
+        except Exception as e:
+            logger.warning(f"RQData 日线失败，回退到本地/AKShare | symbol={symbol} | error={e}")
+            return None
+
+    def _search_a_share_from_rqdata(self, keyword: str, limit: int = 10) -> Optional[Dict[str, Any]]:
+        """从 RQData 搜索股票"""
+        if self._rq is None:
+            return None
+
+        try:
+            instruments = self._rq.all_instruments(type="CS", market="cn")
+            mask = (
+                instruments["order_book_id"].astype(str).str.contains(keyword, na=False, case=False)
+                | instruments["symbol_name"].astype(str).str.contains(keyword, na=False, case=False)
+            )
+            results = instruments[mask].head(limit)
+
+            items = []
+            for _, row in results.iterrows():
+                items.append(
+                    {
+                        "symbol": str(row.get("order_book_id", "")).split(".")[0],
+                        "name": str(row.get("symbol_name", "")),
+                        "market": MarketType.A_SHARE.value,
+                        "list_date": str(row.get("listed_date", "")) if row.get("listed_date") is not None else None,
+                        "industry": str(row.get("industry", "")) if row.get("industry") is not None else None,
+                        "area": None,
+                    }
+                )
+
+            return {"items": items} if items else None
+        except Exception as e:
+            logger.warning(f"RQData 搜索失败，回退到本地/AKShare | keyword={keyword} | error={e}")
+            return None
     
     # ==================== 工具：实时行情 ====================
     
@@ -111,20 +522,17 @@ class AKShareAdapter:
     
     async def _get_a_share_quote(self, symbol: str) -> Dict[str, Any]:
         """获取 A 股行情"""
-        # 使用更快的单股票接口
-        df = self.ak.stock_individual_info_em(symbol=symbol)
-        
-        # 解析数据
-        quote_dict = {}
-        for _, row in df.iterrows():
-            if len(row) >= 2:
-                key = str(row.iloc[0])
-                value = row.iloc[1]
-                quote_dict[key] = value
-        
-        # 提取关键字段
+        result = self._get_a_share_quote_from_rqdata(symbol)
+        if result:
+            logger.info(f"A 股行情使用 RQData | symbol={symbol}")
+            return result
+
+        result = self._get_a_share_quote_from_local_db(symbol)
+        if result:
+            logger.info(f"A 股行情使用本地聚宽库 | symbol={symbol}")
+            return result
+
         try:
-            # 获取实时行情数据
             quote_df = self.ak.stock_zh_a_spot_em()
             stock_data = quote_df[quote_df['代码'] == symbol]
             
@@ -265,6 +673,17 @@ class AKShareAdapter:
         **kwargs
     ) -> Dict[str, Any]:
         """获取 A 股 K 线"""
+        local_result = self._get_a_share_kline_from_local_db(symbol, period, count)
+        if local_result:
+            logger.info(f"A 股 K 线使用本地聚宽库 | symbol={symbol} | period={period} | count={count}")
+            return local_result
+
+        if period == "daily":
+            rq_result = self._get_a_share_kline_from_rqdata(symbol, count)
+            if rq_result:
+                logger.info(f"A 股 K 线使用 RQData | symbol={symbol} | count={count}")
+                return rq_result
+
         try:
             # 计算日期范围
             end_date = datetime.now()
@@ -416,6 +835,16 @@ class AKShareAdapter:
     
     async def _search_a_share(self, keyword: str, limit: int = 10) -> Dict[str, Any]:
         """搜索 A 股"""
+        local_result = self._search_a_share_from_local_db(keyword, limit)
+        if local_result:
+            logger.info(f"A 股搜索使用本地聚宽库 | keyword={keyword} | count={len(local_result.get('items', []))}")
+            return local_result
+
+        rq_result = self._search_a_share_from_rqdata(keyword, limit)
+        if rq_result:
+            logger.info(f"A 股搜索使用 RQData | keyword={keyword} | count={len(rq_result.get('items', []))}")
+            return rq_result
+
         try:
             # 获取所有 A 股列表
             df = self.ak.stock_info_a_code_name()
@@ -611,6 +1040,19 @@ class AKShareAdapter:
     
     def _get_stock_name(self, symbol: str, market: str = "A") -> str:
         """获取股票名称"""
+        local_name = self._lookup_local_stock_name(symbol)
+        if local_name:
+            return local_name
+
+        if market == "A" and self._rq is not None:
+            try:
+                instruments = self._rq.all_instruments(type="CS", market="cn")
+                result = instruments[instruments["order_book_id"].astype(str).str.startswith(symbol)]
+                if not result.empty:
+                    return str(result.iloc[0]["symbol_name"])
+            except Exception as e:
+                logger.warning(f"RQData 获取股票名称失败 | symbol={symbol} | error={e}")
+
         try:
             if market == "A":
                 df = self.ak.stock_info_a_code_name()

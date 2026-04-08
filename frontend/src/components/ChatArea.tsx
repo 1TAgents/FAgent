@@ -1,9 +1,10 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { MessageList } from './MessageList';
 import { ChatInput } from './ChatInput';
 import type { Message } from '@/types';
 import { PanelLeftOpen } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { getAvailableModels, type AvailableModel } from '@/lib/api';
 
 interface ChatAreaProps {
   messages: Message[];
@@ -22,7 +23,37 @@ export function ChatArea({
   isSidebarOpen,
   onToggleSidebar
 }: ChatAreaProps) {
-  const [model, setModel] = useState("mimo-v2-flash");
+  const [model, setModel] = useState("qwen3.5-plus");
+  const [models, setModels] = useState<AvailableModel[]>([
+    { id: 'qwen3.5-plus', name: 'Qwen 3.5 Plus' }
+  ]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadModels = async () => {
+      try {
+        const result = await getAvailableModels();
+        if (cancelled || !result.models?.length) return;
+
+        setModels(result.models);
+        setModel((current) => {
+          if (result.models.some((item) => item.id === current)) {
+            return current;
+          }
+          return result.default || result.models[0].id;
+        });
+      } catch (error) {
+        console.error('加载模型列表失败:', error);
+      }
+    };
+
+    void loadModels();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   return (
     <div className="flex-1 flex flex-col h-full relative bg-white dark:bg-[#343541]">
@@ -49,6 +80,7 @@ export function ChatArea({
           isLoading={isLoading} 
           onStop={stopGeneration}
           model={model}
+          models={models}
           onModelChange={setModel}
         />
       </div>

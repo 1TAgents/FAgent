@@ -1,0 +1,591 @@
+
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FAgent 路演多轮对话测试报告</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f5f5f5; padding: 40px; }
+        .container { max-width: 1400px; margin: 0 auto; }
+        h1 { color: #1e3a5f; margin-bottom: 20px; }
+        h2 { color: #2563EB; margin: 30px 0 15px; }
+        .summary { background: white; padding: 30px; border-radius: 12px; margin-bottom: 30px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+        .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; margin-top: 20px; }
+        .stat-card { background: linear-gradient(135deg, #2563EB 0%, #7C3AED 100%); color: white; padding: 20px; border-radius: 8px; text-align: center; }
+        .stat-value { font-size: 36px; font-weight: 700; }
+        .stat-label { font-size: 14px; opacity: 0.9; margin-top: 5px; }
+        .scenario { background: white; border-radius: 12px; padding: 25px; margin-bottom: 25px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+        .scenario-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+        .scenario-title { font-size: 20px; font-weight: 600; color: #1e3a5f; }
+        .scenario-badge { padding: 6px 12px; border-radius: 20px; font-size: 12px; font-weight: 600; }
+        .badge-ready { background: #059669; color: white; }
+        .badge-not-ready { background: #dc2626; color: white; }
+        .turn { background: #f9fafb; border-left: 4px solid #2563EB; padding: 15px; margin: 15px 0; border-radius: 4px; }
+        .turn-user { font-weight: 600; color: #2563EB; margin-bottom: 10px; }
+        .turn-assistant { color: #374151; line-height: 1.6; white-space: pre-wrap; }
+        .turn-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; margin-top: 10px; padding-top: 10px; border-top: 1px solid #e5e7eb; }
+        .stat { font-size: 13px; color: #6b7280; }
+        .stat strong { color: #1e3a5f; }
+        .issues { background: #fef3c7; border-left: 4px solid #f59e0b; padding: 15px; margin-top: 15px; border-radius: 4px; }
+        .issues-title { font-weight: 600; color: #92400e; margin-bottom: 8px; }
+        .issues-list { color: #78350f; }
+        .demo-examples { background: #dbeafe; border-left: 4px solid #2563EB; padding: 20px; margin-top: 30px; border-radius: 4px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+        th, td { padding: 12px; text-align: left; border-bottom: 1px solid #e5e7eb; }
+        th { background: #f9fafb; font-weight: 600; color: #6b7280; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎬 FAgent 路演多轮对话测试报告</h1>
+        <p style="color: #6b7280; margin-bottom: 30px;">测试时间：2026-03-20 09:28:26</p>
+        
+        <div class="summary">
+            <h2>📊 测试概览</h2>
+            <div class="stats">
+                <div class="stat-card">
+                    <div class="stat-value">8</div>
+                    <div class="stat-label">总场景数</div>
+                </div>
+                <div class="stat-card" style="background: linear-gradient(135deg, #059669 0%, #10b981 100%);">
+                    <div class="stat-value">0</div>
+                    <div class="stat-label">通过场景</div>
+                </div>
+                <div class="stat-card" style="background: linear-gradient(135deg, #dc2626 0%, #ef4444 100%);">
+                    <div class="stat-value">8</div>
+                    <div class="stat-label">失败场景</div>
+                </div>
+                <div class="stat-card" style="background: linear-gradient(135deg, #7C3AED 0%, #a855f7 100%);">
+                    <div class="stat-value">0</div>
+                    <div class="stat-label">可路演示例</div>
+                </div>
+            </div>
+        </div>
+        
+        <h2>📋 测试场景详情</h2>
+
+        <div class="scenario">
+            <div class="scenario-header">
+                <div class="scenario-title">股票投资咨询流程 (RS001)</div>
+                <span class="scenario-badge badge-not-ready">❌ 需优化</span>
+            </div>
+            
+            <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; margin-bottom: 20px;">
+                <div class="stat-card" style="background: #f0f9ff; color: #1e3a5f;">
+                    <div class="stat-value" style="font-size: 24px;">0%</div>
+                    <div class="stat-label">成功率</div>
+                </div>
+                <div class="stat-card" style="background: #f0f9ff; color: #1e3a5f;">
+                    <div class="stat-value" style="font-size: 24px;">0.0</div>
+                    <div class="stat-label">内容质量</div>
+                </div>
+                <div class="stat-card" style="background: #f0f9ff; color: #1e3a5f;">
+                    <div class="stat-value" style="font-size: 24px;">0.0</div>
+                    <div class="stat-label">连贯性</div>
+                </div>
+                <div class="stat-card" style="background: #f0f9ff; color: #1e3a5f;">
+                    <div class="stat-value" style="font-size: 24px;">0.0</div>
+                    <div class="stat-label">综合评分</div>
+                </div>
+            </div>
+
+            <div class="turn">
+                <div class="turn-user">❌ Turn 1: 贵州茅台现在怎么样？</div>
+                <div class="turn-assistant">⚠️ 错误：空响应</div>
+                <div class="turn-stats">
+                    <div class="stat"><strong>响应时间:</strong> 2.76s</div>
+                    <div class="stat"><strong>内容评分:</strong> 0.0/100</div>
+                    <div class="stat"><strong>连贯性:</strong> 0.0/100</div>
+                </div>
+            </div>
+
+            <div class="turn">
+                <div class="turn-user">❌ Turn 2: 有什么适合的趋势策略？</div>
+                <div class="turn-assistant">⚠️ 错误：空响应</div>
+                <div class="turn-stats">
+                    <div class="stat"><strong>响应时间:</strong> 3.40s</div>
+                    <div class="stat"><strong>内容评分:</strong> 0.0/100</div>
+                    <div class="stat"><strong>连贯性:</strong> 0.0/100</div>
+                </div>
+            </div>
+
+            <div class="turn">
+                <div class="turn-user">❌ Turn 3: 用双均线策略回测一下茅台，参数 5 日和 20 日，过去一年</div>
+                <div class="turn-assistant">⚠️ 错误：空响应</div>
+                <div class="turn-stats">
+                    <div class="stat"><strong>响应时间:</strong> 2.89s</div>
+                    <div class="stat"><strong>内容评分:</strong> 0.0/100</div>
+                    <div class="stat"><strong>连贯性:</strong> 0.0/100</div>
+                </div>
+            </div>
+
+            <div class="issues">
+                <div class="issues-title">⚠️ 需要优化:</div>
+                <ul class="issues-list">
+                    <li>有3轮对话失败</li>
+                    <li>内容质量偏低 (0.0分)</li>
+                    <li>上下文连贯性不足 (0.0分)</li>
+                </ul>
+            </div>
+        </div>
+
+        <div class="scenario">
+            <div class="scenario-header">
+                <div class="scenario-title">期货投资咨询流程 (RS002)</div>
+                <span class="scenario-badge badge-not-ready">❌ 需优化</span>
+            </div>
+            
+            <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; margin-bottom: 20px;">
+                <div class="stat-card" style="background: #f0f9ff; color: #1e3a5f;">
+                    <div class="stat-value" style="font-size: 24px;">0%</div>
+                    <div class="stat-label">成功率</div>
+                </div>
+                <div class="stat-card" style="background: #f0f9ff; color: #1e3a5f;">
+                    <div class="stat-value" style="font-size: 24px;">0.0</div>
+                    <div class="stat-label">内容质量</div>
+                </div>
+                <div class="stat-card" style="background: #f0f9ff; color: #1e3a5f;">
+                    <div class="stat-value" style="font-size: 24px;">0.0</div>
+                    <div class="stat-label">连贯性</div>
+                </div>
+                <div class="stat-card" style="background: #f0f9ff; color: #1e3a5f;">
+                    <div class="stat-value" style="font-size: 24px;">0.0</div>
+                    <div class="stat-label">综合评分</div>
+                </div>
+            </div>
+
+            <div class="turn">
+                <div class="turn-user">❌ Turn 1: 螺纹钢期货现在什么价格？</div>
+                <div class="turn-assistant">⚠️ 错误：空响应</div>
+                <div class="turn-stats">
+                    <div class="stat"><strong>响应时间:</strong> 3.13s</div>
+                    <div class="stat"><strong>内容评分:</strong> 0.0/100</div>
+                    <div class="stat"><strong>连贯性:</strong> 0.0/100</div>
+                </div>
+            </div>
+
+            <div class="turn">
+                <div class="turn-user">❌ Turn 2: 期货和股票策略有什么区别？</div>
+                <div class="turn-assistant">⚠️ 错误：空响应</div>
+                <div class="turn-stats">
+                    <div class="stat"><strong>响应时间:</strong> 3.59s</div>
+                    <div class="stat"><strong>内容评分:</strong> 0.0/100</div>
+                    <div class="stat"><strong>连贯性:</strong> 0.0/100</div>
+                </div>
+            </div>
+
+            <div class="turn">
+                <div class="turn-user">❌ Turn 3: 期货双均线策略怎么做空？</div>
+                <div class="turn-assistant">⚠️ 错误：空响应</div>
+                <div class="turn-stats">
+                    <div class="stat"><strong>响应时间:</strong> 3.52s</div>
+                    <div class="stat"><strong>内容评分:</strong> 0.0/100</div>
+                    <div class="stat"><strong>连贯性:</strong> 0.0/100</div>
+                </div>
+            </div>
+
+            <div class="issues">
+                <div class="issues-title">⚠️ 需要优化:</div>
+                <ul class="issues-list">
+                    <li>有3轮对话失败</li>
+                    <li>内容质量偏低 (0.0分)</li>
+                    <li>上下文连贯性不足 (0.0分)</li>
+                </ul>
+            </div>
+        </div>
+
+        <div class="scenario">
+            <div class="scenario-header">
+                <div class="scenario-title">策略库探索流程 (RS003)</div>
+                <span class="scenario-badge badge-not-ready">❌ 需优化</span>
+            </div>
+            
+            <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; margin-bottom: 20px;">
+                <div class="stat-card" style="background: #f0f9ff; color: #1e3a5f;">
+                    <div class="stat-value" style="font-size: 24px;">0%</div>
+                    <div class="stat-label">成功率</div>
+                </div>
+                <div class="stat-card" style="background: #f0f9ff; color: #1e3a5f;">
+                    <div class="stat-value" style="font-size: 24px;">0.0</div>
+                    <div class="stat-label">内容质量</div>
+                </div>
+                <div class="stat-card" style="background: #f0f9ff; color: #1e3a5f;">
+                    <div class="stat-value" style="font-size: 24px;">0.0</div>
+                    <div class="stat-label">连贯性</div>
+                </div>
+                <div class="stat-card" style="background: #f0f9ff; color: #1e3a5f;">
+                    <div class="stat-value" style="font-size: 24px;">0.0</div>
+                    <div class="stat-label">综合评分</div>
+                </div>
+            </div>
+
+            <div class="turn">
+                <div class="turn-user">❌ Turn 1: 你们有哪些策略可以用？</div>
+                <div class="turn-assistant">⚠️ 错误：空响应</div>
+                <div class="turn-stats">
+                    <div class="stat"><strong>响应时间:</strong> 3.02s</div>
+                    <div class="stat"><strong>内容评分:</strong> 0.0/100</div>
+                    <div class="stat"><strong>连贯性:</strong> 0.0/100</div>
+                </div>
+            </div>
+
+            <div class="turn">
+                <div class="turn-user">❌ Turn 2: 双均线策略的参数怎么设置？</div>
+                <div class="turn-assistant">⚠️ 错误：空响应</div>
+                <div class="turn-stats">
+                    <div class="stat"><strong>响应时间:</strong> 2.70s</div>
+                    <div class="stat"><strong>内容评分:</strong> 0.0/100</div>
+                    <div class="stat"><strong>连贯性:</strong> 0.0/100</div>
+                </div>
+            </div>
+
+            <div class="turn">
+                <div class="turn-user">❌ Turn 3: RSI 策略适合什么行情？</div>
+                <div class="turn-assistant">⚠️ 错误：空响应</div>
+                <div class="turn-stats">
+                    <div class="stat"><strong>响应时间:</strong> 3.19s</div>
+                    <div class="stat"><strong>内容评分:</strong> 0.0/100</div>
+                    <div class="stat"><strong>连贯性:</strong> 0.0/100</div>
+                </div>
+            </div>
+
+            <div class="issues">
+                <div class="issues-title">⚠️ 需要优化:</div>
+                <ul class="issues-list">
+                    <li>有3轮对话失败</li>
+                    <li>内容质量偏低 (0.0分)</li>
+                    <li>上下文连贯性不足 (0.0分)</li>
+                </ul>
+            </div>
+        </div>
+
+        <div class="scenario">
+            <div class="scenario-header">
+                <div class="scenario-title">回测深度分析流程 (RS004)</div>
+                <span class="scenario-badge badge-not-ready">❌ 需优化</span>
+            </div>
+            
+            <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; margin-bottom: 20px;">
+                <div class="stat-card" style="background: #f0f9ff; color: #1e3a5f;">
+                    <div class="stat-value" style="font-size: 24px;">0%</div>
+                    <div class="stat-label">成功率</div>
+                </div>
+                <div class="stat-card" style="background: #f0f9ff; color: #1e3a5f;">
+                    <div class="stat-value" style="font-size: 24px;">0.0</div>
+                    <div class="stat-label">内容质量</div>
+                </div>
+                <div class="stat-card" style="background: #f0f9ff; color: #1e3a5f;">
+                    <div class="stat-value" style="font-size: 24px;">0.0</div>
+                    <div class="stat-label">连贯性</div>
+                </div>
+                <div class="stat-card" style="background: #f0f9ff; color: #1e3a5f;">
+                    <div class="stat-value" style="font-size: 24px;">0.0</div>
+                    <div class="stat-label">综合评分</div>
+                </div>
+            </div>
+
+            <div class="turn">
+                <div class="turn-user">❌ Turn 1: 双均线策略回测茅台的收益怎么样？</div>
+                <div class="turn-assistant">⚠️ 错误：空响应</div>
+                <div class="turn-stats">
+                    <div class="stat"><strong>响应时间:</strong> 2.92s</div>
+                    <div class="stat"><strong>内容评分:</strong> 0.0/100</div>
+                    <div class="stat"><strong>连贯性:</strong> 0.0/100</div>
+                </div>
+            </div>
+
+            <div class="turn">
+                <div class="turn-user">❌ Turn 2: 最大回撤是多少？</div>
+                <div class="turn-assistant">⚠️ 错误：空响应</div>
+                <div class="turn-stats">
+                    <div class="stat"><strong>响应时间:</strong> 2.53s</div>
+                    <div class="stat"><strong>内容评分:</strong> 0.0/100</div>
+                    <div class="stat"><strong>连贯性:</strong> 0.0/100</div>
+                </div>
+            </div>
+
+            <div class="turn">
+                <div class="turn-user">❌ Turn 3: 怎么优化这个策略？</div>
+                <div class="turn-assistant">⚠️ 错误：空响应</div>
+                <div class="turn-stats">
+                    <div class="stat"><strong>响应时间:</strong> 3.61s</div>
+                    <div class="stat"><strong>内容评分:</strong> 0.0/100</div>
+                    <div class="stat"><strong>连贯性:</strong> 0.0/100</div>
+                </div>
+            </div>
+
+            <div class="issues">
+                <div class="issues-title">⚠️ 需要优化:</div>
+                <ul class="issues-list">
+                    <li>有3轮对话失败</li>
+                    <li>内容质量偏低 (0.0分)</li>
+                    <li>上下文连贯性不足 (0.0分)</li>
+                </ul>
+            </div>
+        </div>
+
+        <div class="scenario">
+            <div class="scenario-header">
+                <div class="scenario-title">新手入门流程 (RS005)</div>
+                <span class="scenario-badge badge-not-ready">❌ 需优化</span>
+            </div>
+            
+            <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; margin-bottom: 20px;">
+                <div class="stat-card" style="background: #f0f9ff; color: #1e3a5f;">
+                    <div class="stat-value" style="font-size: 24px;">0%</div>
+                    <div class="stat-label">成功率</div>
+                </div>
+                <div class="stat-card" style="background: #f0f9ff; color: #1e3a5f;">
+                    <div class="stat-value" style="font-size: 24px;">0.0</div>
+                    <div class="stat-label">内容质量</div>
+                </div>
+                <div class="stat-card" style="background: #f0f9ff; color: #1e3a5f;">
+                    <div class="stat-value" style="font-size: 24px;">0.0</div>
+                    <div class="stat-label">连贯性</div>
+                </div>
+                <div class="stat-card" style="background: #f0f9ff; color: #1e3a5f;">
+                    <div class="stat-value" style="font-size: 24px;">0.0</div>
+                    <div class="stat-label">综合评分</div>
+                </div>
+            </div>
+
+            <div class="turn">
+                <div class="turn-user">❌ Turn 1: 我是新手，怎么用 FAgent？</div>
+                <div class="turn-assistant">⚠️ 错误：空响应</div>
+                <div class="turn-stats">
+                    <div class="stat"><strong>响应时间:</strong> 1.98s</div>
+                    <div class="stat"><strong>内容评分:</strong> 0.0/100</div>
+                    <div class="stat"><strong>连贯性:</strong> 0.0/100</div>
+                </div>
+            </div>
+
+            <div class="turn">
+                <div class="turn-user">❌ Turn 2: 第一个策略应该选什么？</div>
+                <div class="turn-assistant">⚠️ 错误：空响应</div>
+                <div class="turn-stats">
+                    <div class="stat"><strong>响应时间:</strong> 2.71s</div>
+                    <div class="stat"><strong>内容评分:</strong> 0.0/100</div>
+                    <div class="stat"><strong>连贯性:</strong> 0.0/100</div>
+                </div>
+            </div>
+
+            <div class="turn">
+                <div class="turn-user">❌ Turn 3: 帮我回测一下这个策略</div>
+                <div class="turn-assistant">⚠️ 错误：空响应</div>
+                <div class="turn-stats">
+                    <div class="stat"><strong>响应时间:</strong> 1.69s</div>
+                    <div class="stat"><strong>内容评分:</strong> 0.0/100</div>
+                    <div class="stat"><strong>连贯性:</strong> 0.0/100</div>
+                </div>
+            </div>
+
+            <div class="issues">
+                <div class="issues-title">⚠️ 需要优化:</div>
+                <ul class="issues-list">
+                    <li>有3轮对话失败</li>
+                    <li>内容质量偏低 (0.0分)</li>
+                    <li>上下文连贯性不足 (0.0分)</li>
+                </ul>
+            </div>
+        </div>
+
+        <div class="scenario">
+            <div class="scenario-header">
+                <div class="scenario-title">情感交流流程 (RS006)</div>
+                <span class="scenario-badge badge-not-ready">❌ 需优化</span>
+            </div>
+            
+            <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; margin-bottom: 20px;">
+                <div class="stat-card" style="background: #f0f9ff; color: #1e3a5f;">
+                    <div class="stat-value" style="font-size: 24px;">0%</div>
+                    <div class="stat-label">成功率</div>
+                </div>
+                <div class="stat-card" style="background: #f0f9ff; color: #1e3a5f;">
+                    <div class="stat-value" style="font-size: 24px;">0.0</div>
+                    <div class="stat-label">内容质量</div>
+                </div>
+                <div class="stat-card" style="background: #f0f9ff; color: #1e3a5f;">
+                    <div class="stat-value" style="font-size: 24px;">0.0</div>
+                    <div class="stat-label">连贯性</div>
+                </div>
+                <div class="stat-card" style="background: #f0f9ff; color: #1e3a5f;">
+                    <div class="stat-value" style="font-size: 24px;">0.0</div>
+                    <div class="stat-label">综合评分</div>
+                </div>
+            </div>
+
+            <div class="turn">
+                <div class="turn-user">❌ Turn 1: 最近炒股亏了好多，好郁闷</div>
+                <div class="turn-assistant">⚠️ 错误：空响应</div>
+                <div class="turn-stats">
+                    <div class="stat"><strong>响应时间:</strong> 3.85s</div>
+                    <div class="stat"><strong>内容评分:</strong> 0.0/100</div>
+                    <div class="stat"><strong>连贯性:</strong> 0.0/100</div>
+                </div>
+            </div>
+
+            <div class="turn">
+                <div class="turn-user">❌ Turn 2: 有什么办法可以避免情绪化交易吗？</div>
+                <div class="turn-assistant">⚠️ 错误：空响应</div>
+                <div class="turn-stats">
+                    <div class="stat"><strong>响应时间:</strong> 2.81s</div>
+                    <div class="stat"><strong>内容评分:</strong> 0.0/100</div>
+                    <div class="stat"><strong>连贯性:</strong> 0.0/100</div>
+                </div>
+            </div>
+
+            <div class="turn">
+                <div class="turn-user">❌ Turn 3: 那你推荐什么策略比较稳健？</div>
+                <div class="turn-assistant">⚠️ 错误：空响应</div>
+                <div class="turn-stats">
+                    <div class="stat"><strong>响应时间:</strong> 3.63s</div>
+                    <div class="stat"><strong>内容评分:</strong> 0.0/100</div>
+                    <div class="stat"><strong>连贯性:</strong> 0.0/100</div>
+                </div>
+            </div>
+
+            <div class="issues">
+                <div class="issues-title">⚠️ 需要优化:</div>
+                <ul class="issues-list">
+                    <li>有3轮对话失败</li>
+                    <li>内容质量偏低 (0.0分)</li>
+                    <li>上下文连贯性不足 (0.0分)</li>
+                </ul>
+            </div>
+        </div>
+
+        <div class="scenario">
+            <div class="scenario-header">
+                <div class="scenario-title">夸奖回应流程 (RS007)</div>
+                <span class="scenario-badge badge-not-ready">❌ 需优化</span>
+            </div>
+            
+            <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; margin-bottom: 20px;">
+                <div class="stat-card" style="background: #f0f9ff; color: #1e3a5f;">
+                    <div class="stat-value" style="font-size: 24px;">0%</div>
+                    <div class="stat-label">成功率</div>
+                </div>
+                <div class="stat-card" style="background: #f0f9ff; color: #1e3a5f;">
+                    <div class="stat-value" style="font-size: 24px;">0.0</div>
+                    <div class="stat-label">内容质量</div>
+                </div>
+                <div class="stat-card" style="background: #f0f9ff; color: #1e3a5f;">
+                    <div class="stat-value" style="font-size: 24px;">0.0</div>
+                    <div class="stat-label">连贯性</div>
+                </div>
+                <div class="stat-card" style="background: #f0f9ff; color: #1e3a5f;">
+                    <div class="stat-value" style="font-size: 24px;">0.0</div>
+                    <div class="stat-label">综合评分</div>
+                </div>
+            </div>
+
+            <div class="turn">
+                <div class="turn-user">❌ Turn 1: 你比那些券商分析师厉害多了</div>
+                <div class="turn-assistant">⚠️ 错误：空响应</div>
+                <div class="turn-stats">
+                    <div class="stat"><strong>响应时间:</strong> 2.85s</div>
+                    <div class="stat"><strong>内容评分:</strong> 0.0/100</div>
+                    <div class="stat"><strong>连贯性:</strong> 0.0/100</div>
+                </div>
+            </div>
+
+            <div class="turn">
+                <div class="turn-user">❌ Turn 2: 真的假的？有这么神吗？</div>
+                <div class="turn-assistant">⚠️ 错误：空响应</div>
+                <div class="turn-stats">
+                    <div class="stat"><strong>响应时间:</strong> 2.55s</div>
+                    <div class="stat"><strong>内容评分:</strong> 0.0/100</div>
+                    <div class="stat"><strong>连贯性:</strong> 0.0/100</div>
+                </div>
+            </div>
+
+            <div class="turn">
+                <div class="turn-user">❌ Turn 3: 那你给我展示一下你的能力</div>
+                <div class="turn-assistant">⚠️ 错误：空响应</div>
+                <div class="turn-stats">
+                    <div class="stat"><strong>响应时间:</strong> 1.68s</div>
+                    <div class="stat"><strong>内容评分:</strong> 0.0/100</div>
+                    <div class="stat"><strong>连贯性:</strong> 0.0/100</div>
+                </div>
+            </div>
+
+            <div class="issues">
+                <div class="issues-title">⚠️ 需要优化:</div>
+                <ul class="issues-list">
+                    <li>有3轮对话失败</li>
+                    <li>内容质量偏低 (0.0分)</li>
+                    <li>上下文连贯性不足 (0.0分)</li>
+                </ul>
+            </div>
+        </div>
+
+        <div class="scenario">
+            <div class="scenario-header">
+                <div class="scenario-title">生活话题流程 (RS008)</div>
+                <span class="scenario-badge badge-not-ready">❌ 需优化</span>
+            </div>
+            
+            <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; margin-bottom: 20px;">
+                <div class="stat-card" style="background: #f0f9ff; color: #1e3a5f;">
+                    <div class="stat-value" style="font-size: 24px;">0%</div>
+                    <div class="stat-label">成功率</div>
+                </div>
+                <div class="stat-card" style="background: #f0f9ff; color: #1e3a5f;">
+                    <div class="stat-value" style="font-size: 24px;">0.0</div>
+                    <div class="stat-label">内容质量</div>
+                </div>
+                <div class="stat-card" style="background: #f0f9ff; color: #1e3a5f;">
+                    <div class="stat-value" style="font-size: 24px;">0.0</div>
+                    <div class="stat-label">连贯性</div>
+                </div>
+                <div class="stat-card" style="background: #f0f9ff; color: #1e3a5f;">
+                    <div class="stat-value" style="font-size: 24px;">0.0</div>
+                    <div class="stat-label">综合评分</div>
+                </div>
+            </div>
+
+            <div class="turn">
+                <div class="turn-user">❌ Turn 1: 今天天气不错，适合出门</div>
+                <div class="turn-assistant">⚠️ 错误：空响应</div>
+                <div class="turn-stats">
+                    <div class="stat"><strong>响应时间:</strong> 0.97s</div>
+                    <div class="stat"><strong>内容评分:</strong> 0.0/100</div>
+                    <div class="stat"><strong>连贯性:</strong> 0.0/100</div>
+                </div>
+            </div>
+
+            <div class="turn">
+                <div class="turn-user">❌ Turn 2: 你觉得天气和股市有关系吗？</div>
+                <div class="turn-assistant">⚠️ 错误：空响应</div>
+                <div class="turn-stats">
+                    <div class="stat"><strong>响应时间:</strong> 2.80s</div>
+                    <div class="stat"><strong>内容评分:</strong> 0.0/100</div>
+                    <div class="stat"><strong>连贯性:</strong> 0.0/100</div>
+                </div>
+            </div>
+
+            <div class="turn">
+                <div class="turn-user">❌ Turn 3: 哈哈，开个玩笑，帮我看看螺纹钢吧</div>
+                <div class="turn-assistant">⚠️ 错误：空响应</div>
+                <div class="turn-stats">
+                    <div class="stat"><strong>响应时间:</strong> 2.97s</div>
+                    <div class="stat"><strong>内容评分:</strong> 0.0/100</div>
+                    <div class="stat"><strong>连贯性:</strong> 0.0/100</div>
+                </div>
+            </div>
+
+            <div class="issues">
+                <div class="issues-title">⚠️ 需要优化:</div>
+                <ul class="issues-list">
+                    <li>有3轮对话失败</li>
+                    <li>内容质量偏低 (0.0分)</li>
+                    <li>上下文连贯性不足 (0.0分)</li>
+                </ul>
+            </div>
+        </div>
+
+    </div>
+</body>
+</html>

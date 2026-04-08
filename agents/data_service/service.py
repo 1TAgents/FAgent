@@ -45,6 +45,8 @@ class DataService:
         # 初始化数据库
         self.db = StockDatabase(str(self.db_path))
         logger.info(f"数据库初始化完成 | path={self.db_path}")
+        self._rq = None
+        self._init_rqdata()
         
         # 初始化缓存
         self.cache = DataCache(redis_url, enabled=cache_enabled)
@@ -75,6 +77,305 @@ class DataService:
             logger.info("启动同步完成")
         except Exception as e:
             logger.error(f"启动同步失败 | error={e}")
+
+    def _init_rqdata(self):
+        """初始化 RQData（可选）"""
+        try:
+            import rqdatac as rq
+            rq.init()
+            self._rq = rq
+            logger.info("DataService 已启用 RQData 优先链路")
+        except Exception as e:
+            self._rq = None
+            logger.warning(f"DataService 未启用 RQData，回退本地/AKShare | error={e}")
+
+    def _get_raw_connection(self) -> sqlite3.Connection:
+        """获取原始 SQLite 连接，用于读取聚宽脚本落库的数据"""
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
+        return conn
+
+    def _to_order_book_id(self, symbol: str) -> str:
+        """转换为聚宽 order_book_id"""
+        if "." in symbol:
+            return symbol
+        exchange = "XSHG" if symbol.startswith(("5", "6", "9")) else "XSHE"
+        return f"{symbol}.{exchange}"
+
+    def _lookup_local_name(self, symbol: str) -> str:
+        """优先从本地聚宽表获取股票名称"""
+        conn = self._get_raw_connection()
+        try:
+            cursor = conn.cursor()
+            for sql in (
+                "SELECT name FROM stock_info WHERE symbol = ? LIMIT 1",
+                "SELECT name FROM stocks WHERE symbol = ? LIMIT 1",
+            ):
+                try:
+                    row = cursor.execute(sql, (symbol,)).fetchone()
+                    if row and row[0]:
+                        return str(row[0])
+                except sqlite3.OperationalError:
+                    continue
+        finally:
+            conn.close()
+        return ""
+
+    def _get_local_quote_from_rq_tables(self, symbol: str, market: str) -> Optional[Dict[str, Any]]:
+        """从本地聚宽历史表构造最新行情快照"""
+        if market != "A":
+            return None
+
+        conn = self._get_raw_connection()
+        try:
+            cursor = conn.cursor()
+            try:
+                rows = cursor.execute(
+                    """
+                    SELECT datetime, open_price, high_price, low_price, close_price, volume, turnover
+                    FROM bar_data
+                    WHERE symbol = ? AND interval = '1d'
+                    ORDER BY datetime DESC
+                    LIMIT 2
+                    """,
+                    (symbol,),
+                ).fetchall()
+            except sqlite3.OperationalError:
+                rows = []
+
+            if not rows:
+                return None
+
+            latest = rows[0]
+            prev_close = float(rows[1]["close_price"]) if len(rows) > 1 else float(latest["open_price"])
+            latest_close = float(latest["close_price"])
+            change = latest_close - prev_close
+            change_percent = (change / prev_close * 100) if prev_close else 0.0
+            turnover = float(latest["turnover"]) if latest["turnover"] is not None else 0.0
+
+            return {
+                "symbol": symbol,
+                "name": self._lookup_local_name(symbol) or symbol,
+                "market": market,
+                "price": latest_close,
+                "open": float(latest["open_price"]),
+                "high": float(latest["high_price"]),
+                "low": float(latest["low_price"]),
+                "close": prev_close,
+                "change": change,
+                "change_percent": change_percent,
+                "volume": int(float(latest["volume"])),
+                "turnover": turnover,
+                "timestamp": str(latest["datetime"]),
+            }
+        finally:
+            conn.close()
+
+    def _get_local_kline_from_rq_tables(self, symbol: str, period: str, count: int) -> List[Dict[str, Any]]:
+        """从本地聚宽表读取 K 线"""
+        conn = self._get_raw_connection()
+        try:
+            cursor = conn.cursor()
+            rows = []
+
+            if period == "daily":
+                try:
+                    rows = cursor.execute(
+                        """
+                        SELECT datetime, open_price, high_price, low_price, close_price, volume, turnover
+                        FROM bar_data
+                        WHERE symbol = ? AND interval = '1d'
+                        ORDER BY datetime DESC
+                        LIMIT ?
+                        """,
+                        (symbol, count),
+                    ).fetchall()
+                except sqlite3.OperationalError:
+                    rows = []
+
+                if rows:
+                    return [
+                        {
+                            "date": str(row["datetime"])[:10],
+                            "open": float(row["open_price"]),
+                            "high": float(row["high_price"]),
+                            "low": float(row["low_price"]),
+                            "close": float(row["close_price"]),
+                            "volume": int(float(row["volume"])),
+                            "turnover": float(row["turnover"]) if row["turnover"] is not None else None,
+                            "change_percent": None,
+                        }
+                        for row in reversed(rows)
+                    ]
+        finally:
+            conn.close()
+
+        return []
+
+    def _search_local_rq_tables(self, keyword: str, limit: int = 10) -> List[Dict[str, Any]]:
+        """从本地聚宽表搜索股票"""
+        conn = self._get_raw_connection()
+        try:
+            cursor = conn.cursor()
+            items: List[Dict[str, Any]] = []
+            seen = set()
+            like_keyword = f"%{keyword}%"
+
+            queries = (
+                """
+                SELECT symbol, name, 'A' AS market, list_date, industry, area
+                FROM stock_info
+                WHERE symbol LIKE ? OR name LIKE ?
+                ORDER BY symbol
+                LIMIT ?
+                """,
+                """
+                SELECT symbol, name, market, list_date, industry, area
+                FROM stocks
+                WHERE symbol LIKE ? OR name LIKE ?
+                ORDER BY symbol
+                LIMIT ?
+                """,
+            )
+
+            for sql in queries:
+                try:
+                    rows = cursor.execute(sql, (like_keyword, like_keyword, limit)).fetchall()
+                except sqlite3.OperationalError:
+                    rows = []
+
+                for row in rows:
+                    symbol = str(row["symbol"])
+                    if symbol in seen:
+                        continue
+                    seen.add(symbol)
+                    items.append(
+                        {
+                            "symbol": symbol,
+                            "name": str(row["name"]),
+                            "market": str(row["market"]),
+                            "list_date": str(row["list_date"]) if row["list_date"] else None,
+                            "industry": str(row["industry"]) if row["industry"] else None,
+                            "area": str(row["area"]) if row["area"] else None,
+                        }
+                    )
+                    if len(items) >= limit:
+                        return items
+        finally:
+            conn.close()
+
+        return items
+
+    def _get_stock_list_from_rq_tables(self) -> List[Dict[str, Any]]:
+        """从本地聚宽表读取股票列表"""
+        conn = self._get_raw_connection()
+        try:
+            cursor = conn.cursor()
+            for sql in (
+                "SELECT symbol, name, 'A' AS market, list_date, industry, area FROM stock_info ORDER BY symbol",
+                "SELECT symbol, name, market, list_date, industry, area FROM stocks ORDER BY symbol",
+            ):
+                try:
+                    rows = cursor.execute(sql).fetchall()
+                except sqlite3.OperationalError:
+                    rows = []
+
+                if rows:
+                    return [
+                        {
+                            "symbol": str(row["symbol"]),
+                            "name": str(row["name"]),
+                            "market": str(row["market"]),
+                            "list_date": str(row["list_date"]) if row["list_date"] else None,
+                            "industry": str(row["industry"]) if row["industry"] else None,
+                            "area": str(row["area"]) if row["area"] else None,
+                        }
+                        for row in rows
+                    ]
+        finally:
+            conn.close()
+
+        return []
+
+    async def _fetch_quote_from_rqdata(self, symbol: str, market: str) -> Optional[Dict]:
+        """从 RQData 获取实时行情"""
+        if market != "A" or self._rq is None:
+            return None
+
+        try:
+            tick = self._rq.get_current_tick(self._to_order_book_id(symbol))
+            if not tick:
+                return None
+
+            getter = tick.get if isinstance(tick, dict) else lambda key, default=None: getattr(tick, key, default)
+            prev_close = getter("prev_close", getter("pre_close", 0)) or 0
+            last_price = getter("last", getter("price", 0)) or 0
+            turnover = float(getter("turnover", getter("total_turnover", 0)) or 0)
+            change = last_price - prev_close if prev_close else 0.0
+
+            return {
+                "symbol": symbol,
+                "name": self._lookup_local_name(symbol) or symbol,
+                "market": market,
+                "price": float(last_price or 0),
+                "open": float(getter("open", prev_close or last_price) or 0),
+                "high": float(getter("high", last_price) or 0),
+                "low": float(getter("low", last_price) or 0),
+                "close": float(prev_close or 0),
+                "change": float(change),
+                "change_percent": float(change / prev_close * 100) if prev_close else 0.0,
+                "volume": int(float(getter("volume", 0) or 0)),
+                "turnover": turnover,
+                "timestamp": str(getter("datetime", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))),
+            }
+        except Exception as e:
+            logger.warning(f"RQData 实时行情失败 | symbol={symbol} | error={e}")
+            return None
+
+    async def _fetch_kline_from_rqdata(self, symbol: str, period: str, count: int) -> List[Dict]:
+        """从 RQData 获取日线"""
+        if period != "daily" or self._rq is None:
+            return []
+
+        try:
+            end_date = datetime.now().strftime("%Y-%m-%d")
+            start_date = (datetime.now() - timedelta(days=max(count * 3, 60))).strftime("%Y-%m-%d")
+            df = self._rq.get_price(
+                order_book_ids=self._to_order_book_id(symbol),
+                start_date=start_date,
+                end_date=end_date,
+                frequency="1d",
+                adjust_type="pre",
+            )
+            if df is None or df.empty:
+                return []
+
+            return [
+                {
+                    "date": idx.strftime("%Y-%m-%d") if hasattr(idx, "strftime") else str(idx)[:10],
+                    "open": float(row.get("open", 0)),
+                    "high": float(row.get("high", 0)),
+                    "low": float(row.get("low", 0)),
+                    "close": float(row.get("close", 0)),
+                    "volume": int(float(row.get("volume", 0))),
+                    "turnover": float(row.get("turnover", 0)) if row.get("turnover") is not None else None,
+                    "change_percent": None,
+                }
+                for idx, row in df.tail(count).iterrows()
+            ]
+        except Exception as e:
+            logger.warning(f"RQData K 线失败 | symbol={symbol} | error={e}")
+            return []
+
+    def _merge_klines_by_date(self, *groups: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """按日期合并 K 线，后出现的数据覆盖前者"""
+        merged: Dict[str, Dict[str, Any]] = {}
+        for group in groups:
+            for item in group:
+                date_key = str(item.get("date", ""))
+                if date_key:
+                    merged[date_key] = item
+        return [merged[key] for key in sorted(merged.keys())]
     
     # ==================== 实时行情 ====================
     
@@ -84,8 +385,10 @@ class DataService:
         
         优先级：
         1. Redis 缓存（60 秒 TTL）
-        2. AKShare 实时拉取
-        3. 数据库（盘后数据）
+        2. RQData 实时拉取
+        3. 本地聚宽历史库快照
+        4. AKShare 实时拉取
+        5. 数据库（盘后数据）
         
         Args:
             symbol: 股票代码
@@ -100,7 +403,21 @@ class DataService:
             logger.debug(f"缓存命中 | symbol={symbol}")
             return cached
         
-        # 2. 尝试实时拉取
+        # 2. 优先尝试 RQData
+        rq_quote = await self._fetch_quote_from_rqdata(symbol, market)
+        if rq_quote:
+            await self.cache.set_quote(symbol, rq_quote, ttl=60)
+            logger.info(f"RQData 实时行情获取成功 | symbol={symbol}")
+            return rq_quote
+
+        # 3. 优先尝试本地聚宽历史库
+        local_quote = self._get_local_quote_from_rq_tables(symbol, market)
+        if local_quote:
+            await self.cache.set_quote(symbol, local_quote, ttl=60)
+            logger.info(f"本地聚宽库行情获取成功 | symbol={symbol}")
+            return local_quote
+
+        # 4. 尝试 AKShare 实时拉取
         try:
             import akshare as ak
             quote = await self._fetch_realtime_quote(ak, symbol, market)
@@ -112,7 +429,7 @@ class DataService:
         except Exception as e:
             logger.warning(f"实时行情获取失败 | symbol={symbol} | error={e}")
         
-        # 3. 回退到数据库（最新一条）
+        # 5. 回退到数据库（最新一条）
         db_quote = self.db.get_latest_quote(symbol)
         if db_quote:
             logger.info(f"使用数据库行情 | symbol={symbol}")
@@ -159,8 +476,10 @@ class DataService:
         获取 K 线数据
         
         优先级：
-        1. 数据库（主）
-        2. AKShare 补充（数据库缺失的日期）
+        1. 本地聚宽历史库
+        2. 业务数据库
+        3. RQData 补充
+        4. AKShare 补充（数据库缺失的日期）
         
         Args:
             symbol: 股票代码
@@ -172,14 +491,20 @@ class DataService:
         Returns:
             K 线数据列表
         """
-        # 1. 从数据库获取
+        # 1. 从本地聚宽历史库获取
+        rq_local_klines = self._get_local_kline_from_rq_tables(symbol, period, count)
+        if rq_local_klines and len(rq_local_klines) >= count:
+            logger.debug(f"本地聚宽 K 线充足 | symbol={symbol} | count={len(rq_local_klines)}")
+            return rq_local_klines
+
+        # 2. 从业务数据库获取
         db_klines = self.db.get_kline(symbol, period, start_date, end_date, count)
         
         if db_klines and len(db_klines) >= count:
             logger.debug(f"数据库 K 线充足 | symbol={symbol} | count={len(db_klines)}")
             return db_klines
         
-        # 2. 计算缺失的日期范围
+        # 3. 计算缺失的日期范围
         if db_klines:
             latest_date = db_klines[-1]['date']
             # 需要补充从 latest_date 到今天的数据
@@ -187,7 +512,17 @@ class DataService:
         else:
             latest_date = None
         
-        # 3. 从 AKShare 补充
+        # 4. 先用 RQData 补充
+        rq_klines = await self._fetch_kline_from_rqdata(symbol, period, count)
+        if rq_klines:
+            logger.info(f"RQData 补充 K 线 | symbol={symbol} | count={len(rq_klines)}")
+            if db_klines:
+                return self._merge_klines_by_date(db_klines, rq_klines)
+            if rq_local_klines:
+                return self._merge_klines_by_date(rq_local_klines, rq_klines)
+            return rq_klines
+
+        # 5. 从 AKShare 补充
         try:
             import akshare as ak
             new_klines = await self._fetch_kline_from_ak(ak, symbol, period, latest_date)
@@ -199,13 +534,16 @@ class DataService:
                 
                 # 合并数据
                 if db_klines:
-                    return db_klines + new_klines
+                    return self._merge_klines_by_date(db_klines, new_klines)
                 else:
                     return new_klines
         except Exception as e:
             logger.error(f"AKShare 补充 K 线失败 | symbol={symbol} | error={e}")
         
-        # 4. 返回数据库数据（即使不完整）
+        # 6. 返回已有数据（即使不完整）
+        if rq_local_klines:
+            logger.warning(f"返回本地聚宽不完整 K 线 | symbol={symbol} | count={len(rq_local_klines)}")
+            return rq_local_klines
         if db_klines:
             logger.warning(f"返回不完整 K 线 | symbol={symbol} | count={len(db_klines)}")
             return db_klines
@@ -277,14 +615,41 @@ class DataService:
         Returns:
             股票列表
         """
-        # 1. 从数据库获取
+        # 1. 优先从本地聚宽表获取
+        stocks = self._get_stock_list_from_rq_tables() if market == "A" else []
+        if stocks:
+            logger.debug(f"本地聚宽股票列表充足 | count={len(stocks)}")
+            return stocks
+
+        # 2. 从数据库获取
         stocks = self.db.get_stock_list(market)
         
         if stocks and not self.db.is_stock_list_old(days=7):
             logger.debug(f"数据库股票列表充足 | count={len(stocks)}")
             return stocks
         
-        # 2. 从 AKShare 同步
+        # 3. 从 RQData 获取
+        if market == "A" and self._rq is not None:
+            try:
+                instruments = self._rq.all_instruments(type="CS", market="cn")
+                stock_list = []
+                for _, row in instruments.iterrows():
+                    stock_list.append(
+                        {
+                            "symbol": str(row.get("order_book_id", "")).split(".")[0],
+                            "name": str(row.get("symbol_name", "")),
+                            "market": market,
+                        }
+                    )
+
+                if stock_list:
+                    logger.info(f"RQData 股票列表获取成功 | count={len(stock_list)}")
+                    self.db.save_stock_list(stock_list)
+                    return stock_list
+            except Exception as e:
+                logger.warning(f"RQData 股票列表获取失败 | error={e}")
+
+        # 4. 从 AKShare 同步
         try:
             logger.info("同步股票列表...")
             import akshare as ak
@@ -328,13 +693,41 @@ class DataService:
         if cached:
             return cached.get("items", [])
         
+        # 优先从本地聚宽表搜索
+        if market == "A":
+            local_results = self._search_local_rq_tables(keyword, limit)
+            if local_results:
+                await self.cache.set_search(keyword, {"items": local_results}, market, limit, ttl=3600)
+                return local_results
+
         # 从数据库搜索
         results = self.db.search_stock(keyword, market, limit)
         
         if results:
-            # 写入缓存
             await self.cache.set_search(keyword, {"items": results}, market, limit, ttl=3600)
             return results
+
+        if market == "A" and self._rq is not None:
+            try:
+                instruments = self._rq.all_instruments(type="CS", market="cn")
+                mask = (
+                    instruments["order_book_id"].astype(str).str.contains(keyword, na=False, case=False)
+                    | instruments["symbol_name"].astype(str).str.contains(keyword, na=False, case=False)
+                )
+                matches = instruments[mask].head(limit)
+                rq_results = [
+                    {
+                        "symbol": str(row.get("order_book_id", "")).split(".")[0],
+                        "name": str(row.get("symbol_name", "")),
+                        "market": market,
+                    }
+                    for _, row in matches.iterrows()
+                ]
+                if rq_results:
+                    await self.cache.set_search(keyword, {"items": rq_results}, market, limit, ttl=3600)
+                    return rq_results
+            except Exception as e:
+                logger.warning(f"RQData 搜索失败 | keyword={keyword} | error={e}")
         
         return []
     

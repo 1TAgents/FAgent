@@ -2,6 +2,12 @@ import type { Message } from '@/types';
 
 const USE_MOCK = false; // Set to true to force mock mode
 
+export interface AvailableModel {
+  id: string;
+  name: string;
+  description?: string;
+}
+
 // 模拟延迟
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -127,6 +133,24 @@ export async function renameSession(cid: string, title: string) {
     // throw new Error(`Failed to rename session: ${response.statusText}`);
     return; 
   }
+  return response.json();
+}
+
+/**
+ * 获取可用模型列表
+ */
+export async function getAvailableModels(): Promise<{
+  models: AvailableModel[];
+  default?: string;
+}> {
+  const response = await fetch('/api/chat/models', {
+    headers: getAuthHeaders()
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to fetch models: ${response.statusText}`);
+  }
+
   return response.json();
 }
 

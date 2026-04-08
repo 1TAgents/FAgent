@@ -630,9 +630,9 @@ async def get_available_models():
         # 返回默认配置作为 fallback
         return {
             "models": [
-                {"id": "mimo-v2-flash", "name": "Mimo V2 Flash", "description": "默认模型"}
+                {"id": "qwen3.5-plus", "name": "Qwen 3.5 Plus", "description": "默认问答模型"}
             ],
-            "default": "mimo-v2-flash"
+            "default": "qwen3.5-plus"
         }
 
 
