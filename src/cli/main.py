@@ -14,6 +14,7 @@ from . import __version__
 from .commands.session import session
 from .commands.message import message
 from .commands import memory as memory_commands
+from .commands import test as test_commands
 
 # 创建全局 console 实例
 console = Console()
@@ -40,6 +41,7 @@ def cli():
 cli.add_command(session)
 cli.add_command(message)
 cli.add_command(memory_commands.memory)
+cli.add_command(test_commands.test)
 
 
 @cli.command()
