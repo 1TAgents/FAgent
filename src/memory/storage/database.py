@@ -285,3 +285,127 @@ class MemoryDatabase:
         ''', (
             cid, None, timestamp, timestamp, count, last_mid, 'active'
         ))
+    
+    # ==================== 摘要操作 ====================
+    
+    def save_summary(self, summary: "MessageSummary"):
+        """保存摘要"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            INSERT OR REPLACE INTO summaries VALUES 
+            (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (
+            summary.sid, summary.cid, summary.summary_type,
+            json.dumps(summary.covered_mids), summary.start_mid, summary.end_mid,
+            summary.message_count, summary.summary,
+            json.dumps(summary.key_points), json.dumps(summary.entities),
+            json.dumps(summary.topics), summary.parent_summary_id,
+            json.dumps(summary.child_summary_ids),
+            1 if summary.can_expand else 0,
+            summary.expansion_hint, summary.created_at, summary.created_by
+        ))
+        
+        conn.commit()
+        conn.close()
+    
+    def get_summary(self, sid: str) -> Optional["MessageSummary"]:
+        """获取摘要"""
+        from memory.models.summary import MessageSummary
+        
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        cursor.execute('SELECT * FROM summaries WHERE sid = ?', (sid,))
+        row = cursor.fetchone()
+        conn.close()
+        
+        if row:
+            return MessageSummary(
+                sid=row[0], cid=row[1], summary_type=row[2],
+                covered_mids=json.loads(row[3]), start_mid=row[4], end_mid=row[5],
+                message_count=row[6], summary=row[7],
+                key_points=json.loads(row[8]) if row[8] else [],
+                entities=json.loads(row[9]) if row[9] else {},
+                topics=json.loads(row[10]) if row[10] else [],
+                parent_summary_id=row[11],
+                child_summary_ids=json.loads(row[12]) if row[12] else [],
+                can_expand=bool(row[13]), expansion_hint=row[14],
+                created_at=row[15], created_by=row[16]
+            )
+        return None
+    
+    def get_summaries_for_conversation(self, cid: str) -> List["MessageSummary"]:
+        """获取会话的所有摘要"""
+        from memory.models.summary import MessageSummary
+        
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        cursor.execute('SELECT * FROM summaries WHERE cid = ? ORDER BY created_at ASC', (cid,))
+        
+        summaries = []
+        for row in cursor.fetchall():
+            summary = MessageSummary(
+                sid=row[0], cid=row[1], summary_type=row[2],
+                covered_mids=json.loads(row[3]), start_mid=row[4], end_mid=row[5],
+                message_count=row[6], summary=row[7],
+                key_points=json.loads(row[8]) if row[8] else [],
+                entities=json.loads(row[9]) if row[9] else {},
+                topics=json.loads(row[10]) if row[10] else [],
+                parent_summary_id=row[11],
+                child_summary_ids=json.loads(row[12]) if row[12] else [],
+                can_expand=bool(row[13]), expansion_hint=row[14],
+                created_at=row[15], created_by=row[16]
+            )
+            summaries.append(summary)
+        
+        conn.close()
+        return summaries
+    
+    # ==================== 工具响应操作 ====================
+    
+    def save_tool_response(self, response: "ToolResponse"):
+        """保存工具响应"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            INSERT OR REPLACE INTO tool_responses VALUES 
+            (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (
+            response.rid, response.cid, response.mid, response.tool_call_id,
+            response.tool_name, response.tool_input, response.response_size,
+            response.storage_type.value, response.inline_content,
+            response.file_path, json.dumps(response.index_data) if response.index_data else None,
+            response.summary, json.dumps(response.key_data),
+            1 if response.can_load_full else 0, response.load_hint,
+            response.created_at, response.execution_time_ms
+        ))
+        
+        conn.commit()
+        conn.close()
+    
+    def get_tool_response(self, rid: str) -> Optional["ToolResponse"]:
+        """获取工具响应"""
+        from memory.models.tool_response import ToolResponse, ResponseStorage
+        
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        cursor.execute('SELECT * FROM tool_responses WHERE rid = ?', (rid,))
+        row = cursor.fetchone()
+        conn.close()
+        
+        if row:
+            return ToolResponse(
+                rid=row[0], cid=row[1], mid=row[2], tool_call_id=row[3],
+                tool_name=row[4], tool_input=row[5], response_size=row[6],
+                storage_type=ResponseStorage(row[7]), inline_content=row[8],
+                file_path=row[9], index_data=json.loads(row[10]) if row[10] else None,
+                summary=row[11], key_data=json.loads(row[12]) if row[12] else {},
+                can_load_full=bool(row[13]), load_hint=row[14],
+                created_at=row[15], execution_time_ms=row[16]
+            )
+        return None

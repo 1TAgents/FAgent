@@ -1,18 +1,30 @@
 """
 Memory Manager - Memory 系统统一入口
 
-提供会话管理、消息存储等基础功能
+整合 ID 体系、数据模型、存储层、API 层
 """
 
-import sqlite3
 from pathlib import Path
 from datetime import datetime
-from typing import Optional, List, Dict
-import uuid
+from typing import Optional, List
+import sys
+
+# 延迟导入，避免循环依赖
+from .ids import MemoryID, generate_cid
+from .storage.database import MemoryDatabase
 
 
 class MemoryManager:
-    """Memory Manager - 管理会话和基础数据"""
+    """
+    Memory Manager - Memory 系统统一入口
+    
+    提供:
+    - 会话管理
+    - 消息存储
+    - 摘要管理
+    - 工具响应管理
+    - 逐渐披露 API
+    """
     
     _instance = None
     _current_cid: Optional[str] = None
@@ -30,8 +42,12 @@ class MemoryManager:
         self.data_dir = Path(data_dir)
         self.data_dir.mkdir(parents=True, exist_ok=True)
         
-        self.db_path = self.data_dir / "memory.db"
-        self._init_database()
+        # 初始化存储层
+        self.db = MemoryDatabase(str(self.data_dir))
+        
+        # ID 缓存
+        self._id_counter = 0
+        
         self._initialized = True
     
     @property
@@ -44,27 +60,6 @@ class MemoryManager:
         """设置当前会话 ID"""
         self._current_cid = cid
     
-    def _init_database(self):
-        """初始化数据库"""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        
-        # 创建会话表
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS conversations (
-                cid TEXT PRIMARY KEY,
-                title TEXT,
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL,
-                message_count INTEGER DEFAULT 0,
-                last_message_mid TEXT,
-                status TEXT NOT NULL DEFAULT 'active'
-            )
-        ''')
-        
-        conn.commit()
-        conn.close()
-    
     # ==================== 会话管理 ====================
     
     def start_session(self, title: str = None) -> str:
@@ -74,44 +69,46 @@ class MemoryManager:
         Returns:
             str: 会话 ID (cid)
         """
-        cid = f"session_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}"
+        cid = generate_cid()
         now = datetime.now().isoformat()
         
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
+        conn = self.db.db_path
+        import sqlite3
+        conn_sqlite = sqlite3.connect(conn)
+        cursor = conn_sqlite.cursor()
         
         cursor.execute('''
             INSERT INTO conversations (cid, title, created_at, updated_at, status)
             VALUES (?, ?, ?, ?, 'active')
         ''', (cid, title or f"会话 {cid[-6:]}", now, now))
         
-        conn.commit()
-        conn.close()
+        conn_sqlite.commit()
+        conn_sqlite.close()
         
         # 自动切换到新会话
         self._current_cid = cid
         
         return cid
     
-    def list_sessions(self, status: str = "active") -> List[Dict]:
-        """
-        列出所有会话
-        
-        Args:
-            status: 会话状态过滤
-        
-        Returns:
-            List[Dict]: 会话列表
-        """
-        conn = sqlite3.connect(self.db_path)
+    def list_sessions(self, status: str = "active") -> List[dict]:
+        """列出所有会话"""
+        import sqlite3
+        conn = sqlite3.connect(self.db.db_path)
         cursor = conn.cursor()
         
-        cursor.execute('''
-            SELECT cid, title, created_at, updated_at, message_count, status
-            FROM conversations
-            WHERE status = ?
-            ORDER BY updated_at DESC
-        ''', (status,))
+        if status == 'all':
+            cursor.execute('''
+                SELECT cid, title, created_at, updated_at, message_count, status
+                FROM conversations
+                ORDER BY updated_at DESC
+            ''')
+        else:
+            cursor.execute('''
+                SELECT cid, title, created_at, updated_at, message_count, status
+                FROM conversations
+                WHERE status = ?
+                ORDER BY updated_at DESC
+            ''', (status,))
         
         rows = cursor.fetchall()
         conn.close()
@@ -129,17 +126,9 @@ class MemoryManager:
         ]
     
     def switch_session(self, cid: str) -> bool:
-        """
-        切换会话
-        
-        Args:
-            cid: 会话 ID
-        
-        Returns:
-            bool: 是否成功切换
-        """
-        # 检查会话是否存在
-        conn = sqlite3.connect(self.db_path)
+        """切换会话"""
+        import sqlite3
+        conn = sqlite3.connect(self.db.db_path)
         cursor = conn.cursor()
         
         cursor.execute('SELECT cid FROM conversations WHERE cid = ?', (cid,))
@@ -151,21 +140,14 @@ class MemoryManager:
             return True
         return False
     
-    def get_session_info(self, cid: str = None) -> Optional[Dict]:
-        """
-        获取会话信息
-        
-        Args:
-            cid: 会话 ID（默认当前会话）
-        
-        Returns:
-            Optional[Dict]: 会话信息
-        """
+    def get_session_info(self, cid: str = None) -> Optional[dict]:
+        """获取会话信息"""
         cid = cid or self._current_cid
         if not cid:
             return None
         
-        conn = sqlite3.connect(self.db_path)
+        import sqlite3
+        conn = sqlite3.connect(self.db.db_path)
         cursor = conn.cursor()
         
         cursor.execute('''
@@ -189,31 +171,99 @@ class MemoryManager:
         return None
     
     def delete_session(self, cid: str) -> bool:
-        """
-        删除会话（软删除）
+        """删除会话（软删除）"""
+        if cid == self._current_cid:
+            return False
         
-        Args:
-            cid: 会话 ID
-        
-        Returns:
-            bool: 是否成功删除
-        """
-        conn = sqlite3.connect(self.db_path)
+        import sqlite3
+        conn = sqlite3.connect(self.db.db_path)
         cursor = conn.cursor()
         
-        # 更新状态为 deleted
         cursor.execute('''
             UPDATE conversations
             SET status = 'deleted', updated_at = ?
             WHERE cid = ?
         ''', (datetime.now().isoformat(), cid))
         
-        affected = cursor.rowcount
+        affected = cursor.rowcount > 0
+        
         conn.commit()
         conn.close()
         
-        # 如果删除的是当前会话，清空当前会话
         if affected and self._current_cid == cid:
             self._current_cid = None
         
-        return affected > 0
+        return affected
+    
+    # ==================== 消息操作 ====================
+    
+    def save_message(self, cid: str, role: str, content: str, 
+                     sequence_num: int = None, **kwargs) -> str:
+        """
+        保存消息
+        
+        Args:
+            cid: 会话 ID
+            role: 消息角色 (user/assistant/system/tool)
+            content: 消息内容
+            sequence_num: 序号（自动分配）
+        
+        Returns:
+            str: 消息 ID (mid)
+        """
+        from .models import RawMessage, Role
+        
+        # 自动分配序号
+        if sequence_num is None:
+            messages = self.db.get_messages(cid)
+            sequence_num = len(messages)
+        
+        # 生成消息 ID
+        msg_id = MemoryID.new_message(cid)
+        
+        # 创建消息对象
+        msg = RawMessage(
+            cid=cid,
+            mid=msg_id.mid,
+            role=Role(role),
+            content=content,
+            sequence_num=sequence_num,
+            **kwargs
+        )
+        
+        # 保存到数据库
+        self.db.save_message(msg)
+        
+        return msg.mid
+    
+    def get_message(self, cid: str, mid: str):
+        """获取单条消息"""
+        return self.db.get_message(cid, mid)
+    
+    def get_messages(self, cid: str, start: int = 0, limit: int = 100):
+        """获取消息列表（分页）"""
+        return self.db.get_messages(cid, start, limit)
+    
+    # ==================== 摘要操作 ====================
+    
+    def save_summary(self, summary):
+        """保存摘要"""
+        self.db.save_summary(summary)
+    
+    def get_summary(self, sid: str):
+        """获取摘要"""
+        return self.db.get_summary(sid)
+    
+    def get_summaries(self, cid: str):
+        """获取会话摘要列表"""
+        return self.db.get_summaries_for_conversation(cid)
+    
+    # ==================== 工具响应操作 ====================
+    
+    def save_tool_response(self, response):
+        """保存工具响应"""
+        self.db.save_tool_response(response)
+    
+    def get_tool_response(self, rid: str):
+        """获取工具响应"""
+        return self.db.get_tool_response(rid)
