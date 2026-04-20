@@ -1,58 +1,67 @@
 # Frontend 模块
 
-基于 React 的 Web 前端，提供类似 ChatGPT 的对话界面。
+当前前端是一个基于 React 19 + Vite 7 的 Web 应用，负责聊天界面、会话侧边栏、认证弹窗和模型选择等交互。
 
-## 📋 开发状态
+## 技术栈
 
-| Phase | 状态 | 说明 |
-|-------|:----:|------|
-| Phase 1: 项目初始化 | ✅ | Vite + React + TypeScript + Tailwind |
-| Phase 2: 核心组件 | ✅ | Layout, Sidebar, ChatArea, MessageList |
-| Phase 3: API 对接 | ✅ | SSE 流式处理 |
-| Phase 4: 样式优化 | ⏳ | 响应式、深色模式 |
+- React 19
+- TypeScript 5
+- Vite 7
+- Tailwind CSS 3
+- Radix UI
+- Lucide React
 
-> ⏳ 待开始 | 🚧 进行中 | ✅ 已完成
+## 当前功能
 
----
+- ChatGPT 风格的双栏聊天界面
+- 会话分组侧边栏（Today / Yesterday / Previous 7 Days 等）
+- 新建会话、切换会话、重命名、删除
+- SSE 流式消息渲染
+- 登录 / 注册弹窗与本地 Token 持久化
+- 动态获取模型列表
+- 默认深色主题
 
-## 🛠️ 技术栈
+## 目录
 
-| 技术 | 版本 | 用途 |
-|------|------|------|
-| Node.js | 18+ | 运行环境 |
-| React | 18 | UI 框架 |
-| TypeScript | 5 | 类型安全 |
-| Vite | 5 | 构建工具 |
-| Tailwind CSS | 3 | 样式框架 |
-| shadcn/ui | - | 组件库 |
-
----
-
-## 📁 目录结构
-
+```text
+frontend/src/
+├── components/
+├── context/
+├── hooks/
+├── lib/
+├── api/
+└── types/
 ```
-frontend/
-├── src/
-│   ├── components/         # UI 组件
-│   │   ├── Layout.tsx          # 整体布局
-│   │   ├── Sidebar.tsx         # 左侧会话列表
-│   │   ├── ChatArea.tsx        # 右侧聊天区域
-│   │   ├── MessageList.tsx     # 消息列表
-│   │   ├── MessageItem.tsx     # 单条消息
-│   │   └── ChatInput.tsx       # 输入框
-│   ├── hooks/              # 自定义 Hook
-│   │   └── useChat.ts          # SSE 流式处理
-│   ├── lib/                # 工具库
-│   │   └── api.ts              # API 调用封装
-│   ├── types/              # 类型定义
-│   │   └── index.ts
-│   ├── App.tsx             # 主入口
-│   └── main.tsx            # 挂载点
-├── public/                 # 静态资源
-├── index.html
-├── package.json
-├── tailwind.config.js
-├── tsconfig.json
-├── vite.config.ts
-└── README.md               # 本文档
+
+## 启动
+
+```bash
+cd frontend
+npm install
+npm run dev
 ```
+
+默认开发地址：
+
+- `http://localhost:5173`
+
+## 与后端联调
+
+`vite.config.ts` 已配置开发代理：
+
+- `/api` -> `http://localhost:8000`
+
+所以本地开发时通常只需要确保 Backend 跑在 `8000`，无需在浏览器里直接请求 Agents。
+
+## 当前实现说明
+
+- 会话数据来自 `frontend/src/lib/api.ts`
+- 鉴权状态通过 `AuthContext` 保存在 `localStorage`
+- 当 Backend 不可用时，部分交互会退回到开发态 mock 行为，便于继续看 UI
+- `MarketSwitcher` / `MarketChatExample` 目前更偏实验组件，不是当前主页面入口
+
+## 生产前需要注意
+
+- 当前前端默认依赖 Vite 开发代理；生产部署需要显式配置反向代理
+- 登录弹窗里的 mock fallback 只适合本地开发，正式环境应关闭或替换
+- 如果你调整了 Backend 端口，需要同步更新 `vite.config.ts` 代理目标

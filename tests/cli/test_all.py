@@ -5,6 +5,9 @@ CLI 全部命令测试
 
 import subprocess
 import sys
+from pathlib import Path
+
+PROJECT_ROOT = str(Path(__file__).resolve().parents[2])
 
 
 def run_command(cmd):
@@ -13,7 +16,7 @@ def run_command(cmd):
         ['python3'] + cmd,
         capture_output=True,
         text=True,
-        cwd='<repo-root>'
+        cwd=PROJECT_ROOT
     )
     return result.returncode, result.stdout, result.stderr
 

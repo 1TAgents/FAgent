@@ -2,6 +2,9 @@
 
 > 本文档用于记录系统功能的详细需求、技术方案及多端协作任务分配。
 > 新需求请按模板追加至文档末尾。
+>
+> 说明：本文档更接近需求日志和协作记录，包含已完成、进行中和历史遗留条目。
+> 判断当前实现状态时，请优先参考根目录 `README.md` 及各模块 `README.md`。
 
 ---
 
@@ -316,5 +319,4 @@ const sendMessage = async (cid: number, message: string) => {
 - **Context Injection**:
   - 后端在调用 Agents 接口时，需将 `user_id` 注入到 Request Context 中。
   - 示例日志：`[rid=xxx cid=yyy uid=101] [REQ] ...`
-
 

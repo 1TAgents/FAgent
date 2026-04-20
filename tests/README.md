@@ -1,104 +1,90 @@
-# 测试模块
+# 测试说明
 
-## 测试框架
+当前 `tests/` 目录同时包含三种测试形态：单元测试、脚本式联调测试、历史回归/路演脚本。不要把它理解成单一框架。
 
-测试用例与测试逻辑分离，使用 JSON 配置测试数据。
+## 目录分层
 
-### 文件结构
+### 1. 单元测试
 
-```
-tests/
-├── test_cases.json    # 测试用例数据（JSON 格式）
-├── test_runner.py     # 通用测试运行器
-├── test_market.py     # Market 模块测试（旧版，硬编码）
-├── test_multi_turn.py # 多轮对话测试（旧版，硬编码）
-└── README.md
-```
+- `tests/memory/`：Memory 的 ID、模型、数据库、API、layers
+- `tests/cli/`：CLI 框架与各命令的基础可用性
+- `tests/test_validators.py`：验证器相关测试
 
-### 快速开始
+### 2. 联调 / 冒烟测试
+
+- `tests/test_full_stack.py`：前端/Backend/Agents 的服务链路检查
+- `tests/test_market.py`：行情服务和接口脚本测试
+- `tests/test_multi_turn.py`：多轮对话测试
+
+### 3. 场景与报告脚本
+
+- `tests/test_runner.py` + `tests/test_cases.json`：JSON 驱动的场景执行器
+- `tests/run_automated_tests.py`
+- `tests/run_enhanced_tests.py`
+- `tests/test_roadshow_multi_turn.py`：生成路演/演示报告
+
+## 安装
 
 ```bash
-# 列出所有测试用例
+pip install -r tests/requirements.txt
+```
+
+如果你要跑 CLI 或 Memory 相关测试，还需要先安装项目本身依赖：
+
+```bash
+pip install -r requirements-cli.txt
+pip install -r backend/requirements.txt
+pip install -r agents/requirements.txt
+```
+
+## 常用命令
+
+### 单元测试
+
+```bash
+pytest tests/memory tests/cli
+pytest tests/test_validators.py
+```
+
+### 联调脚本
+
+这些脚本通常要求本地服务已经启动：
+
+```bash
+python tests/test_full_stack.py
+python tests/test_market.py
+python tests/test_multi_turn.py
+```
+
+### JSON 场景执行
+
+```bash
 python tests/test_runner.py --list
-
-# 运行指定测试套件
 python tests/test_runner.py --suite market_service
-
-# 按 tag 运行
 python tests/test_runner.py --tag smoke
-
-# 运行所有测试
-python tests/test_runner.py --all
 ```
 
-### 测试套件
-
-| 套件 | 描述 | 需要服务 |
-|------|------|----------|
-| `market_service` | Market Service 单元测试 | 否 |
-| `market_subagent` | Market SubAgent 集成测试 | 否 |
-| `market_api` | Market API 端点测试 | 是 (8001) |
-| `multi_turn_chat` | 多轮对话测试 | 是 (8000+8001) |
-| `cache` | 缓存功能测试 | 否 |
-
-### Tags
-
-| Tag | 描述 |
-|-----|------|
-| `smoke` | 冒烟测试，核心功能验证 |
-| `a_share` | A股相关 |
-| `quote` | 行情查询 |
-| `kline` | K线数据 |
-| `api` | API 端点测试 |
-| `chat` | 对话功能 |
-
-### 添加新测试用例
-
-编辑 `test_cases.json`，在对应 suite 的 cases 数组中添加：
-
-```json
-{
-  "id": "MS006",
-  "name": "测试用例名称",
-  "function": "market_service.xxx",
-  "input": { "param": "value" },
-  "expected": { "success": true },
-  "tags": ["tag1", "tag2"]
-}
-```
-
----
-
-## Streamlit 测试界面（旧）
-
-用于测试 FastAPI 流式和非流式接口的 Web 界面。
-
-### 安装依赖
+### 路演报告
 
 ```bash
-pip install -r requirements.txt
+python tests/test_roadshow_multi_turn.py \
+  --output reports/roadshow_test_report.html
 ```
 
-### 运行测试界面
+## 服务依赖
 
-1. **启动 FastAPI 后端服务**（在另一个终端）：
-   ```bash
-   uvicorn backend.api.main:app --reload --port 8000
-   ```
+不同脚本依赖不同服务：
 
-2. **启动 Streamlit 测试界面**：
-   ```bash
-   streamlit run tests/streamlit_test.py
-   ```
+| 测试类型 | 需要 Backend | 需要 Agents | 需要 Frontend |
+|----------|--------------|-------------|---------------|
+| `tests/memory` | 否 | 否 | 否 |
+| `tests/cli` | 否 | 否 | 否 |
+| `test_full_stack.py` | 是 | 是 | 可选 |
+| `test_market.py` | 视场景而定 | 通常需要 | 否 |
+| `test_runner.py` | 视模块而定 | 视模块而定 | 否 |
 
-3. **访问测试界面**：
-   浏览器会自动打开 `http://localhost:8501`
+## 说明
 
-### 功能说明
-
-- ✅ **API 健康检查**：自动检测后端服务状态
-- ✅ **流式请求测试**：测试 SSE 流式输出
-- ✅ **非流式请求测试**：测试普通 RESTful 接口
-- ✅ **对话历史管理**：保存和管理对话历史
-- ✅ **参数配置**：调整 Temperature 等参数
-
+- 历史测试报告请看 `tests/TEST_REPORT.md`，它是归档快照，不代表当前实时质量
+- 如果你只是想做一轮基础验证，优先跑 `pytest tests/memory tests/cli`
+- 如果你要验证 Web 主链路，优先跑 `tests/test_full_stack.py`

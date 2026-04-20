@@ -9,7 +9,7 @@ echo "============================================================"
 echo ""
 
 # 切换到项目目录
-cd <repo-root>
+cd ~/Learning/FAgent
 
 # 检查 Backend 服务是否运行
 echo "📡 检查 Backend 服务状态..."

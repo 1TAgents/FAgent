@@ -8,7 +8,7 @@ echo "FAgent 数据同步服务"
 echo "======================================"
 
 # 进入项目目录
-cd <repo-root>
+cd ~/Learning/FAgent
 
 # 检查 Redis 是否运行
 if ! pgrep -x "redis-server" > /dev/null; then

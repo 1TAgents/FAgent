@@ -5,7 +5,8 @@ Memory 三层记忆层测试
 
 import sys
 import tempfile
-sys.path.insert(0, '<repo-root>/src')
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'src'))
 
 from memory.layers import ImmediateMemory, WorkingMemory, LongTermMemory
 from memory.layers.working import Task

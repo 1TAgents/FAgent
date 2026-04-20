@@ -5,7 +5,8 @@ Memory 消息存储测试
 
 import sys
 import tempfile
-sys.path.insert(0, '<repo-root>/src')
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'src'))
 
 from memory.storage.database import MemoryDatabase
 from memory.models import RawMessage, Role

@@ -3,6 +3,7 @@
 **测试时间**: 2026-03-20 09:27-09:28  
 **测试场景数**: 8 个  
 **测试结果**: ❌ 全部失败
+**说明**: 这是历史问题分析快照，当前仓库的标准启动方式请以根目录 `README.md` 为准。
 
 ---
 
@@ -48,7 +49,7 @@ cd <repo-root>
 ls -la agents/
 
 # 2. 启动 Agents 服务
-python3 -m uvicorn agents.services.main:app --reload --port 8001
+python3 -m uvicorn agents.api.main:app --reload --port 8001
 
 # 3. 验证服务启动
 curl http://localhost:8001/health
@@ -83,7 +84,7 @@ class MockMultiTurnTester(MultiTurnTester):
 1. **启动 Agents 服务**
    ```bash
    cd <repo-root>
-   python3 -m uvicorn agents.services.main:app --reload --port 8001
+   python3 -m uvicorn agents.api.main:app --reload --port 8001
    ```
 
 2. **验证服务运行**

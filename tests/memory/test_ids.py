@@ -4,7 +4,8 @@ Memory ID 体系测试
 """
 
 import sys
-sys.path.insert(0, '<repo-root>/src')
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'src'))
 
 from memory.ids import MemoryID, generate_cid, generate_mid, generate_sid, generate_rid
 

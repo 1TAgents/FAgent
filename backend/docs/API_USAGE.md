@@ -1,289 +1,213 @@
 # API 使用文档
 
-## 核心概念
+本文档描述当前 Backend 对外暴露的主要接口，以及前端/测试脚本最常用的调用方式。
 
-| 概念 | 说明 |
-|------|------|
-| `cid` | 会话ID，**整数自增** |
-| `message_id` | 消息ID，**整数自增**，全局唯一 |
-| `role` | 消息角色：`user`、`assistant`、`system` |
-| `content_type` | 内容类型：`text`、`image_url`、`multimodal` 等 |
+## 基本约定
 
-## 消息流程
+### 标识
 
-```
-1. 用户消息 → 落库 → 获取 user_message_id
-2. 按 message_id < user_message_id 过滤历史
-3. 构建上下文 → 调用 LLM
-4. AI 回复 → 落库 → 获取 assistant_message_id
-5. 返回响应
-```
+- `cid`：会话 ID，整数自增
+- `message_id`：消息 ID，整数自增
 
-## 数据库结构
+### 可选请求头
 
-```sql
--- 会话表
-conversations (
-    cid INTEGER PRIMARY KEY AUTOINCREMENT,
-    created_at TEXT,
-    updated_at TEXT,
-    metadata TEXT
-)
+- `X-Request-ID`：请求追踪 ID，推荐传 8 位 UUID 片段
+- `Authorization: Bearer <token>`：登录后访问用户隔离数据时使用
 
--- 消息表
-messages (
-    message_id INTEGER PRIMARY KEY AUTOINCREMENT,
-    cid INTEGER,
-    role TEXT,           -- user/assistant
-    content_type TEXT,   -- text/image_url/multimodal
-    content TEXT,
-    metadata TEXT,
-    created_at TEXT
-)
-```
+### 主服务地址
 
-> **注意**：System Prompt 不存入数据库，由 Agents 服务动态管理
+- Backend：`http://localhost:8000`
+- Agents：`http://localhost:8001`
 
-## API 接口
+## 常用接口
 
 ### 1. 创建会话
 
 ```bash
-POST /api/chat/session/create
-Content-Type: application/json
+curl -X POST http://localhost:8000/api/chat/session/create \
+  -H "Content-Type: application/json" \
+  -d '{"title":"smoke-test"}'
+```
 
-{
-  "metadata": {"user_id": "123"}
-}
+响应示例：
 
-# 响应
+```json
 {
   "cid": 1,
+  "title": "smoke-test",
   "message": "Session created successfully"
 }
 ```
 
-> **注意**：System Prompt 由 Agents 服务管理，创建会话时无需指定
-
-### 2. 非流式对话
+### 2. 非流式聊天
 
 ```bash
-POST /api/chat/send
-Content-Type: application/json
+curl -X POST http://localhost:8000/api/chat/send \
+  -H "Content-Type: application/json" \
+  -d '{
+    "cid": 1,
+    "user_message": "帮我简单介绍一下你自己",
+    "temperature": 0.7,
+    "model": "qwen3.5-plus"
+  }'
+```
 
-{
-  "cid": 1,
-  "user_message": "查询苹果股票价格",
-  "user_message_metadata": {"source": "android"},
-  "temperature": 0.7,
-  "history_limit": 20
-}
+响应示例：
 
-# 响应
+```json
 {
-  "content": "AAPL 当前价格为...",
+  "content": "这是一个回复示例",
   "cid": 1,
-  "user_message_id": 3,
-  "assistant_message_id": 4
+  "user_message_id": 1,
+  "assistant_message_id": 2
 }
 ```
 
-### 3. 流式对话（SSE）
+### 3. 流式聊天（SSE）
 
 ```bash
-POST /api/chat/send/stream
-Content-Type: application/json
+curl -N -X POST http://localhost:8000/api/chat/send/stream \
+  -H "Content-Type: application/json" \
+  -H "X-Request-ID: abc12345" \
+  -d '{
+    "cid": 1,
+    "user_message": "帮我做一个流式测试",
+    "model": "qwen3.5-plus"
+  }'
+```
 
-{
-  "cid": 1,
-  "user_message": "介绍一下你自己",
-  "temperature": 0.7
-}
+流式事件格式：
 
-# 响应: text/event-stream
-data: {"content": "我"}
-data: {"content": "是"}
-data: {"content": "..."}
-data: {"done": true, "cid": 1, "user_message_id": 5, "assistant_message_id": 6}
+```text
+data: {"content":"第一个片段"}
+
+data: {"content":"第二个片段"}
+
+data: {"done":true,"cid":1,"user_message_id":3,"assistant_message_id":4}
+
 data: [DONE]
 ```
 
-### 4. 获取会话记录
+### 4. 获取会话和消息
 
 ```bash
-GET /api/chat/conversation/{cid}
-
-# 响应
-{
-  "cid": 1,
-  "created_at": "2025-12-24T10:00:00",
-  "updated_at": "2025-12-24T10:05:00",
-  "message_count": 4,
-  "messages": [
-    {
-      "message_id": 1,
-      "cid": 1,
-      "role": "user",
-      "content_type": "text",
-      "content": "你好",
-      "metadata": null,
-      "created_at": "2025-12-24T10:00:00"
-    },
-    {
-      "message_id": 2,
-      "cid": 1,
-      "role": "assistant",
-      "content_type": "text",
-      "content": "你好！有什么可以帮助你的？",
-      "metadata": null,
-      "created_at": "2025-12-24T10:00:01"
-    }
-  ]
-}
+curl http://localhost:8000/api/chat/conversation/1
+curl http://localhost:8000/api/chat/conversation/1/messages
+curl "http://localhost:8000/api/chat/conversation/1/history?before_message_id=3&limit=10"
+curl http://localhost:8000/api/chat/conversations
 ```
 
-### 5. 获取历史消息（按 message_id 过滤）
+### 5. 更新 / 删除会话
 
 ```bash
-GET /api/chat/conversation/{cid}/history?before_message_id=5&limit=10
+curl -X PATCH http://localhost:8000/api/chat/conversation/1 \
+  -H "Content-Type: application/json" \
+  -d '{"title":"新标题"}'
 
-# 响应
-{
-  "cid": 1,
-  "before_message_id": 5,
-  "messages": [...],
-  "count": 4
-}
+curl -X DELETE http://localhost:8000/api/chat/conversation/1
+
+curl -X POST http://localhost:8000/api/chat/conversation/1/clear
 ```
 
-### 6. 列出所有会话
+### 6. 获取模型列表
 
 ```bash
-GET /api/chat/conversations?limit=10&offset=0
+curl http://localhost:8000/api/chat/models
+```
 
-# 响应
+响应来自 Agents 服务，典型格式如下：
+
+```json
 {
-  "conversations": [
+  "models": [
     {
-      "cid": 2,
-      "created_at": "...",
-      "updated_at": "...",
-      "message_count": 4
-    },
-    {
-      "cid": 1,
-      "created_at": "...",
-      "updated_at": "...",
-      "message_count": 4
+      "id": "qwen3.5-plus",
+      "name": "Qwen 3.5 Plus",
+      "description": "通用问答主模型"
     }
   ],
-  "count": 2
+  "default": "qwen3.5-plus"
 }
 ```
 
-### 7. 删除会话
+### 7. 认证接口
+
+注册：
 
 ```bash
-DELETE /api/chat/conversation/{cid}
-
-# 响应
-{
-  "message": "Conversation deleted successfully",
-  "cid": 1
-}
+curl -X POST http://localhost:8000/api/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{
+    "username":"demo_user",
+    "email":"demo@example.com",
+    "password":"secret123"
+  }'
 ```
 
-### 8. 清空会话消息
+登录：
 
 ```bash
-POST /api/chat/conversation/{cid}/clear
-
-# 响应
-{
-  "message": "Conversation cleared successfully",
-  "cid": 1
-}
+curl -X POST http://localhost:8000/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email":"demo@example.com",
+    "password":"secret123"
+  }'
 ```
 
-## Python 使用示例
+获取当前用户：
 
-```python
-import requests
-
-API_BASE = "http://localhost:8000"
-
-# 1. 创建会话
-resp = requests.post(f"{API_BASE}/api/chat/session/create", json={})
-cid = resp.json()["cid"]
-print(f"会话ID: {cid}")  # 整数，如 1
-
-# 2. 发送消息（非流式）
-resp = requests.post(f"{API_BASE}/api/chat/send", json={
-    "cid": cid,
-    "user_message": "查询苹果股票价格"
-})
-result = resp.json()
-print(f"回复: {result['content']}")
-print(f"消息ID: user={result['user_message_id']}, assistant={result['assistant_message_id']}")
-
-# 3. 流式消息
-with requests.post(f"{API_BASE}/api/chat/send/stream", json={
-    "cid": cid,
-    "user_message": "介绍一下你自己"
-}, stream=True) as resp:
-    for line in resp.iter_lines():
-        if line:
-            print(line.decode('utf-8'))
-
-# 4. 查询会话记录
-resp = requests.get(f"{API_BASE}/api/chat/conversation/{cid}")
-conv = resp.json()
-print(f"会话 {conv['cid']} 包含 {conv['message_count']} 条消息")
-for msg in conv["messages"]:
-    print(f"  [{msg['message_id']}] {msg['role']}: {msg['content'][:50]}...")
+```bash
+curl http://localhost:8000/api/auth/me \
+  -H "Authorization: Bearer <token>"
 ```
 
-## 多模态消息
+### 8. 市场模块实验接口
 
-```python
-# 图片 + 文本
-resp = requests.post(f"{API_BASE}/api/chat/completion", json={
-    "cid": cid,
-    "user_message": [
-        {"type": "text", "text": "这张图里有什么？"},
-        {"type": "image_url", "image_url": {"url": "https://example.com/image.jpg"}}
-    ]
-})
+```bash
+curl http://localhost:8000/api/chat/market/modules
+
+curl -X POST http://localhost:8000/api/chat/market/chat \
+  -H "Content-Type: application/json" \
+  -d '{
+    "message":"帮我看看贵州茅台行情",
+    "mode":"stock"
+  }'
 ```
 
-## 直接调用 Agents 服务（不经过 Backend）
+## 直接调用 Agents
 
-```python
-AGENTS_BASE = "http://localhost:8001"
+Backend 的聊天主链路依赖 Agents。需要绕过持久化时，可以直接调用：
 
-# 直接调用 Agents 服务，不使用会话
-resp = requests.post(f"{AGENTS_BASE}/agent/chat/completion", json={
-    "messages": [
-        {"role": "user", "content": "你好"}
-    ],
-    "temperature": 0.7,
-    "system_prompt": "你是一个股票交易助手"  # 可选，覆盖默认 prompt
-})
-```
+- `POST /agent/chat/completion`
+- `POST /agent/chat/stream`
+- `POST /agent/chat/router/stream`
+- `GET /agent/chat/models`
 
-> 注意：直接调用 Agents 服务时，消息不会持久化
+这类接口说明请以 `agents/README.md` 和 `http://localhost:8001/docs` 为准。
 
-## 消息类型
+## 常见问题
 
-| content_type | 说明 |
-|--------------|------|
-| `text` | 纯文本 |
-| `image_url` | 图片 URL |
-| `image_base64` | 图片 Base64 |
-| `video_url` | 视频 URL |
-| `audio_url` | 音频 URL |
-| `multimodal` | 多模态混合 |
+### 1. 聊天接口返回 502
+
+通常表示 Backend 调 Agents 失败。先确认：
+
+- Agents 服务是否已启动
+- `AGENTS_BASE_URL` 是否正确
+
+### 2. 返回的是 Mock 内容
+
+说明 Agents 没拿到有效的 `OPENROUTER_API_KEY`。链路联调仍然可用，但不会调用真实模型。
+
+### 3. 登录接口启动即报依赖错误
+
+请确认你安装的是最新的 `backend/requirements.txt`，其中已包含：
+
+- `PyJWT`
+- `passlib[bcrypt]`
+- `email-validator`
+- `httpx`
 
 ---
 
-**最后更新：** 2025-12-30
+最后更新：2026-04-20

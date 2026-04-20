@@ -1,239 +1,159 @@
 # FAgent
 
-[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Platform](https://img.shields.io/badge/platform-Web-blue.svg)]()
+FAgent 是一个面向股票/期货研究场景的对话式应用，当前以 Web 端为主，由 `frontend`、`backend`、`agents` 三个服务层组成。仓库里同时保留了 Memory/CLI、数据同步和策略模块的实验代码，但主链路仍然是 Web 对话与行情工具调用。
 
-> 一款基于对话式交互的智能股票交易助手
+## 当前状态
 
-FAgent 是一款基于多智能体架构的智能股票交易助手，通过自然语言对话帮助用户查询股市行情、制定交易策略、进行策略回测与自动化复盘。当前以 Web 端优先，后续可扩展至移动端、桌面端等多平台。
+- Web 前端已可运行，支持会话侧边栏、流式消息、登录/注册弹窗
+- Backend 已提供会话存储、消息持久化、认证接口、模型列表代理和市场模块接口
+- Agents 已提供 Router 路由、行情工具、标题生成和 OpenRouter 兼容 LLM 调用
+- 未配置真实 LLM API Key 时，Agents 会自动进入 Mock 模式，便于联调
+- `src/memory/` 与 `fagent_cli.py` 已落地基础版本，但仍处于实验性阶段
 
-## ✨ 功能特性
+## 架构
 
-### 🗣️ 对话式交互
-- **自然语言查询**：通过对话方式查询股票行情、技术指标等信息
-- **智能理解**：理解用户的交易意图和策略需求
-
-### 📊 行情查询
-- 实时股票行情查询
-- 技术指标分析
-- 市场数据可视化
-
-### 🎯 策略制定
-- **对话式策略构建**：通过对话描述交易策略
-- **策略模板库**：提供常用策略模板
-- **策略编辑**：可视化策略编辑器
-
-### 📈 策略回测
-- **历史数据回测**：基于历史数据验证策略有效性
-- **回测报告**：详细的回测结果分析和可视化
-- **性能指标**：收益率、夏普比率、最大回撤等关键指标
-
-### 🤖 自动化交易
-- **策略执行**：选择认可的策略进行自动化交易
-- **风险控制**：内置风险管理和止损机制
-- **实时监控**：交易执行状态实时监控
-
-### 🔄 自动化复盘
-- **交易记录分析**：自动汇总每日/每周交易记录，生成复盘报告
-- **盈亏归因**：AI 分析每笔交易的盈亏原因，识别决策中的情绪因素和策略偏差
-- **行为模式识别**：发现用户的交易习惯（如追涨杀跌、频繁换手），给出改进建议
-- **策略有效性评估**：对比实际操作与原定策略的偏离度，量化执行纪律
-- **阶段性总结**：按周/月生成投资复盘报告，追踪成长曲线
-
-## 🛠️ 技术栈
-
-### 前端
-- **React 19 + TypeScript**（Web 端）
-- Vite 7（构建工具）
-- Tailwind CSS + Radix UI
-
-### 后端服务
-- Python (策略回测引擎)
-- FastAPI (Web 框架)
-- Server-Sent Events (SSE) - 流式输出
-- RESTful API - 非流式接口
-- 自研多 Agent 架构（Router + SubAgents）
-- MCP (Model Context Protocol) - 工具服务协议
-
-> 📖 详细的架构文档请查看 [backend/docs/ARCHITECTURE.md](backend/docs/ARCHITECTURE.md)
-
-### AI/ML
-- 大语言模型 (LLM) 集成
-- 自然语言处理 (NLP)
-- 策略优化算法
-
-### 数据源
-- 股票行情 API
-- 历史数据存储
-
-## 📁 项目结构
-
+```text
+Frontend (React 19 / Vite 7, :5173)
+        |
+        v
+Backend (FastAPI, :8000)
+  - 会话/消息存储
+  - 认证与用户隔离
+  - SSE / REST API
+  - 调用 Agents
+        |
+        v
+Agents (FastAPI, :8001)
+  - Router 路由
+  - Chat / Market SubAgent
+  - 标题生成
+  - 行情工具与缓存
+  - OpenRouter 兼容 LLM
 ```
+
+可选组件：
+
+- `agents/data_sync/service.py`：独立数据同步服务，默认端口 `8003`
+- `src/memory/`：本地记忆系统
+- `modules/`：股票/期货策略与回测实验模块
+
+## 主要能力
+
+- 多会话创建、重命名、删除、历史拉取
+- SSE 流式对话与非流式对话
+- 首轮对话自动生成会话标题
+- 用户注册 / 登录 / JWT 鉴权
+- 行情查询：`quote` / `kline` / `search` / `analysis`
+- 动态模型列表：前端通过 `/api/chat/models` 获取可用模型
+- 市场模块接口：股票 / 期货实验能力
+
+## 项目结构
+
+```text
 FAgent/
-├── backend/                # 后端服务（存储 + 业务）
-│   ├── api/                # FastAPI 接口
-│   ├── core/               # 核心组件（日志、上下文）
-│   ├── services/           # 业务服务（会话、存储）
-│   └── docs/               # 后端文档
-│       ├── API_USAGE.md    # API 使用文档
-│       ├── ARCHITECTURE.md # 架构文档
-│       └── DEBUG.md        # 调试指南
-├── agents/                 # 智能体服务（多 Agent 架构）
-│   ├── router/             # 🆕 主路由器（系统入口）
-│   ├── subagents/          # 子智能体（Market、Chat 等）
-│   ├── mcp/                # 🆕 MCP 服务（行情数据）
-│   ├── services/           # LLM 服务
-│   ├── common/             # 公共模块（行情数据源）
-│   └── api/                # FastAPI 接口
-├── tests/                  # 测试代码
-│   └── test_multi_turn.py  # 多轮对话测试
-├── docs/                   # 项目文档
-├── frontend/               # 前端应用（React Web）
-└── README.md               # 项目说明文档
+├── frontend/              # React Web 前端
+├── backend/               # 面向前端的 API、存储、鉴权
+├── agents/                # Router、LLM、行情工具
+├── src/memory/            # 记忆系统实验代码
+├── modules/               # 股票/期货策略与回测实验模块
+├── tests/                 # 单测、脚本测试、联调脚本
+├── docs/                  # 设计、报告与说明文档
+└── fagent_cli.py          # CLI 入口
 ```
 
-## 🚀 快速开始
+## 快速开始
 
-### 环境要求
+### 1. 克隆仓库
 
-- Python 3.12（后端服务）
-- Node.js 18+（前端开发）
-
-### 安装步骤
-
-1. **克隆仓库**
-   ```bash
-   git clone git@github-personal:doraemon235/FAgent.git
-   cd FAgent
-   ```
-
-2. **配置 Python 虚拟环境**
-   ```bash
-   python3.12 -m venv .venv
-   source .venv/bin/activate
-   ```
-
-3. **安装依赖**
-   ```bash
-   pip install -r backend/requirements.txt
-   pip install -r tests/requirements.txt
-   ```
-
-4. **配置环境变量**
-
-   在项目根目录创建 `.env` 文件：
-   ```bash
-   OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
-   openrounter_p=your_api_key
-   LLM_MODEL=xiaomi/mimo-v2-flash:free
-   ```
-
-5. **启动服务**
-   ```bash
-   # 终端 1：启动后端服务（存储 + 业务）
-   uvicorn backend.api.main:app --reload --host 0.0.0.0 --port 8000
-
-   # 终端 2：启动 Agents 服务（LLM 调用）
-   uvicorn agents.api.main:app --reload --host 0.0.0.0 --port 8001
-   ```
-
-6. **访问 API 文档**
-   - Backend: http://localhost:8000/docs
-   - Agents: http://localhost:8001/docs
-
-## 📖 使用说明
-
-### 查询行情
-```
-用户: "查询一下苹果公司的股票价格"
-FAgent: "AAPL 当前价格为 $XXX，今日涨幅 X%..."
+```bash
+git clone git@github-235:1TAgents/FAgent.git
+cd FAgent
 ```
 
-### 制定策略
-```
-用户: "我想制定一个简单的均线策略，当5日均线上穿20日均线时买入"
-FAgent: "已为您创建策略，策略参数如下..."
-```
+### 2. Python 环境
 
-### 回测策略
-```
-用户: "回测一下这个策略在过去一年的表现"
-FAgent: "回测完成，总收益率 X%，最大回撤 Y%..."
-```
-
-### 自动化交易
-```
-用户: "启用这个策略进行自动化交易"
-FAgent: "策略已启用，将自动执行交易..."
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r backend/requirements.txt
+pip install -r agents/requirements.txt
+pip install -r requirements-cli.txt
+pip install -r tests/requirements.txt
 ```
 
-### 交易复盘
+### 3. 前端依赖
+
+```bash
+cd frontend
+npm install
+cd ..
 ```
-用户: "帮我复盘一下这周的交易"
-FAgent: "本周共执行 8 笔交易，盈利 5 笔，亏损 3 笔。
-        主要问题：周三的两笔亏损均为追涨买入，建议严格执行均线策略的入场条件..."
+
+### 4. 环境变量
+
+复制 `.env.example` 为 `.env`，至少配置：
+
+```bash
+OPENROUTER_API_KEY=your_api_key
+OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
+LLM_MODEL=qwen3.5-plus
 ```
 
-## 🔒 安全说明
+常用可选项：
 
-- ⚠️ **风险提示**：股票交易存在风险，请谨慎使用自动化交易功能
-- 🔐 **数据安全**：所有敏感信息均加密存储
-- 🛡️ **权限管理**：应用仅请求必要的系统权限
+- `AGENTS_BASE_URL=http://localhost:8001`
+- `RQDATAC_CONF=...`：需要接 RQData 时再配置
+- `JWT_SECRET=...`
+- `DATABASE_PATH=data/conversations.db`
 
-## 📝 开发计划
+### 5. 启动服务
 
-### Phase 1: 后端基础 ✅
-- [x] 项目初始化
-- [x] FastAPI + SSE 流式接口
-- [x] 会话管理（多轮对话）
-- [x] 消息持久化（SQLite）
-- [x] 请求日志追踪（rid/cid）
-- [x] 三层架构拆分（Frontend → Backend → Agents）
-- [x] System Prompt 动态管理（不存库）
+```bash
+# 终端 1
+uvicorn agents.api.main:app --reload --host 0.0.0.0 --port 8001
 
-### Phase 2: 多智能体系统
-- [ ] MainRouter 主路由器实现
-- [ ] SubAgent 基类 + ChatSubAgent
-- [ ] MarketSubAgent 集成 MCP
-- [ ] Market MCP Server（行情数据服务）
+# 终端 2
+AGENTS_BASE_URL=http://localhost:8001 \
+uvicorn backend.api.main:app --reload --host 0.0.0.0 --port 8000
 
-### Phase 3: 核心功能
-- [ ] 行情查询 API
-- [ ] 策略回测引擎
-- [ ] 交易接口集成
+# 终端 3
+cd frontend
+npm run dev
+```
 
-### Phase 4: 多平台扩展
-- [ ] 移动端适配（Android / iOS）
-- [ ] 桌面客户端（Electron / Tauri）
+### 6. 访问
 
-## 🤝 贡献指南
+- Frontend: `http://localhost:5173`
+- Backend Docs: `http://localhost:8000/docs`
+- Agents Docs: `http://localhost:8001/docs`
 
-欢迎贡献代码！请遵循以下步骤：
+## 常用接口
 
-1. Fork 本仓库
-2. 创建特性分支 (`git checkout -b feature/AmazingFeature`)
-3. 提交更改 (`git commit -m 'Add some AmazingFeature'`)
-4. 推送到分支 (`git push origin feature/AmazingFeature`)
-5. 开启 Pull Request
+- `POST /api/chat/session/create`
+- `POST /api/chat/send`
+- `POST /api/chat/send/stream`
+- `GET /api/chat/conversations`
+- `PATCH /api/chat/conversation/{cid}`
+- `DELETE /api/chat/conversation/{cid}`
+- `POST /api/auth/register`
+- `POST /api/auth/login`
+- `GET /api/chat/models`
+- `POST /api/chat/market/chat`
 
-### 代码规范
-- 遵循项目的代码风格
-- 添加必要的注释和文档
-- 确保代码通过测试
+## 文档导航
 
-## 📄 许可证
+- [Backend 文档](backend/README.md)
+- [Agents 文档](agents/README.md)
+- [Frontend 文档](frontend/README.md)
+- [测试说明](tests/README.md)
+- [文档总览](docs/README.md)
 
-本项目采用 MIT 许可证 - 查看 [LICENSE](LICENSE) 文件了解详情
+## 当前限制
 
-## 📧 联系方式
+- 未配置 `OPENROUTER_API_KEY` 时，Agents 只返回 Mock 内容，不会调用真实模型
+- Memory 核心存储和查询 API 已有基础实现，但 CLI 的部分命令仍在补齐
+- Android 文档仍然保留在仓库中，但属于未来规划，不是当前交付
 
-- 项目维护者: [@doraemon235](https://github.com/doraemon235)
-- 问题反馈: [Issues](https://github.com/doraemon235/FAgent/issues)
+## 反馈
 
-## 🙏 致谢
-
-感谢所有为本项目做出贡献的开发者和用户！
-
----
-
-**注意**：本项目仍在积极开发中，功能可能随时更新。使用前请查看最新版本说明。
+- 问题反馈：<https://github.com/1TAgents/FAgent/issues>

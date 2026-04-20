@@ -4,7 +4,8 @@ Memory 数据模型测试
 """
 
 import sys
-sys.path.insert(0, '<repo-root>/src')
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'src'))
 
 from memory.models import RawMessage, Role, MessageStatus, MessageSummary, ToolResponse, ResponseStorage, MemoryExtraction
 

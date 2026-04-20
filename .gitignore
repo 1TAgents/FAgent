@@ -130,6 +130,7 @@ site/
 
 # docs/ 默认忽略，白名单放行
 docs/*
+!docs/README.md
 !docs/FEATURE_SPECS.md
 !docs/REQUIREMENTS_LOG.md
 !docs/memory/
@@ -137,6 +138,7 @@ docs/*
 # AI 工具项目配置（本地）
 CLAUDE.md
 AGENTS.md
+!AGENTS.md
 
 # 临时笔记（个人笔记不提交）
 *.draft.md

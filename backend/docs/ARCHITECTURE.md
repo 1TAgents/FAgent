@@ -1,312 +1,205 @@
 # 后端架构文档
 
-## 📋 目录
+本文档描述当前仓库里真正跑起来的三层链路，而不是历史上曾经讨论过的所有方案。
 
-- [API 设计](#api-设计)
-- [多智能体架构](#多智能体架构)
-- [技术选型](#技术选型)
-- [系统架构图](#系统架构图)
+## 一、服务边界
 
-## API 设计
-
-### 通信协议选择：FastAPI SSE (Server-Sent Events)
-
-#### 选型分析
-
-**为什么选择 SSE 而不是 WebSocket？**
-
-| 特性 | SSE | WebSocket |
-|------|-----|-----------|
-| 通信方向 | 单向（服务器→客户端） | 双向 |
-| 实现复杂度 | 简单 | 复杂 |
-| 资源占用 | 低 | 较高 |
-| 防火墙友好性 | 友好 | 可能被阻止 |
-| 自动重连 | 支持 | 需手动实现 |
-| 适用场景 | 流式输出 | 双向实时通信 |
-
-**项目需求分析：**
-- ✅ **对话式交互**：主要是服务器流式推送 AI 回复 → SSE 完美匹配
-- ✅ **策略制定**：可选流式展示生成过程 → SSE 支持
-- ✅ **策略回测**：非流式，返回完整结果 → RESTful POST
-- ✅ **自动化交易**：非流式，返回执行结果 → RESTful POST
-
-**结论：** 主要场景是单向流式输出，SSE 更合适且实现简单。
-
-#### API 端点设计
-
-```python
-# Backend 服务（端口 8000）- 存储 + 业务
-POST /api/chat/session/create     # 创建会话
-POST /api/chat/send               # 发送消息（非流式）
-POST /api/chat/send/stream        # 发送消息（流式 SSE）
-GET  /api/chat/conversation/{cid} # 获取会话记录
-GET  /api/chat/conversations      # 获取会话列表
-
-# Agents 服务（端口 8001）- LLM 调用
-POST /agent/chat/completion       # 非流式 LLM 调用
-POST /agent/chat/stream           # 流式 LLM 调用（SSE）
-
-# 未来扩展
-POST /api/strategy/create         # 创建交易策略
-POST /api/strategy/backtest       # 执行策略回测
-POST /api/trading/execute         # 执行交易
+```text
+Frontend
+  |
+  v
+Backend
+  |
+  v
+Agents
+  |
+  +--> OpenRouter-compatible LLM
+  +--> 行情数据与缓存
 ```
 
-#### 架构图（三层架构）
+### Frontend
 
-```
-┌─────────────────────────────────────────┐
-│           Frontend (Android)            │
-└─────────────────────────────────────────┘
-         │                    │
-         │                    │
-    ┌────▼────┐          ┌────▼────┐
-    │   SSE   │          │   POST  │
-    │ (流式)  │          │ (非流式)│
-    └────┬────┘          └────┬────┘
-         │                    │
-         └────────┬───────────┘
-                  │
-         ┌────────▼────────┐
-         │  Backend (8000) │
-         │  - 消息存储     │
-         │  - 会话管理     │
-         │  - 业务逻辑     │
-         └────────┬────────┘
-                  │ HTTP
-         ┌────────▼────────┐
-         │  Agents (8001)  │
-         │  - System Prompt│
-         │  - LLM 调用     │
-         │  - 对话处理     │
-         └────────┬────────┘
-                  │
-         ┌────────▼────────┐
-         │   LLM API       │
-         │  (OpenRouter)   │
-         └─────────────────┘
-```
+- 浏览器中的 UI 层
+- 只请求 Backend，不直接请求 Agents
+- 通过 Vite 代理把 `/api` 转发到 Backend
 
-## 多智能体架构
+### Backend
 
-### 框架选择：LangGraph + LangChain
+- 面向前端的统一 API
+- 管理会话、消息、用户
+- 持久化 SQLite 数据
+- 调用 Agents 完成聊天与标题生成
+- 负责 SSE 透传和最终消息落库
 
-#### 为什么选择 LangGraph + LangChain？
+### Agents
 
-**LangGraph 优势：**
-- ✅ **状态机模型**：适合管理对话历史和策略状态
-- ✅ **工作流编排**：复杂策略制定流程可用图结构清晰表达
-- ✅ **多智能体协作**：原生支持 Supervisor-Swarm 架构
-- ✅ **记忆管理**：支持短期（对话）和长期（策略历史）记忆
-- ✅ **可扩展性**：易于添加新的智能体节点
+- 纯能力层，不直接维护会话数据库
+- 提供 Router、行情工具、标题生成、模型列表
+- 封装 OpenRouter 兼容 LLM 调用
 
-**LangChain 优势：**
-- ✅ **工具集成**：丰富的 LLM 客户端封装和工具集成
-- ✅ **生态完善**：向量数据库、API 调用等成熟组件
-- ✅ **提示词管理**：便于管理和优化提示词
+## 二、为什么拆成 Backend + Agents
 
-#### 多智能体架构设计
+当前拆分有三个直接收益：
 
-```
-┌─────────────────────────────────────────────────┐
-│           Supervisor Agent (主管智能体)          │
-│         - 路由用户请求到合适的智能体              │
-│         - 协调多个智能体协作                      │
-│         - 管理对话状态和上下文                    │
-└─────────────────────────────────────────────────┘
-         │        │        │        │
-    ┌────▼───┐ ┌─▼───┐ ┌─▼───┐ ┌─▼───┐
-    │ 对话   │ │策略 │ │回测 │ │交易 │
-    │ 智能体 │ │智能体│ │智能体│ │智能体│
-    │        │ │     │ │     │ │     │
-    │ - 理解 │ │ - 生│ │ - 执│ │ - 执│
-    │   用户 │ │   成│ │   行│ │   行│
-    │   意图 │ │   策│ │   回│ │   交│
-    │ - 查询 │ │   略│ │   测│ │   易│
-    │   行情 │ │ - 优│ │ - 分│ │ - 风│
-    │        │ │   化│ │   析│ │   控│
-    └────────┘ └─────┘ └─────┘ └─────┘
+1. Backend 保持“业务与数据边界”清晰，前端只对接一套 API。
+2. Agents 可以独立切换模型、Prompt、Router 和工具，不影响存储结构。
+3. 没有真实 API Key 时，Agents 可以单独进入 Mock 模式，便于整条链路联调。
+
+## 三、核心请求流程
+
+### 1. 流式聊天
+
+```text
+Browser
+  -> POST /api/chat/send/stream
+Backend
+  -> 用户消息先落库
+  -> 构建 cid / message_id / history
+  -> POST /agent/chat/router/stream
+Agents
+  -> MainRouter 做意图判断
+  -> 分发给 ChatSubAgent 或 MarketSubAgent
+  -> 流式返回文本片段
+Backend
+  -> 透传 SSE 给前端
+  -> 汇总完整回复并落库
+  -> 异步触发标题生成
 ```
 
-#### 智能体职责划分
+### 2. 会话标题生成
 
-**1. Supervisor Agent (主管智能体)**
-- 接收用户请求
-- 分析请求类型，路由到合适的智能体
-- 协调多个智能体的协作
-- 管理全局状态和上下文
-
-**2. Chat Agent (对话智能体)**
-- 处理用户对话
-- 理解用户意图
-- 查询股票行情
-- 提供基础信息查询
-
-**3. Strategy Agent (策略智能体)**
-- 理解策略需求
-- 生成交易策略
-- 优化策略参数
-- 验证策略逻辑
-
-**4. Backtest Agent (回测智能体)**
-- 执行策略回测
-- 分析回测结果
-- 生成回测报告
-- 评估策略性能
-
-**5. Trading Agent (交易智能体)**
-- 执行交易指令
-- 风险管理
-- 监控交易状态
-- 处理异常情况
-
-#### 工作流示例
-
-**策略制定流程：**
-```
-用户输入 → Supervisor → Strategy Agent
-                ↓
-        生成策略 → 验证策略 → 优化参数
-                ↓
-        返回策略 → Supervisor → 用户
+```text
+Backend
+  -> 在首轮对话结束后取最近消息
+  -> POST /agent/summary/generate
+Agents
+  -> 调用 SummaryService 生成短标题
+Backend
+  -> 更新 conversations.title
 ```
 
-**策略回测流程：**
-```
-用户请求 → Supervisor → Backtest Agent
-                ↓
-        加载策略 → 获取历史数据 → 执行回测
-                ↓
-        分析结果 → 生成报告 → Supervisor → 用户
-```
+### 3. 行情工具调用
 
-## 技术选型
-
-### 核心技术栈
-
-| 技术 | 用途 | 版本要求 |
-|------|------|----------|
-| FastAPI | Web 框架 | 0.104+ |
-| LangGraph | 多智能体工作流 | 0.2+ |
-| LangChain | LLM 工具和集成 | 0.1+ |
-| OpenAI SDK | LLM API 客户端 | 1.0+ |
-| Python | 开发语言 | 3.8+ |
-
-### 依赖关系
-
-```
-FastAPI (Web 框架)
-  ├── LangGraph (工作流编排)
-  │     └── LangChain (工具和集成)
-  │           └── OpenAI SDK (LLM 客户端)
-  └── SSE (流式输出)
+```text
+用户问题 -> Backend -> Agents Router
+                     -> MarketSubAgent
+                     -> common/market/service.py
+                     -> 数据源 / 缓存
 ```
 
-## 系统架构图
+## 四、Backend 内部分层
 
-### 完整架构（三层服务）
+### API 层
 
-```
-┌─────────────────────────────────────────────────────┐
-│                  Frontend (Android)                  │
-│              (Kotlin/Java + Material Design)        │
-└─────────────────────────────────────────────────────┘
-                        │
-                        │ HTTP/SSE
-                        ▼
-┌─────────────────────────────────────────────────────┐
-│           Backend Server (Port 8000)                │
-│  ┌──────────────────────────────────────────────┐  │
-│  │         API Layer (FastAPI)                   │  │
-│  │  - POST /api/chat/session/create             │  │
-│  │  - POST /api/chat/send                       │  │
-│  │  - POST /api/chat/send/stream (SSE)          │  │
-│  │  - GET  /api/chat/conversation/{cid}         │  │
-│  │  - GET  /api/chat/conversations              │  │
-│  └──────────────────────────────────────────────┘  │
-│                        │                            │
-│  ┌──────────────────────────────────────────────┐  │
-│  │      Service Layer                           │  │
-│  │  - Session Manager (会话管理)                │  │
-│  │  - Message Storage (消息持久化)              │  │
-│  │  - Context Logger (日志追踪)                 │  │
-│  └──────────────────────────────────────────────┘  │
-└─────────────────────────────────────────────────────┘
-                        │
-                        │ HTTP (内部调用)
-                        ▼
-┌─────────────────────────────────────────────────────┐
-│           Agents Server (Port 8001)                 │
-│  ┌──────────────────────────────────────────────┐  │
-│  │         API Layer (FastAPI)                   │  │
-│  │  - POST /agent/chat/completion               │  │
-│  │  - POST /agent/chat/stream (SSE)             │  │
-│  └──────────────────────────────────────────────┘  │
-│                        │                            │
-│  ┌──────────────────────────────────────────────┐  │
-│  │      Core Layer                              │  │
-│  │  - System Prompt 配置                        │  │
-│  │  - Chat Agent (对话处理)                     │  │
-│  │  - LLM Service (OpenAI SDK)                 │  │
-│  └──────────────────────────────────────────────┘  │
-│                        │                            │
-│  ┌──────────────────────────────────────────────┐  │
-│  │      Future: Agent Layer (LangGraph)        │  │
-│  │  ┌──────────┐  ┌──────────┐  ┌──────────┐   │  │
-│  │  │Supervisor│→ │ Strategy │  │ Trading  │   │  │
-│  │  │  Agent   │  │  Agent   │  │  Agent   │   │  │
-│  │  └──────────┘  └──────────┘  └──────────┘   │  │
-│  └──────────────────────────────────────────────┘  │
-└─────────────────────────────────────────────────────┘
-                        │
-                        │ API Calls
-                        ▼
-┌─────────────────────────────────────────────────────┐
-│              External Services                      │
-│  - OpenRouter API (LLM)                            │
-│  - 股票行情 API (未来)                              │
-│  - 交易接口 API (未来)                              │
-└─────────────────────────────────────────────────────┘
-```
+- `backend/api/main.py`
+- `backend/api/chat.py`
+- `backend/api/auth.py`
+- `backend/api/middleware.py`
 
-## 实施计划
+职责：
 
-### Phase 1: 基础架构 ✅ 已完成
+- 参数校验
+- 接口编排
+- 调用服务层
+- 生成 HTTP / SSE 响应
 
-- [x] 搭建 FastAPI 项目结构
-- [x] 实现 SSE 流式输出接口
-- [x] 集成 OpenAI SDK 客户端
-- [x] 实现消息持久化（SQLite）
-- [x] 实现会话管理（整数自增 ID）
-- [x] 实现请求上下文日志（rid/cid）
-- [x] 三层架构拆分（Frontend → Backend → Agents）
-- [x] System Prompt 动态管理（不存库，便于调试）
+### Core 层
 
-### Phase 2: 多智能体系统
+- 请求上下文
+- 日志追踪
 
-- [x] 拆分 LLM 层为独立 Agents 服务
-- [ ] 使用 LangGraph 构建工作流
-- [ ] 实现 Supervisor Agent
-- [ ] 实现各功能 Agent（策略、回测、交易）
-- [ ] 实现智能体间通信机制
+职责：
 
-### Phase 3: 高级功能
+- 生成 / 传递 `rid`
+- 记录 `cid` / `message_id`
+- 输出结构化日志
 
-- [ ] 实现长期记忆（向量数据库）
-- [ ] 集成股票行情 API
-- [ ] 集成交易接口 API
-- [ ] 添加用户认证
-- [ ] 优化工作流性能
+### Services 层
 
-## 参考资源
+- `session.py`
+- `storage.py`
 
-- [FastAPI SSE 文档](https://fastapi.tiangolo.com/advanced/server-sent-events/)
-- [LangGraph 文档](https://langchain-ai.github.io/langgraph/)
-- [LangChain 文档](https://python.langchain.com/)
-- [OpenRouter API 文档](https://openrouter.ai/docs)
+职责：
+
+- 会话 CRUD
+- 消息存储与历史查询
+- 用户表读写
+
+## 五、数据模型
+
+### 会话
+
+- `cid`：整数自增
+- `title`
+- `metadata`
+- `user_id`（可选）
+- `created_at` / `updated_at`
+
+### 消息
+
+- `message_id`：整数自增
+- `cid`
+- `role`
+- `content`
+- `content_type`
+- `metadata`
+- `created_at`
+
+### 用户
+
+- `id`
+- `username`
+- `email`
+- `password_hash`
+- `created_at`
+
+## 六、鉴权策略
+
+- 未登录：允许匿名创建会话和聊天
+- 已登录：Backend 根据 `Authorization` 解析 JWT，按 `user_id` 返回会话列表
+- Agents 当前不负责鉴权，只接受 Backend 调用后的业务请求
+
+## 七、模型与配置
+
+模型列表由 Agents 维护，Backend 只做代理：
+
+- Frontend 调 `GET /api/chat/models`
+- Backend 转发到 `GET /agent/chat/models`
+- 如果 Agents 暂时不可用，Backend 返回保底默认模型
+
+## 八、观测与排障
+
+### 追踪字段
+
+- `rid`：请求级追踪 ID
+- `cid`：会话 ID
+- `mid`：消息 ID
+
+### 关键日志点
+
+- Backend 收到请求
+- 用户消息落库
+- 调用 Agents
+- SSE 完成
+- 助手回复落库
+- 标题生成成功 / 失败
+
+## 九、当前不是主线的内容
+
+以下内容在仓库中存在，但不是当前 Web 主链路的核心依赖：
+
+- `src/memory/`：实验中的 Memory 系统
+- `modules/`：股票 / 期货策略与回测实验模块
+- `agents/data_sync/`：独立数据同步服务
+- `frontend/ANDROID_IMPLEMENTATION_GUIDE.md`：未来规划文档
+
+## 十、后续演进方向
+
+1. 将 Memory 能力逐步接入 Backend / Agents，而不是停留在独立模块。
+2. 为 Frontend / Backend / Agents 增加更稳定的 CI 冒烟测试。
+3. 进一步梳理实验模块和主链路之间的边界。
+4. 如果 Router 复杂度继续上升，再评估更重的工作流编排方案。
 
 ---
 
-**最后更新：** 2025-12-30  
-**维护者：** @doraemon235
-
+最后更新：2026-04-20
