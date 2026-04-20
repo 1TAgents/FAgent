@@ -213,7 +213,7 @@ async def run_historical_sync():
 **操作：**
 ```bash
 # 1. 修改配置
-cd <repo-root>
+cd "$(git rev-parse --show-toplevel)"
 edit agents/data_sync/service.py  # limit=1250, days=1825
 
 # 2. 重启服务

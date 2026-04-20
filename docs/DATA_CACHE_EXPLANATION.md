@@ -258,7 +258,7 @@ data/stock_data.db
 ### 验证数据存在
 
 ```bash
-cd <repo-root> && python3 << 'EOF'
+cd "$(git rev-parse --show-toplevel)" && python3 << 'EOF'
 import sqlite3
 
 conn = sqlite3.connect('data/stock_data.db')
@@ -315,7 +315,7 @@ curl http://localhost:8003/stats
 ### 验证数据存在
 
 ```bash
-cd <repo-root> && python3 -c "
+cd "$(git rev-parse --show-toplevel)" && python3 -c "
 import sqlite3
 conn = sqlite3.connect('data/stock_data.db')
 cursor = conn.cursor()

@@ -10,12 +10,21 @@ import rqdatac as rq
 import pandas as pd
 import sqlite3
 import logging
+import os
 from datetime import datetime, timedelta
 from pathlib import Path
 from tqdm import tqdm
 import time
 import sys
 from typing import List, Dict, Optional
+
+try:
+    from dotenv import find_dotenv, load_dotenv
+except ImportError:
+    find_dotenv = load_dotenv = None
+
+if load_dotenv and find_dotenv:
+    load_dotenv(find_dotenv(), override=False)
 
 # 配置日志
 log_dir = Path('logs')
@@ -32,6 +41,20 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+def load_rqdata_license_key() -> str:
+    """从环境变量或 .env 中提取 RQData License。"""
+    direct_key = os.getenv("RQDATAC_LICENSE_KEY", "").strip().strip("'\"")
+    if direct_key:
+        return direct_key
+
+    conf = os.getenv("RQDATAC_CONF", "").strip().strip("'\"")
+    marker = "license:"
+    if marker in conf and "@" in conf:
+        return conf.split(marker, 1)[1].rsplit("@", 1)[0]
+
+    return ""
+
+
 class RQDataBasicDownloader:
     """聚宽基础数据下载器"""
     
@@ -42,13 +65,17 @@ class RQDataBasicDownloader:
         
         # 初始化聚宽 - 使用 token 认证
         try:
-            # License Key（从 test_rqdata_quick.py 复制）
-            LICENSE_KEY = "YOUR_LICENSE_KEY"
-            rq.init(username='token', password=LICENSE_KEY)
-            logger.info("✓ RQData 初始化完成（token 认证）")
+            license_key = load_rqdata_license_key()
+            if license_key:
+                rq.init(username='token', password=license_key)
+                logger.info("✓ RQData 初始化完成（环境变量 / .env token 认证）")
+            else:
+                rq.init()
+                logger.info("✓ RQData 初始化完成（默认配置）")
         except Exception as e:
             logger.error(f"RQData 初始化失败 | error={e}")
-            logger.error("请检查 License Key 是否有效，或联系米筐支持：support@ricequant.com")
+            logger.error("请在 .env 中设置 RQDATAC_CONF，或导出 RQDATAC_LICENSE_KEY")
+            logger.error("如仍失败，请检查 License 是否有效，或联系米筐支持：support@ricequant.com")
             raise
         
         # 限流控制

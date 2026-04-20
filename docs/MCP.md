@@ -68,7 +68,7 @@ MCP（Model Context Protocol）服务为 FAgent 提供标准化的金融数据�
 ### 启动 MCP Server
 
 ```bash
-cd <repo-root>
+cd "$(git rev-parse --show-toplevel)"
 PYTHONPATH=. python3 -m uvicorn agents.mcp.server:app --reload --port 8002
 ```
 

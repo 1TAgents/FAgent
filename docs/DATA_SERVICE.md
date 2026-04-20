@@ -224,7 +224,7 @@ curl -X POST http://localhost:8002/tool/call \
 
 ```bash
 # 独立运行定时任务
-cd <repo-root>
+cd "$(git rev-parse --show-toplevel)"
 python -m agents.data_service.scheduler
 ```
 

@@ -210,7 +210,7 @@ for symbol in all_stocks:
 ### 当前数据库状态
 
 ```bash
-cd <repo-root> && python3 << 'EOF'
+cd "$(git rev-parse --show-toplevel)" && python3 << 'EOF'
 import sqlite3
 
 conn = sqlite3.connect('data/stock_data.db')
@@ -251,7 +251,7 @@ EOF
 
 ```bash
 # 检查某只股票的覆盖范围
-cd <repo-root> && python3 << 'EOF'
+cd "$(git rev-parse --show-toplevel)" && python3 << 'EOF'
 from agents.data_service.coverage_manager import CoverageManager
 
 manager = CoverageManager("data/stock_data.db")

@@ -249,7 +249,7 @@ print(f"胜率：{metrics.win_rate:.1f}%")
 ### 运行示例脚本
 
 ```bash
-cd <repo-root>
+cd "$(git rev-parse --show-toplevel)"
 python3 examples/simple_backtest.py
 ```
 

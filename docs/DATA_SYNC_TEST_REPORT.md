@@ -227,7 +227,7 @@ REST_TIME = 10    # 休息 10 秒
 ./scripts/start_data_sync.sh
 
 # 方式 2：手动启动
-cd <repo-root>
+cd "$(git rev-parse --show-toplevel)"
 PYTHONPATH=. python3 -m uvicorn agents.data_sync.service:app --reload --port 8003
 ```
 

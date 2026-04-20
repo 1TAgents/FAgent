@@ -2,11 +2,34 @@
 """
 RQSDK 快速测试 - 验证数据获取能力
 """
+import os
 import rqdatac as rq
 import sys
 
-# 您的 License Key
-LICENSE_KEY = "YOUR_LICENSE_KEY"
+try:
+    from dotenv import find_dotenv, load_dotenv
+except ImportError:
+    find_dotenv = load_dotenv = None
+
+if load_dotenv and find_dotenv:
+    load_dotenv(find_dotenv(), override=False)
+
+
+def load_rqdata_license_key():
+    """从环境变量或 .env 中读取 RQData License。"""
+    direct_key = os.getenv("RQDATAC_LICENSE_KEY", "").strip().strip("'\"")
+    if direct_key:
+        return direct_key
+
+    conf = os.getenv("RQDATAC_CONF", "").strip().strip("'\"")
+    marker = "license:"
+    if marker in conf and "@" in conf:
+        return conf.split(marker, 1)[1].rsplit("@", 1)[0]
+
+    return ""
+
+
+LICENSE_KEY = load_rqdata_license_key()
 
 print("=" * 70)
 print("RQSDK 快速测试")
@@ -19,7 +42,12 @@ try:
     print("✓ 初始化成功")
 except Exception as e:
     print(f"✗ 初始化失败：{e}")
-    print("\n正在配置 License...")
+    if not LICENSE_KEY:
+        print("\n未检测到可用 License 配置")
+        print("请在 .env 中设置 RQDATAC_CONF，或导出 RQDATAC_LICENSE_KEY")
+        sys.exit(1)
+
+    print("\n正在从环境配置 License...")
     try:
         rq.set_token(LICENSE_KEY)
         rq.init()
