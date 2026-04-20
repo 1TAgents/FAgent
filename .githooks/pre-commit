@@ -1,0 +1,37 @@
+#!/usr/bin/env sh
+set -eu
+
+expected_name=$(git config --get user.name || true)
+expected_email=$(git config --get user.email || true)
+
+if [ -z "${expected_name}" ] || [ -z "${expected_email}" ]; then
+  echo "pre-commit: local git user.name/user.email is not set for this repo." >&2
+  echo "Run: scripts/setup_git_identity.sh \"Your Name\" \"your-public-email\"" >&2
+  exit 1
+fi
+
+check_ident() {
+  ident_name="$1"
+  ident_value=$(git var "$ident_name" 2>/dev/null || true)
+
+  if [ -z "$ident_value" ]; then
+    echo "pre-commit: unable to resolve $ident_name." >&2
+    exit 1
+  fi
+
+  name_and_email=${ident_value% * *}
+  actual_name=${name_and_email% <*}
+  actual_email=${name_and_email##*<}
+  actual_email=${actual_email%>}
+
+  if [ "$actual_name" != "$expected_name" ] || [ "$actual_email" != "$expected_email" ]; then
+    echo "pre-commit: $ident_name does not match repo-local identity." >&2
+    echo "expected: $expected_name <$expected_email>" >&2
+    echo "actual:   $actual_name <$actual_email>" >&2
+    echo "Hint: avoid ad-hoc clones; use git worktree or run scripts/setup_git_identity.sh first." >&2
+    exit 1
+  fi
+}
+
+check_ident GIT_AUTHOR_IDENT
+check_ident GIT_COMMITTER_IDENT

@@ -31,6 +31,22 @@ Examples:
 - `fix(auth): handle missing bearer token`
 - `docs(readme): clarify local startup steps`
 
+## Git Identity Guard
+
+Each clone or worktree must use an explicit repo-local git identity.
+Do not force one shared identity for all collaborators.
+
+Rules:
+- never rely on global git `user.name` or `user.email`
+- after clone, reclone, or `git worktree add`, run
+  `scripts/setup_git_identity.sh "Your Name" "your-public-email"`
+- use a public-safe email for this repo; GitHub noreply is recommended for public work
+- prefer `git worktree add ...` over ad-hoc `git clone` when you need a clean verification tree
+- do not commit or push if author or committer identity differs from the repo-local identity
+
+This repo includes `.githooks/pre-commit` and `.githooks/pre-push` guards.
+They are activated by `scripts/setup_git_identity.sh` via `core.hooksPath=.githooks`.
+
 ## Pre-Commit Security Checks
 
 Before `git add` or `git commit`, check staged content for:
