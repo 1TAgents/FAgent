@@ -2,7 +2,7 @@
   "$schema": "./test_cases.schema.json",
   "version": "1.0",
   "description": "FAgent 测试用例集",
-  "updated_at": "2026-01-06",
+  "updated_at": "2026-04-27",
   
   "test_suites": {
     "market_service": {
@@ -330,11 +330,109 @@
               "step": 2,
               "action": "send_message",
               "input": {
-                "message": "你好，帮我介绍下贵州茅台最近一周的行情"
+                "message": "查询贵州茅台最近一周的行情"
               },
               "expected": {
                 "success": true,
                 "has_response": true
+              },
+              "expected_chain": {
+                "route": {
+                  "route": "market",
+                  "task": "get_kline",
+                  "params": {
+                    "symbol": "600519",
+                    "period": "daily",
+                    "count": 5
+                  }
+                },
+                "must": [
+                  {
+                    "layer": "subagent",
+                    "event": "tool_call",
+                    "name": "mcp.stock_kline",
+                    "params": {
+                      "symbol": { "eq": "600519" },
+                      "period": { "eq": "daily" },
+                      "count": { "eq": 5 },
+                      "market": { "eq": "A" }
+                    }
+                  },
+                  {
+                    "layer": "mcp",
+                    "event": "tool_call",
+                    "name": "stock_kline",
+                    "params": {
+                      "symbol": { "eq": "600519" },
+                      "period": { "eq": "daily" },
+                      "count": { "eq": 5 },
+                      "market": { "eq": "A" }
+                    }
+                  },
+                  {
+                    "layer": "datasource",
+                    "event": "source_attempt",
+                    "name": "local_db",
+                    "result": "miss"
+                  },
+                  {
+                    "layer": "datasource",
+                    "event": "source_attempt",
+                    "name": "rqdata",
+                    "result": "hit"
+                  },
+                  {
+                    "layer": "datasource",
+                    "event": "api_call",
+                    "name": "rqdatac.get_price",
+                    "params": {
+                      "order_book_ids": { "eq": "600519.XSHG" },
+                      "frequency": { "eq": "1d" },
+                      "adjust_type": { "eq": "pre" },
+                      "start_date": { "exists": true },
+                      "end_date": { "exists": true }
+                    }
+                  },
+                  {
+                    "layer": "datasource",
+                    "event": "api_result",
+                    "name": "rqdatac.get_price",
+                    "success": true,
+                    "result": "hit"
+                  },
+                  {
+                    "layer": "subagent",
+                    "event": "llm_call",
+                    "name": "analysis_llm",
+                    "params": {
+                      "model": { "eq": "deepseek-v4-pro" }
+                    }
+                  }
+                ],
+                "forbid": [
+                  {
+                    "layer": "subagent",
+                    "event": "tool_call",
+                    "name": "mcp.stock_quote"
+                  },
+                  {
+                    "layer": "datasource",
+                    "event": "api_call",
+                    "name": "ak.stock_zh_a_hist"
+                  }
+                ],
+                "order": [
+                  "router.route_decision",
+                  "subagent.tool_call:mcp.stock_kline",
+                  "mcp.tool_call:stock_kline",
+                  "datasource.source_attempt:local_db:miss",
+                  "datasource.api_call:rqdatac.get_price",
+                  "datasource.api_result:rqdatac.get_price:hit",
+                  "datasource.source_attempt:rqdata:hit",
+                  "mcp.tool_result:stock_kline:success",
+                  "subagent.tool_result:mcp.stock_kline:success",
+                  "subagent.llm_call:analysis_llm"
+                ]
               }
             },
             {
@@ -430,4 +528,3 @@
     "subagent": "SubAgent测试"
   }
 }
-

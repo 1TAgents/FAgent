@@ -16,6 +16,7 @@ from ..models import (
     MarketType, KLinePeriod, IndexQuote, IndustryQuote, IndustryDetail
 )
 from .cache_adapter import CacheAdapter, get_mcp_cache
+from ..trace import log_chain_event
 
 logger = logging.getLogger(__name__)
 
@@ -133,6 +134,47 @@ class AKShareAdapter:
             conn.close()
 
         return ""
+
+    def _trace_source_attempt(self, name: str, result: str, **params: Any) -> None:
+        log_chain_event(
+            layer="datasource",
+            event="source_attempt",
+            name=name,
+            result=result,
+            params={k: v for k, v in params.items() if v is not None},
+        )
+
+    def _trace_source_selected(self, name: str, **params: Any) -> None:
+        log_chain_event(
+            layer="datasource",
+            event="source_selected",
+            name=name,
+            params={k: v for k, v in params.items() if v is not None},
+        )
+
+    def _trace_api_call(self, name: str, **params: Any) -> None:
+        log_chain_event(
+            layer="datasource",
+            event="api_call",
+            name=name,
+            params={k: v for k, v in params.items() if v is not None},
+        )
+
+    def _trace_api_result(
+        self,
+        name: str,
+        success: bool,
+        result: Optional[str] = None,
+        error: Optional[str] = None,
+    ) -> None:
+        log_chain_event(
+            layer="datasource",
+            event="api_result",
+            name=name,
+            success=success,
+            result=result,
+            error=error,
+        )
 
     def _get_a_share_quote_from_local_db(self, symbol: str) -> Optional[Dict[str, Any]]:
         """从本地聚宽历史库生成行情快照"""
@@ -380,8 +422,10 @@ class AKShareAdapter:
         name = self._lookup_local_stock_name(symbol) or self._lookup_rqdata_stock_name(symbol) or symbol
 
         try:
+            self._trace_api_call("rqdatac.current_snapshot", order_book_id=order_book_id)
             snapshot = self._rq.current_snapshot(order_book_id)
             if snapshot:
+                self._trace_api_result("rqdatac.current_snapshot", success=True, result="hit")
                 getter = snapshot.get if isinstance(snapshot, dict) else lambda key, default=None: getattr(snapshot, key, default)
                 prev_close = getter("prev_close", getter("pre_close", getter("close", 0))) or 0
                 last_price = getter("last", getter("last_price", getter("price", getter("close", 0)))) or 0
@@ -415,11 +459,20 @@ class AKShareAdapter:
                     "timestamp": str(tick_time) if tick_time else datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                 }
         except Exception as e:
+            self._trace_api_result("rqdatac.current_snapshot", success=False, error=str(e))
             logger.warning(f"RQData 实时行情失败，尝试日线快照 | symbol={symbol} | error={e}")
 
         try:
             end_date = datetime.now().strftime("%Y-%m-%d")
             start_date = (datetime.now() - timedelta(days=10)).strftime("%Y-%m-%d")
+            self._trace_api_call(
+                "rqdatac.get_price",
+                order_book_ids=order_book_id,
+                start_date=start_date,
+                end_date=end_date,
+                frequency="1d",
+                adjust_type="pre",
+            )
             df = self._rq.get_price(
                 order_book_ids=order_book_id,
                 start_date=start_date,
@@ -429,7 +482,9 @@ class AKShareAdapter:
                 fields=["open", "high", "low", "close", "volume", "total_turnover"],
             )
             if df is None or df.empty:
+                self._trace_api_result("rqdatac.get_price", success=True, result="miss")
                 return None
+            self._trace_api_result("rqdatac.get_price", success=True, result="hit")
 
             rows = list(df.tail(2).iterrows())
             last_idx, last_row = rows[-1]
@@ -461,6 +516,7 @@ class AKShareAdapter:
                 "timestamp": f"{quote_date} 15:00:00",
             }
         except Exception as e:
+            self._trace_api_result("rqdatac.get_price", success=False, error=str(e))
             logger.warning(f"RQData 日线快照失败，回退到本地/AKShare | symbol={symbol} | error={e}")
             return None
 
@@ -472,6 +528,14 @@ class AKShareAdapter:
         try:
             end_date = datetime.now().strftime("%Y-%m-%d")
             start_date = (datetime.now() - timedelta(days=max(count * 3, 60))).strftime("%Y-%m-%d")
+            self._trace_api_call(
+                "rqdatac.get_price",
+                order_book_ids=self._to_order_book_id(symbol),
+                start_date=start_date,
+                end_date=end_date,
+                frequency="1d",
+                adjust_type="pre",
+            )
             df = self._rq.get_price(
                 order_book_ids=self._to_order_book_id(symbol),
                 start_date=start_date,
@@ -480,7 +544,9 @@ class AKShareAdapter:
                 adjust_type="pre",
             )
             if df is None or df.empty:
+                self._trace_api_result("rqdatac.get_price", success=True, result="miss")
                 return None
+            self._trace_api_result("rqdatac.get_price", success=True, result="hit")
 
             items = []
             for idx, row in df.tail(count).iterrows():
@@ -504,6 +570,7 @@ class AKShareAdapter:
                 "items": [item.dict() for item in items],
             }
         except Exception as e:
+            self._trace_api_result("rqdatac.get_price", success=False, error=str(e))
             logger.warning(f"RQData 日线失败，回退到本地/AKShare | symbol={symbol} | error={e}")
             return None
 
@@ -588,16 +655,21 @@ class AKShareAdapter:
     async def _get_a_share_quote(self, symbol: str) -> Dict[str, Any]:
         """获取 A 股行情"""
         result = self._get_a_share_quote_from_rqdata(symbol)
+        self._trace_source_attempt("rqdata", "hit" if result else "miss", tool="stock_quote", symbol=symbol, market="A")
         if result:
+            self._trace_source_selected("rqdata", tool="stock_quote", symbol=symbol, market="A")
             logger.info(f"A 股行情使用 RQData | symbol={symbol}")
             return result
 
         result = self._get_a_share_quote_from_local_db(symbol)
+        self._trace_source_attempt("local_db", "hit" if result else "miss", tool="stock_quote", symbol=symbol, market="A")
         if result:
+            self._trace_source_selected("local_db", tool="stock_quote", symbol=symbol, market="A")
             logger.info(f"A 股行情使用本地聚宽库 | symbol={symbol}")
             return result
 
         try:
+            self._trace_api_call("ak.stock_zh_a_spot_em", symbol=symbol)
             quote_df = self.ak.stock_zh_a_spot_em()
             stock_data = quote_df[quote_df['代码'] == symbol]
             
@@ -627,10 +699,13 @@ class AKShareAdapter:
                 "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             }
             
+            self._trace_api_result("ak.stock_zh_a_spot_em", success=True, result="hit")
+            self._trace_source_selected("akshare", tool="stock_quote", symbol=symbol, market="A")
             logger.debug(f"A 股行情查询成功 | symbol={symbol} | price={result['price']}")
             return result
             
         except Exception as e:
+            self._trace_api_result("ak.stock_zh_a_spot_em", success=False, error=str(e))
             logger.error(f"A 股行情解析失败 | symbol={symbol} | error={e}")
             raise
     
@@ -739,13 +814,17 @@ class AKShareAdapter:
     ) -> Dict[str, Any]:
         """获取 A 股 K 线"""
         local_result = self._get_a_share_kline_from_local_db(symbol, period, count)
+        self._trace_source_attempt("local_db", "hit" if local_result else "miss", tool="stock_kline", symbol=symbol, period=period, count=count, market="A")
         if local_result:
+            self._trace_source_selected("local_db", tool="stock_kline", symbol=symbol, period=period, count=count, market="A")
             logger.info(f"A 股 K 线使用本地聚宽库 | symbol={symbol} | period={period} | count={count}")
             return local_result
 
         if period == "daily":
             rq_result = self._get_a_share_kline_from_rqdata(symbol, count)
+            self._trace_source_attempt("rqdata", "hit" if rq_result else "miss", tool="stock_kline", symbol=symbol, period=period, count=count, market="A")
             if rq_result:
+                self._trace_source_selected("rqdata", tool="stock_kline", symbol=symbol, period=period, count=count, market="A")
                 logger.info(f"A 股 K 线使用 RQData | symbol={symbol} | count={count}")
                 return rq_result
 
@@ -753,6 +832,14 @@ class AKShareAdapter:
             # 计算日期范围
             end_date = datetime.now()
             start_date = end_date - timedelta(days=count * 2)  # 预留非交易日
+            self._trace_api_call(
+                "ak.stock_zh_a_hist",
+                symbol=symbol,
+                period=period,
+                start_date=start_date.strftime("%Y%m%d"),
+                end_date=end_date.strftime("%Y%m%d"),
+                adjust="qfq",
+            )
             
             df = self.ak.stock_zh_a_hist(
                 symbol=symbol,
@@ -793,10 +880,13 @@ class AKShareAdapter:
                 "items": [item.dict() for item in items]
             }
             
+            self._trace_api_result("ak.stock_zh_a_hist", success=True, result="hit")
+            self._trace_source_selected("akshare", tool="stock_kline", symbol=symbol, period=period, count=count, market="A")
             logger.debug(f"A 股 K 线查询成功 | symbol={symbol} | count={len(items)}")
             return result
             
         except Exception as e:
+            self._trace_api_result("ak.stock_zh_a_hist", success=False, error=str(e))
             logger.error(f"A 股 K 线解析失败 | symbol={symbol} | error={e}")
             raise
     

@@ -94,6 +94,17 @@ logger.add(
     encoding="utf-8",
 )
 
+# 文件输出 - Chain 日志（JSONL 格式，便于链路评估）
+logger.add(
+    LOG_DIR / "chain_{time:YYYY-MM-DD}.jsonl",
+    format="{message}",
+    level="INFO",
+    filter=lambda record: record["extra"].get("chain_log"),
+    rotation="00:00",
+    retention="7 days",
+    encoding="utf-8",
+)
+
 
 def _safe_json(obj: Any, max_length: int = 2000) -> str:
     """安全地序列化对象为 JSON 字符串"""
@@ -123,6 +134,35 @@ def _get_trace_prefix() -> str:
     except Exception:
         pass
     return ""
+
+
+def log_chain_event(
+    layer: str,
+    event: str,
+    **payload: Any,
+):
+    """记录结构化 chain 事件（JSONL）"""
+    try:
+        from .context import get_context
+        ctx = get_context()
+    except Exception:
+        ctx = {}
+
+    entry = {
+        "timestamp": datetime.now().isoformat(),
+        "service": "backend",
+        "layer": layer,
+        "event": event,
+        "rid": ctx.get("rid"),
+        "cid": ctx.get("cid"),
+        "mid": ctx.get("mid"),
+    }
+
+    for key, value in payload.items():
+        if value is not None:
+            entry[key] = value
+
+    logger.bind(chain_log=True).info(json.dumps(entry, ensure_ascii=False, default=str))
 
 
 def log_request(
@@ -165,6 +205,14 @@ def log_request(
         "query_params": query_params,
     }
     logger.bind(request_log=True).info(json.dumps(log_entry, ensure_ascii=False, default=str))
+    log_chain_event(
+        layer="backend",
+        event="request",
+        method=method,
+        path=path,
+        params=query_params,
+        body=body,
+    )
 
 
 def log_response(
@@ -210,6 +258,15 @@ def log_response(
         "error": error,
     }
     logger.bind(request_log=True).info(json.dumps(log_entry, ensure_ascii=False, default=str))
+    log_chain_event(
+        layer="backend",
+        event="response",
+        method=method,
+        path=path,
+        status_code=status_code,
+        duration_ms=round(duration * 1000, 3),
+        error=error,
+    )
 
 
 def log_call_agents(
@@ -221,6 +278,14 @@ def log_call_agents(
     prefix = _get_trace_prefix()
     logger.info(f"{prefix}[CALL_AGENTS] {endpoint}")
     logger.debug(f"{prefix}[CALL_AGENTS_BODY] {_safe_json(payload)}")
+    log_chain_event(
+        layer="backend",
+        event="call_agents",
+        name="agents.http",
+        path=endpoint,
+        params=payload,
+        cid=cid,
+    )
 
 
 def log_store_message(
@@ -232,14 +297,22 @@ def log_store_message(
     """记录消息存储"""
     prefix = _get_trace_prefix()
     logger.info(f"{prefix}[STORE] role={role} | msg_id={message_id} | len={content_length}")
+    log_chain_event(
+        layer="backend",
+        event="store_message",
+        name=role,
+        message_id=message_id,
+        content_length=content_length,
+        cid=cid,
+    )
 
 
 # 导出
 __all__ = [
     "logger",
+    "log_chain_event",
     "log_request",
     "log_response", 
     "log_call_agents",
     "log_store_message",
 ]
-

@@ -2,13 +2,50 @@
 MCP Middleware - 限流和鉴权中间件
 """
 import logging
+import json
 import time
 from typing import Dict, Optional
 from fastapi import Request, HTTPException
 from starlette.middleware.base import BaseHTTPMiddleware
 from collections import defaultdict
 
+from agents.core.context import set_context, clear_context
+
 logger = logging.getLogger(__name__)
+
+
+class RequestContextMiddleware(BaseHTTPMiddleware):
+    """
+    请求上下文中间件
+
+    从 Header 获取 rid/cid/mid，并在必要时从请求体补充 cid/mid。
+    """
+
+    async def dispatch(self, request: Request, call_next):
+        rid = request.headers.get("X-Request-ID", "")
+        cid = request.headers.get("X-CID")
+        mid = request.headers.get("X-MID")
+
+        if request.method in {"POST", "PUT", "PATCH"}:
+            try:
+                body = await request.body()
+                if body:
+                    body_data = json.loads(body.decode("utf-8"))
+                    cid = cid or body_data.get("cid")
+                    mid = mid or body_data.get("message_id")
+            except Exception:
+                pass
+
+        set_context(
+            rid=rid if rid else None,
+            cid=str(cid) if cid else None,
+            mid=str(mid) if mid else None,
+        )
+
+        try:
+            return await call_next(request)
+        finally:
+            clear_context()
 
 
 class RateLimitMiddleware(BaseHTTPMiddleware):

@@ -63,6 +63,7 @@ backend/data/
 !package.json
 !tsconfig.json
 !tests/test_cases.json
+!tests/test_cases.schema.json
 *.parquet
 *.pkl
 *.pickle

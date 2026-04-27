@@ -12,6 +12,7 @@ API 端点:
     GET  /health         - 健康检查
 """
 import logging
+import time
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -20,7 +21,8 @@ import uvicorn
 from .models import ToolCallRequest, ToolCallResponse, ToolDefinition
 from .tools import tool_registry
 from .adapters.akshare_adapter import AKShareAdapter
-from .middleware import RateLimitMiddleware, APIKeyMiddleware, RequestLogMiddleware
+from .middleware import RateLimitMiddleware, APIKeyMiddleware, RequestLogMiddleware, RequestContextMiddleware
+from .trace import log_chain_event
 from agents.data_service import get_data_service
 from agents.backtest.api import run_backtest, list_strategies
 from agents.backtest.models import BacktestRequest, StrategyConfig
@@ -714,6 +716,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# 请求上下文中间件
+app.add_middleware(RequestContextMiddleware)
+
 # 限流中间件（60 次/分钟，1000 次/小时）
 app.add_middleware(RateLimitMiddleware, requests_per_minute=60, requests_per_hour=1000)
 
@@ -767,6 +772,14 @@ async def call_tool(request: ToolCallRequest):
             "arguments": {"symbol": "600519", "market": "A"}
         }
     """
+    start_time = time.time()
+    log_chain_event(
+        layer="mcp",
+        event="tool_call",
+        name=request.tool_name,
+        params=request.arguments,
+    )
+
     try:
         # 获取工具
         tool = tool_registry.get(request.tool_name)
@@ -775,6 +788,17 @@ async def call_tool(request: ToolCallRequest):
         result = await tool(**request.arguments)
         
         logger.info(f"工具调用成功 | tool={request.tool_name} | args={request.arguments}")
+        log_chain_event(
+            layer="mcp",
+            event="tool_result",
+            name=request.tool_name,
+            success=True,
+            duration_ms=round((time.time() - start_time) * 1000, 3),
+            result={
+                "keys": sorted(result.keys()) if isinstance(result, dict) else None,
+                "items_count": len(result.get("items", [])) if isinstance(result, dict) and isinstance(result.get("items"), list) else None,
+            },
+        )
         
         return ToolCallResponse(
             success=True,
@@ -783,6 +807,14 @@ async def call_tool(request: ToolCallRequest):
         
     except KeyError as e:
         logger.warning(f"工具不存在 | tool={request.tool_name}")
+        log_chain_event(
+            layer="mcp",
+            event="tool_result",
+            name=request.tool_name,
+            success=False,
+            error=f"工具不存在：{request.tool_name}",
+            duration_ms=round((time.time() - start_time) * 1000, 3),
+        )
         return ToolCallResponse(
             success=False,
             error=f"工具不存在：{request.tool_name}"
@@ -790,6 +822,14 @@ async def call_tool(request: ToolCallRequest):
         
     except Exception as e:
         logger.error(f"工具调用失败 | tool={request.tool_name} | error={e}")
+        log_chain_event(
+            layer="mcp",
+            event="tool_result",
+            name=request.tool_name,
+            success=False,
+            error=str(e),
+            duration_ms=round((time.time() - start_time) * 1000, 3),
+        )
         return ToolCallResponse(
             success=False,
             error=str(e)

@@ -19,6 +19,7 @@ import logging
 from typing import Any, Dict, List, Optional
 import httpx
 
+from agents.core.context import get_context
 from .models import StockQuote, KLineData, KLineItem, StockInfo, MarketType
 
 logger = logging.getLogger(__name__)
@@ -40,6 +41,18 @@ class MCPClient:
         """
         self.base_url = base_url.rstrip('/')
         logger.info(f"MCP Client 初始化 | base_url={self.base_url}")
+
+    def _build_trace_headers(self) -> Dict[str, str]:
+        """将当前请求上下文透传给 MCP 服务"""
+        ctx = get_context()
+        headers: Dict[str, str] = {}
+        if ctx.get("rid"):
+            headers["X-Request-ID"] = str(ctx["rid"])
+        if ctx.get("cid"):
+            headers["X-CID"] = str(ctx["cid"])
+        if ctx.get("mid"):
+            headers["X-MID"] = str(ctx["mid"])
+        return headers
     
     async def call(self, tool_name: str, **kwargs) -> Dict[str, Any]:
         """
@@ -56,11 +69,13 @@ class MCPClient:
             MCPError: 调用失败
         """
         url = f"{self.base_url}/tool/call"
+        headers = self._build_trace_headers()
         
         try:
             async with httpx.AsyncClient(timeout=30.0) as client:
                 response = await client.post(
                     url,
+                    headers=headers,
                     json={
                         "tool_name": tool_name,
                         "arguments": kwargs
@@ -95,7 +110,7 @@ class MCPClient:
         
         try:
             async with httpx.AsyncClient(timeout=10.0) as client:
-                response = await client.get(url)
+                response = await client.get(url, headers=self._build_trace_headers())
                 response.raise_for_status()
                 return response.json()
         except Exception as e:

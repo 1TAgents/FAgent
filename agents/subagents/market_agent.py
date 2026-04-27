@@ -15,6 +15,7 @@ Market SubAgent - 行情子智能体
 继承 BaseSubAgent，实现统一的 process_stream 接口
 """
 
+import os
 import time
 from typing import Optional, Dict, Any, List, AsyncIterator
 from dataclasses import dataclass
@@ -111,12 +112,13 @@ class MarketSubAgent(BaseSubAgent):
     
     name = "market"
     
-    def __init__(self, mcp_base_url: str = "http://localhost:8002"):
+    def __init__(self, mcp_base_url: Optional[str] = None):
         super().__init__()
+        resolved_mcp_base_url = mcp_base_url or os.getenv("MCP_BASE_URL", "http://localhost:8002")
         self.service = market_service
         self.llm = llm_service
-        self.mcp = MCPClient(base_url=mcp_base_url)
-        logger.info(f"MarketSubAgent 初始化 | MCP Server={mcp_base_url}")
+        self.mcp = MCPClient(base_url=resolved_mcp_base_url)
+        logger.info(f"MarketSubAgent 初始化 | MCP Server={resolved_mcp_base_url}")
     
     # ==================== BaseSubAgent 接口实现 ====================
     
@@ -156,7 +158,11 @@ class MarketSubAgent(BaseSubAgent):
         
         # 3. 流式调用 LLM 生成分析（使用动态模型）
         model = context.model
-        log_subagent.llm_call(model=model or "default", messages_count=len(messages), temperature=0.7)
+        log_subagent.llm_call(
+            model=model or self.llm.default_model,
+            messages_count=len(messages),
+            temperature=0.7,
+        )
         
         chunk_count = 0
         for chunk in self.llm.chat_completion_stream(
@@ -656,4 +662,3 @@ class MarketSubAgent(BaseSubAgent):
 
 # 全局实例
 market_subagent = MarketSubAgent()
-

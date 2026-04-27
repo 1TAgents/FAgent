@@ -1,0 +1,151 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fagent.local/tests/test_cases.schema.json",
+  "title": "FAgent Test Cases",
+  "type": "object",
+  "required": ["test_suites"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "version": { "type": "string" },
+    "description": { "type": "string" },
+    "updated_at": { "type": "string" },
+    "test_suites": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/testSuite"
+      }
+    },
+    "tags_description": {
+      "type": "object",
+      "additionalProperties": { "type": "string" }
+    }
+  },
+  "$defs": {
+    "testSuite": {
+      "type": "object",
+      "properties": {
+        "description": { "type": "string" },
+        "module": { "type": "string" },
+        "base_url": { "type": "string" },
+        "base_urls": { "type": "object" },
+        "requires_server": { "type": "boolean" },
+        "cases": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/testCase" }
+        }
+      },
+      "required": ["cases"],
+      "additionalProperties": true
+    },
+    "testCase": {
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "type": { "type": "string" },
+        "method": { "type": "string" },
+        "endpoint": { "type": "string" },
+        "function": { "type": "string" },
+        "description": { "type": "string" },
+        "input": { "type": "object" },
+        "expected": { "type": "object" },
+        "expected_chain": { "$ref": "#/$defs/expectedChain" },
+        "steps": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/testStep" }
+        },
+        "sessions": { "type": "array" },
+        "tags": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      },
+      "required": ["id", "name"],
+      "additionalProperties": true
+    },
+    "testStep": {
+      "type": "object",
+      "properties": {
+        "step": { "type": "integer" },
+        "action": { "type": "string" },
+        "input": { "type": "object" },
+        "expected": { "type": "object" },
+        "expected_chain": { "$ref": "#/$defs/expectedChain" },
+        "description": { "type": "string" }
+      },
+      "required": ["step", "action"],
+      "additionalProperties": true
+    },
+    "expectedChain": {
+      "type": "object",
+      "properties": {
+        "route": {
+          "type": "object",
+          "properties": {
+            "route": { "type": "string" },
+            "task": { "type": "string" },
+            "params": { "type": "object" }
+          },
+          "additionalProperties": true
+        },
+        "must": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/eventExpectation" }
+        },
+        "forbid": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/eventExpectation" }
+        },
+        "order": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      },
+      "additionalProperties": true
+    },
+    "eventExpectation": {
+      "type": "object",
+      "properties": {
+        "layer": { "type": "string" },
+        "event": { "type": "string" },
+        "name": { "type": "string" },
+        "route": { "type": "string" },
+        "task": { "type": "string" },
+        "result": { "type": ["string", "number", "boolean"] },
+        "success": { "type": "boolean" },
+        "params": { "$ref": "#/$defs/matcherObject" }
+      },
+      "required": ["layer", "event"],
+      "additionalProperties": true
+    },
+    "matcherObject": {
+      "type": "object",
+      "additionalProperties": {
+        "oneOf": [
+          { "$ref": "#/$defs/predicate" },
+          { "type": "object" },
+          { "type": "array" },
+          { "type": "string" },
+          { "type": "number" },
+          { "type": "boolean" },
+          { "type": "null" }
+        ]
+      }
+    },
+    "predicate": {
+      "type": "object",
+      "properties": {
+        "eq": {},
+        "exists": { "type": "boolean" },
+        "one_of": {
+          "type": "array"
+        },
+        "contains": {},
+        "regex": { "type": "string" }
+      },
+      "additionalProperties": false,
+      "minProperties": 1
+    }
+  },
+  "additionalProperties": true
+}

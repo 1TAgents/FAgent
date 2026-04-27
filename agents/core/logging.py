@@ -104,6 +104,17 @@ logger.add(
     encoding="utf-8",
 )
 
+# Chain 专用日志（JSONL）
+logger.add(
+    LOG_DIR / "chain_{time:YYYY-MM-DD}.jsonl",
+    format="{message}",
+    level="INFO",
+    filter=lambda record: record["extra"].get("chain_log"),
+    rotation="00:00",
+    retention="7 days",
+    encoding="utf-8",
+)
+
 
 def _safe_json(obj: Any, max_length: int = 3000) -> str:
     """安全地序列化对象为 JSON 字符串"""
@@ -125,6 +136,35 @@ def _get_trace_prefix() -> str:
         return ""
 
 
+def log_chain_event(
+    layer: str,
+    event: str,
+    **payload: Any,
+) -> None:
+    """记录结构化 chain 事件（JSONL）"""
+    try:
+        from .context import get_context
+        ctx = get_context()
+    except Exception:
+        ctx = {}
+
+    entry = {
+        "timestamp": datetime.now().isoformat(),
+        "service": "agents",
+        "layer": layer,
+        "event": event,
+        "rid": ctx.get("rid"),
+        "cid": ctx.get("cid"),
+        "mid": ctx.get("mid"),
+    }
+
+    for key, value in payload.items():
+        if value is not None:
+            entry[key] = value
+
+    logger.bind(chain_log=True).info(json.dumps(entry, ensure_ascii=False, default=str))
+
+
 class RouterLogger:
     """Router 专用日志记录器"""
     
@@ -137,6 +177,16 @@ class RouterLogger:
         self._logger.info(f"{prefix}[ROUTER_REQ] cid={cid} | message_id={message_id}")
         self._logger.debug(f"{prefix}[ROUTER_REQ] user_message={user_message}")
         logger.info(f"{prefix}[ROUTER_REQ] cid={cid} | message_id={message_id}")
+        log_chain_event(
+            layer="router",
+            event="request",
+            name="router_input",
+            params={
+                "cid": cid,
+                "message_id": message_id,
+                "user_message": user_message,
+            },
+        )
     
     def history(self, cid: int, message_count: int, messages: list = None):
         """记录加载的历史消息"""
@@ -145,6 +195,11 @@ class RouterLogger:
         if messages:
             self._logger.debug(f"{prefix}[ROUTER_HISTORY] messages={_safe_json(messages)}")
         logger.info(f"{prefix}[ROUTER_HISTORY] loaded={message_count} messages")
+        log_chain_event(
+            layer="router",
+            event="history",
+            count=message_count,
+        )
     
     def intent(
         self, 
@@ -159,6 +214,13 @@ class RouterLogger:
         if raw_response:
             self._logger.debug(f"{prefix}[ROUTER_INTENT] llm_response={raw_response}")
         logger.info(f"{prefix}[ROUTER_INTENT] route={route} | task={task}")
+        log_chain_event(
+            layer="router",
+            event="route_decision",
+            route=route,
+            task=task,
+            params=params,
+        )
     
     def context(self, context: Any):
         """记录构建的 TaskContext"""
@@ -179,18 +241,35 @@ class RouterLogger:
         prefix = _get_trace_prefix()
         self._logger.info(f"{prefix}[ROUTER_DISPATCH] target={subagent_name} | task={task_type}")
         logger.info(f"{prefix}[ROUTER_DISPATCH] target={subagent_name}")
+        log_chain_event(
+            layer="router",
+            event="dispatch",
+            name=subagent_name,
+            task=task_type,
+        )
     
     def fallback(self, reason: str):
         """记录回退到默认处理"""
         prefix = _get_trace_prefix()
         self._logger.warning(f"{prefix}[ROUTER_FALLBACK] reason={reason}")
         logger.warning(f"{prefix}[ROUTER_FALLBACK] reason={reason}")
+        log_chain_event(
+            layer="router",
+            event="fallback",
+            reason=reason,
+        )
     
     def done(self, cid: int, duration: float, route: str = None):
         """记录 Router 完成"""
         prefix = _get_trace_prefix()
         self._logger.info(f"{prefix}[ROUTER_DONE] route={route} | duration={duration:.3f}s")
         logger.info(f"{prefix}[ROUTER_DONE] duration={duration:.3f}s")
+        log_chain_event(
+            layer="router",
+            event="done",
+            route=route,
+            duration_ms=round(duration * 1000, 3),
+        )
 
 
 class SubAgentLogger:
@@ -211,6 +290,13 @@ class SubAgentLogger:
             else:
                 self._logger.debug(f"{prefix}{module_tag} context={_safe_json(context)}")
         logger.info(f"{prefix}{module_tag} {agent_name}.{task_type}")
+        log_chain_event(
+            layer="subagent",
+            event="start",
+            name=agent_name,
+            task=task_type,
+            params=context.to_dict() if hasattr(context, "to_dict") else None,
+        )
     
     def tool_call(self, tool_name: str, params: dict = None):
         """记录工具调用"""
@@ -220,6 +306,12 @@ class SubAgentLogger:
         self._logger.info(f"{prefix}{module_tag} 工具调用 | tool={tool_name} | params={_safe_json(params, 500)}")
         logger.info(f"{prefix}{module_tag} 工具调用 | {tool_name}")
         logger.debug(f"{prefix}{module_tag} params={_safe_json(params)}")
+        log_chain_event(
+            layer="subagent",
+            event="tool_call",
+            name=tool_name,
+            params=params,
+        )
     
     def tool_result(
         self, 
@@ -239,9 +331,25 @@ class SubAgentLogger:
             if data:
                 self._logger.debug(f"{prefix}{module_tag} data={_safe_json(data)}")
             logger.info(f"{prefix}{module_tag} 工具完成 | {tool_name} | success")
+            log_chain_event(
+                layer="subagent",
+                event="tool_result",
+                name=tool_name,
+                success=True,
+                summary=data,
+                duration_ms=round(duration * 1000, 3) if duration else None,
+            )
         else:
             self._logger.warning(f"{prefix}{module_tag} 工具失败 | tool={tool_name} | error={error}")
             logger.warning(f"{prefix}{module_tag} 工具失败 | {tool_name} | {error}")
+            log_chain_event(
+                layer="subagent",
+                event="tool_result",
+                name=tool_name,
+                success=False,
+                error=error,
+                duration_ms=round(duration * 1000, 3) if duration else None,
+            )
     
     def llm_call(
         self, 
@@ -253,6 +361,16 @@ class SubAgentLogger:
         prefix = _get_trace_prefix()
         self._logger.info(f"{prefix}[llm] LLM 调用 | model={model} | messages={messages_count} | temp={temperature}")
         logger.debug(f"{prefix}[llm] LLM 调用 | model={model} | messages={messages_count}")
+        log_chain_event(
+            layer="subagent",
+            event="llm_call",
+            name="analysis_llm",
+            params={
+                "model": model,
+                "messages_count": messages_count,
+                "temperature": temperature,
+            },
+        )
     
     def llm_stream(
         self,
@@ -277,6 +395,13 @@ class SubAgentLogger:
         else:
             self._logger.warning(f"{prefix}{module_tag} SubAgent 失败 | agent={agent_name} | duration={duration:.3f}s")
             logger.warning(f"{prefix}{module_tag} {agent_name} | failed")
+        log_chain_event(
+            layer="subagent",
+            event="done",
+            name=agent_name,
+            success=success,
+            duration_ms=round(duration * 1000, 3),
+        )
 
 
 # 全局日志记录器实例
@@ -287,6 +412,7 @@ log_subagent = SubAgentLogger()
 # 导出
 __all__ = [
     "logger",
+    "log_chain_event",
     "log_router",
     "log_subagent",
 ]
