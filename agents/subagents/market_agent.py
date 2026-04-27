@@ -31,7 +31,7 @@ from ..common.market import (
     StockInfo,
     KLinePeriod,
 )
-from ..core.logging import logger, log_subagent
+from ..core.logging import logger, log_subagent, log_chain_event
 from ..mcp.client import MCPClient, MCPError
 
 
@@ -89,6 +89,13 @@ MARKET_ANALYSIS_PROMPT = """你是一个专业的股票分析师。基于以下�
 {data_summary}
 
 用户问题：{query}
+
+回答要求：
+1. 你已经拿到了工具返回的可信行情数据，必须优先引用这些数据。
+2. 除非行情数据明确写了“未获取到”“暂无数据”或字段缺失，否则不要说“无法查询”“没有接入数据”“无法生成表格”“数据不完整”。
+3. 如果行情数据里已经包含股票名称和代码，回答中优先保留名称和代码。
+4. 如果行情数据里包含逐日明细，优先列出用户关心的具体数值，再给简要分析。
+5. 不要虚构工具中不存在的字段或额外日期。
 
 请提供：
 1. 数据解读
@@ -344,33 +351,57 @@ class MarketSubAgent(BaseSubAgent):
             MarketResult
         """
         logger.debug(f"MarketSubAgent.process | intent={query.intent.value}")
+        start_time = time.time()
+        log_chain_event(
+            layer="subagent",
+            event="start",
+            name="MarketSubAgent",
+            task=query.intent.value,
+            params={
+                "intent": query.intent.value,
+                "symbol": query.symbol,
+                "keyword": query.keyword,
+                "period": query.period.value,
+                "count": query.count,
+            },
+        )
         
         try:
             if query.intent == MarketIntent.GET_QUOTE:
-                return self._get_quote(query.symbol)
+                result = self._get_quote(query.symbol)
             
             elif query.intent == MarketIntent.GET_KLINE:
-                return self._get_kline(query.symbol, query.period, query.count)
+                result = self._get_kline(query.symbol, query.period, query.count)
             
             elif query.intent == MarketIntent.SEARCH_STOCK:
-                return self._search_stock(query.keyword)
+                result = self._search_stock(query.keyword)
             
             elif query.intent == MarketIntent.ANALYZE_TREND:
-                return self._analyze_trend(query.symbol, query.count)
+                result = self._analyze_trend(query.symbol, query.count)
             
             else:
-                return MarketResult(
+                result = MarketResult(
                     success=False,
                     intent=query.intent,
                     error="未知的查询意图",
                 )
         except Exception as e:
             logger.error(f"MarketSubAgent 处理失败 | error={e}")
-            return MarketResult(
+            result = MarketResult(
                 success=False,
                 intent=query.intent,
                 error=str(e),
             )
+
+        log_chain_event(
+            layer="subagent",
+            event="done",
+            name="MarketSubAgent",
+            task=query.intent.value,
+            success=result.success,
+            duration_ms=round((time.time() - start_time) * 1000, 3),
+        )
+        return result
     
     def _get_quote(self, symbol: str) -> MarketResult:
         """获取实时行情"""
@@ -381,20 +412,30 @@ class MarketSubAgent(BaseSubAgent):
                 error="请提供股票代码",
             )
         
+        log_subagent.tool_call("market_service.get_quote", {"symbol": symbol})
+        start = time.time()
         quote = self.service.get_quote(symbol)
         if quote:
-            return MarketResult(
+            result = MarketResult(
                 success=True,
                 intent=MarketIntent.GET_QUOTE,
                 data=quote.to_dict(),
                 summary=quote.summary(),
             )
         else:
-            return MarketResult(
+            result = MarketResult(
                 success=False,
                 intent=MarketIntent.GET_QUOTE,
                 error=f"未能获取 {symbol} 的行情数据",
             )
+        log_subagent.tool_result(
+            "market_service.get_quote",
+            result.success,
+            data=result.summary[:200] if result.summary else None,
+            error=result.error,
+            duration=time.time() - start,
+        )
+        return result
     
     def _get_kline(
         self, 
@@ -410,20 +451,37 @@ class MarketSubAgent(BaseSubAgent):
                 error="请提供股票代码",
             )
         
+        log_subagent.tool_call(
+            "market_service.get_kline",
+            {
+                "symbol": symbol,
+                "period": period.value,
+                "count": count,
+            },
+        )
+        start = time.time()
         kline = self.service.get_kline(symbol, period, count)
         if kline:
-            return MarketResult(
+            result = MarketResult(
                 success=True,
                 intent=MarketIntent.GET_KLINE,
                 data=kline.to_dict(),
                 summary=kline.summary(),
             )
         else:
-            return MarketResult(
+            result = MarketResult(
                 success=False,
                 intent=MarketIntent.GET_KLINE,
                 error=f"未能获取 {symbol} 的 K 线数据",
             )
+        log_subagent.tool_result(
+            "market_service.get_kline",
+            result.success,
+            data=result.summary[:200] if result.summary else None,
+            error=result.error,
+            duration=time.time() - start,
+        )
+        return result
     
     def _search_stock(self, keyword: str) -> MarketResult:
         """搜索股票"""
@@ -434,6 +492,8 @@ class MarketSubAgent(BaseSubAgent):
                 error="请提供搜索关键词",
             )
         
+        log_subagent.tool_call("market_service.search", {"keyword": keyword, "limit": 10})
+        start = time.time()
         results = self.service.search(keyword)
         if results:
             data = [info.to_dict() for info in results]
@@ -443,18 +503,26 @@ class MarketSubAgent(BaseSubAgent):
             if len(results) > 5:
                 summary += f" 等"
             
-            return MarketResult(
+            result = MarketResult(
                 success=True,
                 intent=MarketIntent.SEARCH_STOCK,
                 data={"results": data},
                 summary=summary,
             )
         else:
-            return MarketResult(
+            result = MarketResult(
                 success=False,
                 intent=MarketIntent.SEARCH_STOCK,
                 error=f"未找到与 '{keyword}' 相关的股票",
             )
+        log_subagent.tool_result(
+            "market_service.search",
+            result.success,
+            data=result.summary[:200] if result.summary else None,
+            error=result.error,
+            duration=time.time() - start,
+        )
+        return result
     
     def _analyze_trend(self, symbol: str, days: int = 30) -> MarketResult:
         """
@@ -472,13 +540,30 @@ class MarketSubAgent(BaseSubAgent):
                 error="请提供股票代码",
             )
         
+        log_subagent.tool_call(
+            "market_service.get_kline",
+            {
+                "symbol": symbol,
+                "period": KLinePeriod.DAILY.value,
+                "count": days + 20,
+            },
+        )
+        start = time.time()
         kline = self.service.get_kline(symbol, KLinePeriod.DAILY, days + 20)
         if not kline or not kline.data:
-            return MarketResult(
+            result = MarketResult(
                 success=False,
                 intent=MarketIntent.ANALYZE_TREND,
                 error=f"未能获取 {symbol} 的 K 线数据",
             )
+            log_subagent.tool_result(
+                "market_service.get_kline",
+                result.success,
+                data=None,
+                error=result.error,
+                duration=time.time() - start,
+            )
+            return result
         
         # 提取收盘价
         closes = [d["close"] for d in kline.data]
@@ -514,12 +599,20 @@ class MarketSubAgent(BaseSubAgent):
         if signal:
             summary += f"信号：{signal}。"
         
-        return MarketResult(
+        result = MarketResult(
             success=True,
             intent=MarketIntent.ANALYZE_TREND,
             data=analysis,
             summary=summary,
         )
+        log_subagent.tool_result(
+            "market_service.get_kline",
+            result.success,
+            data=result.summary[:200] if result.summary else None,
+            error=result.error,
+            duration=time.time() - start,
+        )
+        return result
     
     def _calculate_ma(self, prices: List[float], period: int) -> float:
         """计算移动平均线"""
@@ -591,7 +684,7 @@ class MarketSubAgent(BaseSubAgent):
         """通过 MCP 获取 K 线数据"""
         try:
             kline = await self.mcp.get_kline(symbol, period, count, market)
-            summary = kline.summary(recent_days=5)
+            summary = self._build_kline_prompt_summary(kline, recent_days=min(count, 5))
             return MarketResult(
                 success=True,
                 intent=MarketIntent.GET_KLINE,
@@ -612,6 +705,33 @@ class MarketSubAgent(BaseSubAgent):
                 intent=MarketIntent.GET_KLINE,
                 error=f"获取 K 线失败：{str(e)}",
             )
+
+    def _build_kline_prompt_summary(self, kline: KLineData, recent_days: int = 5) -> str:
+        """构建更适合 LLM 使用的 K 线摘要，包含最近几根明细。"""
+        headline = kline.summary(recent_days=recent_days)
+        if not getattr(kline, "items", None):
+            return headline
+
+        recent_items = kline.items[-recent_days:] if len(kline.items) >= recent_days else kline.items
+        detail_lines = ["最近K线明细："]
+
+        for item in recent_items:
+            change_text = (
+                f"{item.change_percent:+.2f}%"
+                if item.change_percent is not None
+                else "N/A"
+            )
+            turnover_text = (
+                f"{item.turnover:.2f}"
+                if item.turnover is not None
+                else "N/A"
+            )
+            detail_lines.append(
+                f"{item.date}: 开{item.open:.2f} 高{item.high:.2f} 低{item.low:.2f} "
+                f"收{item.close:.2f} 成交量{item.volume} 成交额{turnover_text} 涨跌幅{change_text}"
+            )
+
+        return headline + "\n" + "\n".join(detail_lines)
     
     async def _mcp_search(self, keyword: str, market: str = "A", limit: int = 10) -> MarketResult:
         """通过 MCP 搜索股票"""
@@ -646,17 +766,59 @@ class MarketSubAgent(BaseSubAgent):
     
     def quick_quote(self, symbol: str) -> str:
         """快速获取行情摘要"""
+        log_chain_event(
+            layer="subagent",
+            event="start",
+            name="MarketSubAgent.quick_quote",
+            task=MarketIntent.GET_QUOTE.value,
+            params={"symbol": symbol},
+        )
         result = self._get_quote(symbol)
+        log_chain_event(
+            layer="subagent",
+            event="done",
+            name="MarketSubAgent.quick_quote",
+            task=MarketIntent.GET_QUOTE.value,
+            success=result.success,
+        )
         return result.summary if result.success else result.error
     
     def quick_kline(self, symbol: str, days: int = 5) -> str:
         """快速获取 K 线摘要"""
+        log_chain_event(
+            layer="subagent",
+            event="start",
+            name="MarketSubAgent.quick_kline",
+            task=MarketIntent.GET_KLINE.value,
+            params={"symbol": symbol, "days": days},
+        )
         result = self._get_kline(symbol, KLinePeriod.DAILY, days + 10)
+        log_chain_event(
+            layer="subagent",
+            event="done",
+            name="MarketSubAgent.quick_kline",
+            task=MarketIntent.GET_KLINE.value,
+            success=result.success,
+        )
         return result.summary if result.success else result.error
     
     def quick_analysis(self, symbol: str) -> str:
         """快速趋势分析"""
+        log_chain_event(
+            layer="subagent",
+            event="start",
+            name="MarketSubAgent.quick_analysis",
+            task=MarketIntent.ANALYZE_TREND.value,
+            params={"symbol": symbol},
+        )
         result = self._analyze_trend(symbol)
+        log_chain_event(
+            layer="subagent",
+            event="done",
+            name="MarketSubAgent.quick_analysis",
+            task=MarketIntent.ANALYZE_TREND.value,
+            success=result.success,
+        )
         return result.summary if result.success else result.error
 
 

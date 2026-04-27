@@ -10,6 +10,7 @@ Chain 评估运行器
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import re
 import sys
@@ -23,6 +24,9 @@ import httpx
 
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
+
 TEST_CASES_FILE = Path(__file__).with_name("test_cases.json")
 REPORTS_ROOT = ROOT_DIR / "reports" / "chain_eval"
 CHAIN_LOG_DIRS = [
@@ -62,13 +66,22 @@ def make_report_dir() -> Path:
     return report_dir
 
 
-def get_cases(test_data: Dict[str, Any], suite_filter: Optional[str], case_filter: Optional[str]) -> List[Tuple[str, Dict[str, Any], Dict[str, Any]]]:
+def get_cases(
+    test_data: Dict[str, Any],
+    suite_filter: Optional[str],
+    case_filter: Optional[str],
+    profile_filter: Optional[str],
+) -> List[Tuple[str, Dict[str, Any], Dict[str, Any]]]:
     selected: List[Tuple[str, Dict[str, Any], Dict[str, Any]]] = []
     for suite_name, suite in test_data.get("test_suites", {}).items():
         if suite_filter and suite_name != suite_filter:
             continue
+        suite_profile = suite.get("chain_profile")
         for case in suite.get("cases", []):
             if case_filter and case.get("id") != case_filter:
+                continue
+            case_profile = case.get("chain_profile", suite_profile)
+            if profile_filter and profile_filter != "all" and case_profile != profile_filter:
                 continue
             has_case_chain = bool(case.get("expected_chain"))
             has_step_chain = any(step.get("expected_chain") for step in case.get("steps", []))
@@ -116,6 +129,37 @@ def stream_chat(base_url: str, cid: int, message: str, rid: str, model: Optional
         "user_message_id": done_payload.get("user_message_id"),
         "assistant_message_id": done_payload.get("assistant_message_id"),
     }
+
+
+@contextlib.contextmanager
+def trace_context(rid: str, cid: Optional[str] = None, mid: Optional[str] = None):
+    from agents.core.context import set_context, clear_context
+
+    set_context(
+        rid=rid,
+        cid=str(cid) if cid is not None else None,
+        mid=str(mid) if mid is not None else None,
+    )
+    try:
+        yield
+    finally:
+        clear_context()
+
+
+def reset_direct_market_state() -> None:
+    from agents.common.market.cache import market_cache
+    from agents.common.market.dataset_manager import get_dataset_manager
+    from agents.common.market.service import market_service
+
+    market_cache.clear()
+
+    dataset_mgr = get_dataset_manager()
+    dataset_mgr.cleanup()
+    for dataset_name in ("a_share_all", "us_all"):
+        dataset_mgr.delete_dataset(dataset_name)
+
+    if getattr(market_service, "_client", None) is not None:
+        market_service._client._last_trade_date = None
 
 
 def create_session(base_url: str) -> Dict[str, Any]:
@@ -343,6 +387,22 @@ def evaluate_chain(expected_chain: Dict[str, Any], events: List[Dict[str, Any]])
             if mismatches:
                 param_mismatches.append({"expected": spec, "mismatches": mismatches})
 
+    must_any = expected_chain.get("must_any", [])
+    if must_any:
+        matched = False
+        collected_mismatches: List[Dict[str, Any]] = []
+        for spec in must_any:
+            matched_event, mismatches = find_matching_event(spec, events)
+            if matched_event is not None:
+                matched = True
+                break
+            if mismatches and not collected_mismatches:
+                collected_mismatches = mismatches
+        if not matched:
+            missing_events.append({"type": "must_any", "expected": must_any})
+            if collected_mismatches:
+                param_mismatches.append({"type": "must_any", "details": collected_mismatches})
+
     for spec in expected_chain.get("forbid", []):
         matched_event, _ = find_matching_event(spec, events)
         if matched_event is not None:
@@ -371,6 +431,10 @@ def evaluate_chat_response(step: Dict[str, Any], response: Dict[str, Any], event
     for text in expected.get("response_contains", []):
         if text not in response.get("content", ""):
             issues.append(f"回复未包含: {text}")
+    if expected.get("response_contains_any"):
+        content = response.get("content", "")
+        if not any(text in content for text in expected["response_contains_any"]):
+            issues.append(f"回复未命中任一备选关键词: {expected['response_contains_any']}")
 
     if expected.get("tool_called") or expected.get("should_use_tool"):
         if not any(event.get("event") == "tool_call" for event in events):
@@ -385,6 +449,20 @@ def evaluate_chat_response(step: Dict[str, Any], response: Dict[str, Any], event
         last_assistant = previous_ids.get("assistant_message_id")
         if current_assistant is None or last_assistant is None or current_assistant <= last_assistant:
             issues.append("assistant_message_id 未递增")
+
+    if expected.get("context_aware"):
+        history_event = next(
+            (
+                event for event in events
+                if event.get("layer") == "router" and event.get("event") == "history"
+            ),
+            None,
+        )
+        if not history_event or int(history_event.get("count", 0)) <= 0:
+            issues.append("未检测到有效历史上下文输入")
+        ambiguous_patterns = ["不清楚你指", "请提供更多", "无法判断你说的", "你指的是哪"]
+        if any(pattern in response.get("content", "") for pattern in ambiguous_patterns):
+            issues.append("回复表现出上下文理解不足")
 
     return not issues, issues
 
@@ -408,6 +486,63 @@ def evaluate_api_response(case: Dict[str, Any], response: Dict[str, Any], events
     if case.get("expected_chain", {}).get("must"):
         if not any(event.get("event") == "tool_call" for event in events):
             issues.append("未检测到工具调用")
+
+    return not issues, issues
+
+
+def evaluate_market_service_response(case: Dict[str, Any], response: Dict[str, Any]) -> Tuple[bool, List[str]]:
+    expected = case.get("expected", {})
+    result = response.get("result")
+    issues: List[str] = []
+
+    if expected.get("success", True) and result is None:
+        issues.append("结果为空")
+        return False, issues
+
+    if "fields" in expected and result is not None:
+        for field in expected["fields"]:
+            if not hasattr(result, field):
+                issues.append(f"缺少字段: {field}")
+
+    if "data_count" in expected and result is not None:
+        actual_count = len(getattr(result, "data", []))
+        if actual_count < expected["data_count"]:
+            issues.append(f"数据条数不足: {actual_count} < {expected['data_count']}")
+
+    if "min_results" in expected:
+        actual_results = result or []
+        if len(actual_results) < expected["min_results"]:
+            issues.append(f"结果数量不足: {len(actual_results)} < {expected['min_results']}")
+        contains_symbol = expected.get("contains_symbol")
+        if contains_symbol and contains_symbol not in [item.symbol for item in actual_results]:
+            issues.append(f"结果未包含: {contains_symbol}")
+
+    return not issues, issues
+
+
+def evaluate_market_subagent_response(case: Dict[str, Any], response: Dict[str, Any]) -> Tuple[bool, List[str]]:
+    expected = case.get("expected", {})
+    result = response.get("result")
+    issues: List[str] = []
+
+    if case["function"] == "market_subagent.process":
+        if not result:
+            issues.append("结果为空")
+            return False, issues
+        if result.success != expected.get("success", True):
+            issues.append(f"success 不匹配: {result.success}")
+        if expected.get("has_summary") and not result.summary:
+            issues.append("缺少 summary")
+        for text in expected.get("summary_contains", []):
+            if text not in (result.summary or ""):
+                issues.append(f"summary 未包含: {text}")
+    else:
+        if result is None:
+            issues.append("结果为空")
+            return False, issues
+        for text in expected.get("contains", []):
+            if text not in result:
+                issues.append(f"结果未包含: {text}")
 
     return not issues, issues
 
@@ -533,17 +668,152 @@ def run_market_api_case(
     ]
 
 
+def run_market_service_case(
+    suite_name: str,
+    suite: Dict[str, Any],
+    case: Dict[str, Any],
+    report_dir: Path,
+) -> List[EvalResult]:
+    from agents.common.market import market_service, KLinePeriod
+
+    rid = f"{case['id']}-svc-{int(time.time() * 1000)}"
+    reset_direct_market_state()
+
+    with trace_context(rid):
+        func_name = case["function"]
+        input_data = case["input"]
+        if "get_quote" in func_name:
+            result = market_service.get_quote(input_data["symbol"])
+        elif "get_kline" in func_name:
+            period = getattr(KLinePeriod, input_data["period"])
+            result = market_service.get_kline(input_data["symbol"], period, input_data["count"])
+        elif "search" in func_name:
+            result = market_service.search(input_data["keyword"], limit=input_data.get("limit", 10))
+        else:
+            raise ValueError(f"未支持的 market_service 函数: {func_name}")
+
+    time.sleep(0.5)
+    events = load_chain_events(rid)
+    response = {"result": result}
+    result_ok, issues = evaluate_market_service_response(case, response)
+    chain_ok, missing_events, unexpected_events, param_mismatches = evaluate_chain(case.get("expected_chain", {}), events)
+
+    trace_payload = {
+        "suite": suite_name,
+        "case_id": case["id"],
+        "step": None,
+        "rid": rid,
+        "response": {
+            "kind": type(result).__name__ if result is not None else None,
+            "summary": result.summary() if hasattr(result, "summary") else None,
+            "count": len(result) if isinstance(result, list) else len(getattr(result, "data", [])) if hasattr(result, "data") else None,
+        },
+        "events": events,
+    }
+    trace_file = write_trace_file(report_dir, trace_payload)
+
+    return [
+        EvalResult(
+            suite=suite_name,
+            case_id=case["id"],
+            step=None,
+            rid=rid,
+            result_pass=result_ok,
+            chain_pass=chain_ok,
+            response_ok=result_ok,
+            chain_ok=chain_ok,
+            issues=issues,
+            missing_events=missing_events,
+            unexpected_events=unexpected_events,
+            param_mismatches=param_mismatches,
+            trace_file=str(trace_file.relative_to(ROOT_DIR)),
+        )
+    ]
+
+
+def run_market_subagent_case(
+    suite_name: str,
+    suite: Dict[str, Any],
+    case: Dict[str, Any],
+    report_dir: Path,
+) -> List[EvalResult]:
+    from agents.subagents.market_agent import market_subagent, MarketIntent, MarketQuery
+
+    rid = f"{case['id']}-agent-{int(time.time() * 1000)}"
+    reset_direct_market_state()
+
+    with trace_context(rid):
+        func_name = case["function"]
+        input_data = case["input"]
+        if func_name == "market_subagent.process":
+            query = MarketQuery(
+                intent=getattr(MarketIntent, input_data["intent"]),
+                symbol=input_data.get("symbol"),
+                keyword=input_data.get("keyword"),
+                count=input_data.get("count", 30),
+            )
+            result = market_subagent.process(query)
+        elif func_name == "market_subagent.quick_quote":
+            result = market_subagent.quick_quote(input_data["symbol"])
+        else:
+            raise ValueError(f"未支持的 market_subagent 函数: {func_name}")
+
+    time.sleep(0.5)
+    events = load_chain_events(rid)
+    response = {"result": result}
+    result_ok, issues = evaluate_market_subagent_response(case, response)
+    chain_ok, missing_events, unexpected_events, param_mismatches = evaluate_chain(case.get("expected_chain", {}), events)
+
+    trace_payload = {
+        "suite": suite_name,
+        "case_id": case["id"],
+        "step": None,
+        "rid": rid,
+        "response": {
+            "kind": type(result).__name__ if result is not None else None,
+            "summary": result.summary if hasattr(result, "summary") else result,
+            "success": result.success if hasattr(result, "success") else None,
+        },
+        "events": events,
+    }
+    trace_file = write_trace_file(report_dir, trace_payload)
+
+    return [
+        EvalResult(
+            suite=suite_name,
+            case_id=case["id"],
+            step=None,
+            rid=rid,
+            result_pass=result_ok,
+            chain_pass=chain_ok,
+            response_ok=result_ok,
+            chain_ok=chain_ok,
+            issues=issues,
+            missing_events=missing_events,
+            unexpected_events=unexpected_events,
+            param_mismatches=param_mismatches,
+            trace_file=str(trace_file.relative_to(ROOT_DIR)),
+        )
+    ]
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="FAgent Chain 评估运行器")
     parser.add_argument("--suite", help="仅运行指定 suite")
     parser.add_argument("--case", help="仅运行指定 case id")
+    parser.add_argument(
+        "--profile",
+        default="all",
+        choices=["all", "full_chain", "legacy_direct"],
+        help="按链路画像过滤用例",
+    )
     parser.add_argument("--backend-base-url", default="http://127.0.0.1:8000", help="Backend 服务地址")
     parser.add_argument("--agents-base-url", default="http://127.0.0.1:8001", help="Agents 服务地址")
     args = parser.parse_args()
 
     test_data = load_cases()
     report_dir = make_report_dir()
-    selected_cases = get_cases(test_data, args.suite, args.case)
+    selected_cases = get_cases(test_data, args.suite, args.case, args.profile)
 
     if not selected_cases:
         print("未找到带 expected_chain 的用例")
@@ -573,8 +843,26 @@ def main() -> int:
                         report_dir=report_dir,
                     )
                 )
+            elif suite_name == "market_service":
+                all_results.extend(
+                    run_market_service_case(
+                        suite_name=suite_name,
+                        suite=suite,
+                        case=case,
+                        report_dir=report_dir,
+                    )
+                )
+            elif suite_name == "market_subagent":
+                all_results.extend(
+                    run_market_subagent_case(
+                        suite_name=suite_name,
+                        suite=suite,
+                        case=case,
+                        report_dir=report_dir,
+                    )
+                )
             else:
-                print(f"  跳过: 当前仅支持 multi_turn_chat / market_api，收到 {suite_name}")
+                print(f"  跳过: 当前未支持 suite={suite_name}")
         except Exception as e:
             rid = f"{case['id']}-error-{int(time.time() * 1000)}"
             trace_path = report_dir / f"{rid}.trace.json"

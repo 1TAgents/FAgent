@@ -68,7 +68,11 @@ class ChatSubAgent(BaseSubAgent):
         
         # 记录 LLM 调用（使用动态模型）
         model = context.model
-        log_subagent.llm_call(model=model or "default", messages_count=len(messages), temperature=0.7)
+        log_subagent.llm_call(
+            model=model or self.llm.default_model,
+            messages_count=len(messages),
+            temperature=0.7,
+        )
         
         # 流式调用 LLM（传递 model 参数）
         chunk_count = 0

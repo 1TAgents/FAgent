@@ -12,6 +12,7 @@ import logging
 from datetime import datetime, date, timedelta
 from typing import Optional, List, Dict, Any
 
+from ...core.logging import log_chain_event
 from .models import (
     StockQuote, 
     KLineData, 
@@ -57,6 +58,30 @@ class AKShareClient:
         if self._ak is None:
             self._init_akshare()
         return self._ak
+
+    def _trace_api_call(self, name: str, **params: Any):
+        log_chain_event(
+            layer="datasource",
+            event="api_call",
+            name=name,
+            params={k: v for k, v in params.items() if v is not None},
+        )
+
+    def _trace_api_result(
+        self,
+        name: str,
+        success: bool,
+        result: Optional[str] = None,
+        error: Optional[str] = None,
+    ):
+        log_chain_event(
+            layer="datasource",
+            event="api_result",
+            name=name,
+            success=success,
+            result=result,
+            error=error,
+        )
     
     # ==================== 交易日期 ====================
     
@@ -73,6 +98,14 @@ class AKShareClient:
         try:
             # 获取最近一个交易日的 K 线来确定日期
             # 使用一个流通性好的股票
+            self._trace_api_call(
+                "ak.stock_zh_a_hist",
+                symbol="000001",
+                period="daily",
+                start_date=(datetime.now() - timedelta(days=10)).strftime("%Y%m%d"),
+                end_date=datetime.now().strftime("%Y%m%d"),
+                adjust="",
+            )
             df = self.ak.stock_zh_a_hist(
                 symbol="000001",  # 平安银行
                 period="daily",
@@ -82,11 +115,14 @@ class AKShareClient:
             )
             
             if not df.empty:
+                self._trace_api_result("ak.stock_zh_a_hist", success=True, result="hit")
                 last_date_str = str(df.iloc[-1]["日期"])
                 self._last_trade_date = datetime.strptime(last_date_str, "%Y-%m-%d").date()
                 logger.info(f"最近交易日: {self._last_trade_date}")
                 return self._last_trade_date
+            self._trace_api_result("ak.stock_zh_a_hist", success=True, result="miss")
         except Exception as e:
+            self._trace_api_result("ak.stock_zh_a_hist", success=False, error=str(e))
             logger.warning(f"获取最近交易日失败 | error={e}")
         
         # 回退：使用简单推断
@@ -151,18 +187,22 @@ class AKShareClient:
             def fetch_a_share_all():
                 """获取 A 股全市场数据的函数"""
                 logger.info("从线上拉取 A 股全市场数据...")
+                self._trace_api_call("ak.stock_zh_a_spot_em")
                 return self.ak.stock_zh_a_spot_em()
             
             df = dataset_mgr.get_dataset("a_share_all", fetch_func=fetch_a_share_all)
             
             if df is None:
                 logger.warning("数据集不可用，尝试直接获取")
+                self._trace_api_call("ak.stock_zh_a_spot_em")
                 df = self.ak.stock_zh_a_spot_em()
+            self._trace_api_result("ak.stock_zh_a_spot_em", success=True, result="hit" if df is not None else "miss")
             
             # 查找股票
             row = df[df["代码"] == symbol]
             if row.empty:
                 logger.warning(f"未找到股票: {symbol}")
+                self._trace_api_result("ak.stock_zh_a_spot_em", success=True, result="empty")
                 return None
             
             row = row.iloc[0]
@@ -184,6 +224,7 @@ class AKShareClient:
                 trade_date=self.get_last_trade_date(),
             )
         except Exception as e:
+            self._trace_api_result("ak.stock_zh_a_spot_em", success=False, error=str(e))
             logger.error(f"获取 A 股行情失败 | symbol={symbol} | error={e}")
             return None
     
@@ -229,6 +270,14 @@ class AKShareClient:
         try:
             # 日K线
             if period == KLinePeriod.DAILY:
+                self._trace_api_call(
+                    "ak.stock_zh_a_hist",
+                    symbol=symbol,
+                    period="daily",
+                    start_date=start_date or "20200101",
+                    end_date=end_date or datetime.now().strftime("%Y%m%d"),
+                    adjust="qfq",
+                )
                 df = self.ak.stock_zh_a_hist(
                     symbol=symbol,
                     period="daily",
@@ -246,6 +295,12 @@ class AKShareClient:
                     KLinePeriod.MIN_30: "30",
                     KLinePeriod.MIN_60: "60",
                 }
+                self._trace_api_call(
+                    "ak.stock_zh_a_hist_min_em",
+                    symbol=symbol,
+                    period=period_map[period],
+                    adjust="qfq",
+                )
                 df = self.ak.stock_zh_a_hist_min_em(
                     symbol=symbol,
                     period=period_map[period],
@@ -256,6 +311,11 @@ class AKShareClient:
                 return None
             
             if df.empty:
+                self._trace_api_result(
+                    "ak.stock_zh_a_hist" if period == KLinePeriod.DAILY else "ak.stock_zh_a_hist_min_em",
+                    success=True,
+                    result="miss",
+                )
                 return None
             
             # 只取最近 count 条
@@ -282,9 +342,18 @@ class AKShareClient:
             
             # 缓存结果
             market_cache.set(cache_key, result, cache_type="kline")
-            
+            self._trace_api_result(
+                "ak.stock_zh_a_hist" if period == KLinePeriod.DAILY else "ak.stock_zh_a_hist_min_em",
+                success=True,
+                result="hit",
+            )
             return result
         except Exception as e:
+            self._trace_api_result(
+                "ak.stock_zh_a_hist" if period == KLinePeriod.DAILY else "ak.stock_zh_a_hist_min_em",
+                success=False,
+                error=str(e),
+            )
             logger.error(f"获取 A 股 K 线失败 | symbol={symbol} | error={e}")
             return None
     
@@ -313,8 +382,10 @@ class AKShareClient:
             df = market_cache.get(cache_key_all)
             
             if df is None:
+                self._trace_api_call("ak.stock_zh_a_spot_em")
                 df = self.ak.stock_zh_a_spot_em()
                 market_cache.set(cache_key_all, df, cache_type="quote_all")
+            self._trace_api_result("ak.stock_zh_a_spot_em", success=True, result="hit" if df is not None else "miss")
             
             # 按代码或名称搜索
             mask = (
@@ -337,6 +408,7 @@ class AKShareClient:
             
             return results
         except Exception as e:
+            self._trace_api_result("ak.stock_zh_a_spot_em", success=False, error=str(e))
             logger.error(f"搜索 A 股失败 | keyword={keyword} | error={e}")
             return []
     
@@ -366,8 +438,10 @@ class AKShareClient:
             df = market_cache.get(cache_key_all) if use_cache else None
             
             if df is None:
+                self._trace_api_call("ak.stock_us_spot_em")
                 df = self.ak.stock_us_spot_em()
                 market_cache.set(cache_key_all, df, cache_type="quote_all")
+            self._trace_api_result("ak.stock_us_spot_em", success=True, result="hit" if df is not None else "miss")
             
             row = df[df["代码"].str.upper() == symbol.upper()]
             if row.empty:
@@ -400,6 +474,7 @@ class AKShareClient:
             market_cache.set(cache_key, quote, cache_type="quote")
             return quote
         except Exception as e:
+            self._trace_api_result("ak.stock_us_spot_em", success=False, error=str(e))
             logger.error(f"获取美股行情失败 | symbol={symbol} | error={e}")
             return None
 

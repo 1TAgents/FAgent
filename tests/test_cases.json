@@ -7,6 +7,7 @@
   "test_suites": {
     "market_service": {
       "description": "Market Service 单元测试",
+      "chain_profile": "legacy_direct",
       "module": "agents.common.market",
       "cases": [
         {
@@ -20,6 +21,35 @@
             "success": true,
             "fields": ["name", "symbol", "price", "change_pct", "trade_date"]
           },
+          "expected_chain": {
+            "must": [
+              {
+                "layer": "market_service",
+                "event": "call",
+                "name": "get_quote",
+                "params": {
+                  "symbol": { "eq": "600519" },
+                  "market": { "eq": "a_share" }
+                }
+              },
+              {
+                "layer": "datasource",
+                "event": "api_call",
+                "name": "ak.stock_zh_a_spot_em"
+              },
+              {
+                "layer": "market_service",
+                "event": "result",
+                "name": "get_quote",
+                "success": true
+              }
+            ],
+            "order": [
+              "market_service.call:get_quote",
+              "datasource.api_call:ak.stock_zh_a_spot_em",
+              "market_service.result:get_quote:success"
+            ]
+          },
           "tags": ["a_share", "quote", "smoke"]
         },
         {
@@ -32,6 +62,35 @@
           "expected": {
             "success": true,
             "fields": ["name", "symbol", "price"]
+          },
+          "expected_chain": {
+            "must": [
+              {
+                "layer": "market_service",
+                "event": "call",
+                "name": "get_quote",
+                "params": {
+                  "symbol": { "eq": "000001" },
+                  "market": { "eq": "a_share" }
+                }
+              },
+              {
+                "layer": "datasource",
+                "event": "api_call",
+                "name": "ak.stock_zh_a_spot_em"
+              },
+              {
+                "layer": "market_service",
+                "event": "result",
+                "name": "get_quote",
+                "success": true
+              }
+            ],
+            "order": [
+              "market_service.call:get_quote",
+              "datasource.api_call:ak.stock_zh_a_spot_em",
+              "market_service.result:get_quote:success"
+            ]
           },
           "tags": ["a_share", "quote"]
         },
@@ -49,6 +108,37 @@
             "data_count": 10,
             "fields": ["date", "open", "high", "low", "close", "volume"]
           },
+          "expected_chain": {
+            "must": [
+              {
+                "layer": "market_service",
+                "event": "call",
+                "name": "get_kline",
+                "params": {
+                  "symbol": { "eq": "600519" },
+                  "market": { "eq": "a_share" },
+                  "period": { "eq": "daily" },
+                  "count": { "eq": 10 }
+                }
+              },
+              {
+                "layer": "datasource",
+                "event": "api_call",
+                "name": "ak.stock_zh_a_hist"
+              },
+              {
+                "layer": "market_service",
+                "event": "result",
+                "name": "get_kline",
+                "success": true
+              }
+            ],
+            "order": [
+              "market_service.call:get_kline",
+              "datasource.api_call:ak.stock_zh_a_hist",
+              "market_service.result:get_kline:success"
+            ]
+          },
           "tags": ["a_share", "kline"]
         },
         {
@@ -64,6 +154,35 @@
             "min_results": 1,
             "contains_symbol": "600519"
           },
+          "expected_chain": {
+            "must": [
+              {
+                "layer": "market_service",
+                "event": "call",
+                "name": "search",
+                "params": {
+                  "keyword": { "eq": "茅台" },
+                  "limit": { "eq": 5 }
+                }
+              },
+              {
+                "layer": "datasource",
+                "event": "api_call",
+                "name": "ak.stock_zh_a_spot_em"
+              },
+              {
+                "layer": "market_service",
+                "event": "result",
+                "name": "search",
+                "success": true
+              }
+            ],
+            "order": [
+              "market_service.call:search",
+              "datasource.api_call:ak.stock_zh_a_spot_em",
+              "market_service.result:search:success"
+            ]
+          },
           "tags": ["search"]
         },
         {
@@ -78,6 +197,35 @@
             "success": true,
             "min_results": 1
           },
+          "expected_chain": {
+            "must": [
+              {
+                "layer": "market_service",
+                "event": "call",
+                "name": "search",
+                "params": {
+                  "keyword": { "eq": "银行" },
+                  "limit": { "eq": 3 }
+                }
+              },
+              {
+                "layer": "datasource",
+                "event": "api_call",
+                "name": "ak.stock_zh_a_spot_em"
+              },
+              {
+                "layer": "market_service",
+                "event": "result",
+                "name": "search",
+                "success": true
+              }
+            ],
+            "order": [
+              "market_service.call:search",
+              "datasource.api_call:ak.stock_zh_a_spot_em",
+              "market_service.result:search:success"
+            ]
+          },
           "tags": ["search"]
         }
       ]
@@ -85,6 +233,7 @@
     
     "market_subagent": {
       "description": "Market SubAgent 集成测试",
+      "chain_profile": "legacy_direct",
       "module": "agents.subagents.market_agent",
       "cases": [
         {
@@ -98,6 +247,52 @@
           "expected": {
             "success": true,
             "has_summary": true
+          },
+          "expected_chain": {
+            "must": [
+              {
+                "layer": "subagent",
+                "event": "start",
+                "name": "MarketSubAgent",
+                "task": { "eq": "get_quote" }
+              },
+              {
+                "layer": "subagent",
+                "event": "tool_call",
+                "name": "market_service.get_quote",
+                "params": {
+                  "symbol": { "eq": "000001" }
+                }
+              },
+              {
+                "layer": "market_service",
+                "event": "call",
+                "name": "get_quote",
+                "params": {
+                  "symbol": { "eq": "000001" },
+                  "market": { "eq": "a_share" }
+                }
+              },
+              {
+                "layer": "datasource",
+                "event": "api_call",
+                "name": "ak.stock_zh_a_spot_em"
+              },
+              {
+                "layer": "subagent",
+                "event": "tool_result",
+                "name": "market_service.get_quote",
+                "success": true
+              }
+            ],
+            "order": [
+              "subagent.start:MarketSubAgent",
+              "subagent.tool_call:market_service.get_quote",
+              "market_service.call:get_quote",
+              "datasource.api_call:ak.stock_zh_a_spot_em",
+              "subagent.tool_result:market_service.get_quote:success",
+              "subagent.done:MarketSubAgent:success"
+            ]
           },
           "tags": ["subagent", "quote"]
         },
@@ -115,6 +310,56 @@
             "has_summary": true,
             "summary_contains": ["涨", "跌", "趋势"]
           },
+          "expected_chain": {
+            "must": [
+              {
+                "layer": "subagent",
+                "event": "start",
+                "name": "MarketSubAgent",
+                "task": { "eq": "analyze_trend" }
+              },
+              {
+                "layer": "subagent",
+                "event": "tool_call",
+                "name": "market_service.get_kline",
+                "params": {
+                  "symbol": { "eq": "600519" },
+                  "period": { "eq": "daily" },
+                  "count": { "eq": 50 }
+                }
+              },
+              {
+                "layer": "market_service",
+                "event": "call",
+                "name": "get_kline",
+                "params": {
+                  "symbol": { "eq": "600519" },
+                  "market": { "eq": "a_share" },
+                  "period": { "eq": "daily" },
+                  "count": { "eq": 50 }
+                }
+              },
+              {
+                "layer": "datasource",
+                "event": "api_call",
+                "name": "ak.stock_zh_a_hist"
+              },
+              {
+                "layer": "subagent",
+                "event": "tool_result",
+                "name": "market_service.get_kline",
+                "success": true
+              }
+            ],
+            "order": [
+              "subagent.start:MarketSubAgent",
+              "subagent.tool_call:market_service.get_kline",
+              "market_service.call:get_kline",
+              "datasource.api_call:ak.stock_zh_a_hist",
+              "subagent.tool_result:market_service.get_kline:success",
+              "subagent.done:MarketSubAgent:success"
+            ]
+          },
           "tags": ["subagent", "analysis"]
         },
         {
@@ -128,6 +373,51 @@
             "success": true,
             "result_type": "string",
             "contains": ["600519", "贵州茅台"]
+          },
+          "expected_chain": {
+            "must": [
+              {
+                "layer": "subagent",
+                "event": "start",
+                "name": "MarketSubAgent.quick_quote",
+                "task": { "eq": "get_quote" }
+              },
+              {
+                "layer": "subagent",
+                "event": "tool_call",
+                "name": "market_service.get_quote",
+                "params": {
+                  "symbol": { "eq": "600519" }
+                }
+              },
+              {
+                "layer": "market_service",
+                "event": "call",
+                "name": "get_quote",
+                "params": {
+                  "symbol": { "eq": "600519" },
+                  "market": { "eq": "a_share" }
+                }
+              },
+              {
+                "layer": "datasource",
+                "event": "api_call",
+                "name": "ak.stock_zh_a_spot_em"
+              },
+              {
+                "layer": "subagent",
+                "event": "done",
+                "name": "MarketSubAgent.quick_quote",
+                "success": true
+              }
+            ],
+            "order": [
+              "subagent.start:MarketSubAgent.quick_quote",
+              "subagent.tool_call:market_service.get_quote",
+              "market_service.call:get_quote",
+              "datasource.api_call:ak.stock_zh_a_spot_em",
+              "subagent.done:MarketSubAgent.quick_quote:success"
+            ]
           },
           "tags": ["subagent", "quick"]
         }
@@ -207,6 +497,7 @@
     
     "multi_turn_chat": {
       "description": "多轮对话测试",
+      "chain_profile": "full_chain",
       "module": "backend.api + agents.api",
       "requires_server": true,
       "base_urls": {
@@ -237,6 +528,45 @@
                 "success": true,
                 "has_response": true,
                 "has_message_ids": true
+              },
+              "expected_chain": {
+                "route": {
+                  "route": "chat",
+                  "task": { "one_of": ["greeting", "general_qa"] }
+                },
+                "must": [
+                  {
+                    "layer": "router",
+                    "event": "history",
+                    "count": { "eq": 0 }
+                  },
+                  {
+                    "layer": "subagent",
+                    "event": "start",
+                    "name": "ChatSubAgent"
+                  },
+                  {
+                    "layer": "subagent",
+                    "event": "llm_call",
+                    "name": "analysis_llm",
+                    "params": {
+                      "model": { "eq": "deepseek-v4-pro" }
+                    }
+                  }
+                ],
+                "forbid": [
+                  {
+                    "layer": "subagent",
+                    "event": "tool_call"
+                  }
+                ],
+                "order": [
+                  "router.route_decision",
+                  "subagent.start:ChatSubAgent",
+                  "subagent.llm_call:analysis_llm",
+                  "subagent.done:ChatSubAgent:success",
+                  "router.done"
+                ]
               }
             },
             {
@@ -249,6 +579,45 @@
                 "success": true,
                 "has_response": true,
                 "message_id_incremented": true
+              },
+              "expected_chain": {
+                "route": {
+                  "route": "chat",
+                  "task": { "one_of": ["greeting", "general_qa"] }
+                },
+                "must": [
+                  {
+                    "layer": "router",
+                    "event": "history",
+                    "count": { "eq": 2 }
+                  },
+                  {
+                    "layer": "subagent",
+                    "event": "start",
+                    "name": "ChatSubAgent"
+                  },
+                  {
+                    "layer": "subagent",
+                    "event": "llm_call",
+                    "name": "analysis_llm",
+                    "params": {
+                      "model": { "eq": "deepseek-v4-pro" }
+                    }
+                  }
+                ],
+                "forbid": [
+                  {
+                    "layer": "subagent",
+                    "event": "tool_call"
+                  }
+                ],
+                "order": [
+                  "router.history",
+                  "router.route_decision",
+                  "subagent.start:ChatSubAgent",
+                  "subagent.llm_call:analysis_llm",
+                  "subagent.done:ChatSubAgent:success"
+                ]
               }
             }
           ],
@@ -274,6 +643,38 @@
               },
               "expected": {
                 "success": true
+              },
+              "expected_chain": {
+                "route": {
+                  "route": "chat",
+                  "task": { "eq": "general_qa" }
+                },
+                "must": [
+                  {
+                    "layer": "router",
+                    "event": "history",
+                    "count": { "eq": 0 }
+                  },
+                  {
+                    "layer": "subagent",
+                    "event": "start",
+                    "name": "ChatSubAgent"
+                  },
+                  {
+                    "layer": "subagent",
+                    "event": "llm_call",
+                    "name": "analysis_llm",
+                    "params": {
+                      "model": { "eq": "deepseek-v4-pro" }
+                    }
+                  }
+                ],
+                "forbid": [
+                  {
+                    "layer": "subagent",
+                    "event": "tool_call"
+                  }
+                ]
               }
             },
             {
@@ -284,7 +685,40 @@
               },
               "expected": {
                 "success": true,
-                "context_aware": true
+                "context_aware": true,
+                "response_contains_any": ["室内", "活动", "电影院", "阅读", "健身"]
+              },
+              "expected_chain": {
+                "route": {
+                  "route": "chat",
+                  "task": { "eq": "general_qa" }
+                },
+                "must": [
+                  {
+                    "layer": "router",
+                    "event": "history",
+                    "count": { "eq": 2 }
+                  },
+                  {
+                    "layer": "subagent",
+                    "event": "start",
+                    "name": "ChatSubAgent"
+                  },
+                  {
+                    "layer": "subagent",
+                    "event": "llm_call",
+                    "name": "analysis_llm",
+                    "params": {
+                      "model": { "eq": "deepseek-v4-pro" }
+                    }
+                  }
+                ],
+                "forbid": [
+                  {
+                    "layer": "subagent",
+                    "event": "tool_call"
+                  }
+                ]
               },
               "description": "验证 AI 理解'那'指代天气相关上下文"
             }
@@ -446,6 +880,75 @@
                 "should_use_tool": true,
                 "response_contains": ["600519", "涨跌幅"]
               },
+              "expected_chain": {
+                "route": {
+                  "route": "market",
+                  "task": { "one_of": ["get_quote", "get_kline"] },
+                  "params": {
+                    "symbol": "600519"
+                  }
+                },
+                "must": [
+                  {
+                    "layer": "router",
+                    "event": "history",
+                    "count": { "eq": 2 }
+                  },
+                  {
+                    "layer": "subagent",
+                    "event": "tool_call",
+                    "params": {
+                      "symbol": { "eq": "600519" },
+                      "market": { "eq": "A" }
+                    }
+                  },
+                  {
+                    "layer": "mcp",
+                    "event": "tool_call",
+                    "params": {
+                      "symbol": { "eq": "600519" },
+                      "market": { "eq": "A" }
+                    }
+                  },
+                  {
+                    "layer": "datasource",
+                    "event": "source_selected",
+                    "name": "rqdata",
+                    "params": {
+                      "symbol": { "eq": "600519" },
+                      "market": { "eq": "A" }
+                    }
+                  },
+                  {
+                    "layer": "subagent",
+                    "event": "tool_result",
+                    "success": true,
+                    "summary": { "contains": "600519" }
+                  }
+                ],
+                "must_any": [
+                  {
+                    "layer": "datasource",
+                    "event": "api_result",
+                    "name": "rqdatac.current_snapshot",
+                    "success": true
+                  },
+                  {
+                    "layer": "datasource",
+                    "event": "api_result",
+                    "name": "rqdatac.get_price",
+                    "success": true,
+                    "result": "hit"
+                  }
+                ],
+                "order": [
+                  "router.history",
+                  "router.route_decision",
+                  "subagent.tool_call",
+                  "mcp.tool_call",
+                  "subagent.tool_result:success"
+                ]
+              },
               "description": "AI 应识别需要调用行情工具获取真实数据"
             },
             {
@@ -458,6 +961,75 @@
                 "success": true,
                 "tool_called": true,
                 "has_real_data": true
+              },
+              "expected_chain": {
+                "route": {
+                  "route": "market",
+                  "task": { "one_of": ["get_quote", "get_kline"] },
+                  "params": {
+                    "symbol": "600519"
+                  }
+                },
+                "must": [
+                  {
+                    "layer": "router",
+                    "event": "history",
+                    "count": { "eq": 4 }
+                  },
+                  {
+                    "layer": "subagent",
+                    "event": "tool_call",
+                    "params": {
+                      "symbol": { "eq": "600519" },
+                      "market": { "eq": "A" }
+                    }
+                  },
+                  {
+                    "layer": "mcp",
+                    "event": "tool_call",
+                    "params": {
+                      "symbol": { "eq": "600519" },
+                      "market": { "eq": "A" }
+                    }
+                  },
+                  {
+                    "layer": "datasource",
+                    "event": "source_selected",
+                    "name": "rqdata",
+                    "params": {
+                      "symbol": { "eq": "600519" },
+                      "market": { "eq": "A" }
+                    }
+                  },
+                  {
+                    "layer": "subagent",
+                    "event": "tool_result",
+                    "success": true,
+                    "summary": { "contains": "600519" }
+                  }
+                ],
+                "must_any": [
+                  {
+                    "layer": "datasource",
+                    "event": "api_result",
+                    "name": "rqdatac.current_snapshot",
+                    "success": true
+                  },
+                  {
+                    "layer": "datasource",
+                    "event": "api_result",
+                    "name": "rqdatac.get_price",
+                    "success": true,
+                    "result": "hit"
+                  }
+                ],
+                "order": [
+                  "router.history",
+                  "router.route_decision",
+                  "subagent.tool_call",
+                  "mcp.tool_call",
+                  "subagent.tool_result:success"
+                ]
               },
               "description": "AI 应调用 Market 工具并返回真实行情数据"
             }

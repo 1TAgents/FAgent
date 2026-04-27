@@ -9,6 +9,7 @@ from typing import Optional, List
 from datetime import datetime
 
 from .client import get_client, AKShareClient
+from ...core.logging import log_chain_event
 from .models import (
     StockQuote,
     KLineData,
@@ -56,14 +57,35 @@ class MarketService:
             market = self._detect_market(symbol)
         
         logger.debug(f"获取行情 | symbol={symbol} | market={market.value}")
+        log_chain_event(
+            layer="market_service",
+            event="call",
+            name="get_quote",
+            params={
+                "symbol": symbol,
+                "market": market.value,
+            },
+        )
         
         if market == Market.A_SHARE:
-            return self.client.get_a_share_quote(symbol)
+            result = self.client.get_a_share_quote(symbol)
         elif market == Market.US:
-            return self.client.get_us_stock_quote(symbol)
+            result = self.client.get_us_stock_quote(symbol)
         else:
             logger.warning(f"暂不支持的市场: {market}")
-            return None
+            result = None
+
+        log_chain_event(
+            layer="market_service",
+            event="result",
+            name="get_quote",
+            success=result is not None,
+            result={
+                "symbol": result.symbol,
+                "name": result.name,
+            } if result else None,
+        )
+        return result
     
     def get_quote_summary(self, symbol: str) -> str:
         """
@@ -106,9 +128,22 @@ class MarketService:
         """
         market = self._detect_market(symbol)
         logger.debug(f"获取K线 | symbol={symbol} | period={period.value} | count={count}")
+        log_chain_event(
+            layer="market_service",
+            event="call",
+            name="get_kline",
+            params={
+                "symbol": symbol,
+                "market": market.value,
+                "period": period.value,
+                "count": count,
+                "start_date": start_date,
+                "end_date": end_date,
+            },
+        )
         
         if market == Market.A_SHARE:
-            return self.client.get_a_share_kline(
+            result = self.client.get_a_share_kline(
                 symbol=symbol,
                 period=period,
                 start_date=start_date,
@@ -117,7 +152,20 @@ class MarketService:
             )
         else:
             logger.warning(f"暂不支持 {market.value} 的 K 线数据")
-            return None
+            result = None
+
+        log_chain_event(
+            layer="market_service",
+            event="result",
+            name="get_kline",
+            success=result is not None,
+            result={
+                "symbol": result.symbol,
+                "period": result.period.value,
+                "count": len(result.data),
+            } if result else None,
+        )
+        return result
     
     def get_kline_summary(
         self, 
@@ -156,6 +204,16 @@ class MarketService:
         Returns:
             StockInfo 列表
         """
+        log_chain_event(
+            layer="market_service",
+            event="call",
+            name="search",
+            params={
+                "keyword": keyword,
+                "market": market.value if market else None,
+                "limit": limit,
+            },
+        )
         results = []
         
         # A股搜索
@@ -164,8 +222,18 @@ class MarketService:
             results.extend(a_share_results)
         
         # TODO: 添加美股、港股搜索
-        
-        return results[:limit]
+        result_items = results[:limit]
+        log_chain_event(
+            layer="market_service",
+            event="result",
+            name="search",
+            success=bool(result_items),
+            result={
+                "count": len(result_items),
+                "symbols": [item.symbol for item in result_items[:5]],
+            },
+        )
+        return result_items
     
     # ==================== 辅助方法 ====================
     
@@ -187,4 +255,3 @@ class MarketService:
 
 # 全局服务实例
 market_service = MarketService()
-

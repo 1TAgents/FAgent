@@ -26,6 +26,7 @@
       "properties": {
         "description": { "type": "string" },
         "module": { "type": "string" },
+        "chain_profile": { "type": "string" },
         "base_url": { "type": "string" },
         "base_urls": { "type": "object" },
         "requires_server": { "type": "boolean" },
@@ -47,6 +48,7 @@
         "endpoint": { "type": "string" },
         "function": { "type": "string" },
         "description": { "type": "string" },
+        "chain_profile": { "type": "string" },
         "input": { "type": "object" },
         "expected": { "type": "object" },
         "expected_chain": { "$ref": "#/$defs/expectedChain" },
@@ -82,13 +84,17 @@
         "route": {
           "type": "object",
           "properties": {
-            "route": { "type": "string" },
-            "task": { "type": "string" },
+            "route": { "$ref": "#/$defs/matcherValue" },
+            "task": { "$ref": "#/$defs/matcherValue" },
             "params": { "type": "object" }
           },
           "additionalProperties": true
         },
         "must": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/eventExpectation" }
+        },
+        "must_any": {
           "type": "array",
           "items": { "$ref": "#/$defs/eventExpectation" }
         },
@@ -118,18 +124,21 @@
       "required": ["layer", "event"],
       "additionalProperties": true
     },
+    "matcherValue": {
+      "oneOf": [
+        { "$ref": "#/$defs/predicate" },
+        { "type": "object" },
+        { "type": "array" },
+        { "type": "string" },
+        { "type": "number" },
+        { "type": "boolean" },
+        { "type": "null" }
+      ]
+    },
     "matcherObject": {
       "type": "object",
       "additionalProperties": {
-        "oneOf": [
-          { "$ref": "#/$defs/predicate" },
-          { "type": "object" },
-          { "type": "array" },
-          { "type": "string" },
-          { "type": "number" },
-          { "type": "boolean" },
-          { "type": "null" }
-        ]
+        "$ref": "#/$defs/matcherValue"
       }
     },
     "predicate": {
