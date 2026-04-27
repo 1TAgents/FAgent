@@ -21,7 +21,11 @@ from backend.services.storage import message_storage
 
 from .models import TaskContext, TaskType, RouteType, RouteDecision
 from ..services.llm import llm_service
-from ..subagents import chat_subagent, market_subagent
+from ..subagents.backtest_subagent import backtest_subagent
+from ..subagents.chat_subagent import chat_subagent
+from ..subagents.market_agent import market_subagent
+from ..subagents.strategy_subagent import strategy_subagent
+from ..subagents.trade_subagent import trade_subagent
 from ..core.logging import logger, log_router, log_subagent
 from ..core.context import set_context
 
@@ -35,7 +39,10 @@ ROUTER_SYSTEM_PROMPT = """你是一个任务路由器，负责分析用户意图
 3. 提取关键参数
 
 【路由类型】
-- market: 行情查询、股票分析、K线数据、趋势分析
+- market: 行情查询、股票分析、K线数据、趋势分析、指数/行业/财务等市场数据
+- strategy: 策略推荐、策略说明、策略比较、常见策略列表
+- backtest: 回测执行、参数优化、回测指标说明
+- trade: 下单、撤单、持仓、订单查询、交易规则/风控问答
 - chat: 闲聊、问候、通用问答、金融知识解释
 
 【任务类型及参数】
@@ -51,6 +58,33 @@ ROUTER_SYSTEM_PROMPT = """你是一个任务路由器，负责分析用户意图
   
 - analyze_trend: 趋势分析
   参数: symbol (股票代码)
+
+- list_strategies: 列出常见策略
+  参数: category (可选)
+
+- strategy_qa: 策略说明、推荐、比较
+  参数: strategy_name (可选), symbol (可选)
+
+- run_backtest: 执行回测
+  参数: strategy_name (可选), symbol (可选), period (可选)
+
+- optimize_backtest: 参数优化、网格搜索
+  参数: strategy_name (可选), symbol (可选)
+
+- backtest_qa: 回测相关问答
+  参数: strategy_name (可选), symbol (可选)
+
+- trade_qa: 交易规则、流程、风控问答
+  参数: symbol (可选)
+
+- place_order: 下单
+  参数: symbol (可选), side (可选), quantity (可选), price (可选)
+
+- cancel_order: 撤单
+  参数: order_id (可选), symbol (可选)
+
+- check_positions: 查询持仓/订单
+  参数: symbol (可选)
   
 - greeting: 问候（无需参数）
 - general_qa: 通用问答（无需参数）
@@ -60,11 +94,14 @@ ROUTER_SYSTEM_PROMPT = """你是一个任务路由器，负责分析用户意图
 2. 提取股票代码：茅台=600519, 平安银行=000001 等
 3. 如果无法确定股票代码，可以先搜索
 4. 查询最近一周行情时，建议用 get_kline + period="daily" + count=5
+5. “memory/历史偏好/过往结论”是辅助能力，不单独作为 route
+6. 策略设计/比较/推荐优先走 strategy；回测和参数优化优先走 backtest；真实交易动作优先走 trade
+7. 对“现在能不能买”“怎么看某策略”这类偏分析问题，不要误判为 place_order
 
 输出 JSON 格式：
 {
-    "route": "market" | "chat",
-    "task_type": "get_quote" | "get_kline" | "analyze_trend" | "search_stock" | "greeting" | "general_qa",
+    "route": "market" | "strategy" | "backtest" | "trade" | "chat",
+    "task_type": "get_quote" | "get_kline" | "analyze_trend" | "search_stock" | "list_strategies" | "strategy_qa" | "run_backtest" | "optimize_backtest" | "backtest_qa" | "trade_qa" | "place_order" | "cancel_order" | "check_positions" | "greeting" | "general_qa",
     "query": "解析后的明确问题",
     "params": {"symbol": "600519", "period": "daily", "count": 5},
     "context_summary": "相关上下文（如有）",
@@ -91,6 +128,9 @@ class MainRouter:
         self.subagents = {
             RouteType.MARKET: market_subagent,
             RouteType.CHAT: chat_subagent,
+            RouteType.STRATEGY: strategy_subagent,
+            RouteType.BACKTEST: backtest_subagent,
+            RouteType.TRADE: trade_subagent,
         }
         
         logger.info("MainRouter 初始化完成")
@@ -298,24 +338,93 @@ class MainRouter:
         使用简单规则判断
         """
         message_lower = message.lower()
-        
-        # 行情相关关键词
-        market_keywords = [
-            "行情", "股票", "股价", "涨", "跌", "k线", "均线",
-            "茅台", "银行", "买入", "卖出", "分析", "趋势",
-            "600", "000", "300", "查询", "搜索",
-        ]
-        
-        for keyword in market_keywords:
-            if keyword in message_lower:
-                return RouteDecision(
-                    route=RouteType.MARKET,
-                    task_context=TaskContext(
-                        task_type=TaskType.GENERAL_QA,  # 让 MarketSubAgent 自己判断
-                        query=message,
-                    ),
-                    reasoning=f"规则匹配关键词: {keyword}",
-                )
+
+        symbol = self._extract_symbol(message)
+
+        strategy_keywords = ["策略", "双均线", "macd", "rsi", "布林", "均线策略", "选股策略"]
+        backtest_keywords = ["回测", "最大回撤", "夏普", "收益曲线", "收益率", "参数优化", "网格搜索"]
+        trade_keywords = ["下单", "撤单", "持仓", "仓位", "委托", "成交", "开仓", "平仓", "买一手", "卖一手"]
+        market_keywords = ["行情", "股票", "股价", "涨", "跌", "k线", "均线", "趋势", "指数", "行业", "财务", "资金流", "查询", "搜索"]
+
+        if any(keyword in message_lower for keyword in strategy_keywords):
+            task_type = TaskType.STRATEGY_QA
+            if "列出" in message or "列表" in message or "有哪些" in message or "常见" in message:
+                task_type = TaskType.LIST_STRATEGIES
+
+            return RouteDecision(
+                route=RouteType.STRATEGY,
+                task_context=TaskContext(
+                    task_type=task_type,
+                    query=message,
+                    params={"symbol": symbol} if symbol else {},
+                ),
+                reasoning="规则匹配 strategy 关键词",
+            )
+
+        if any(keyword in message_lower for keyword in backtest_keywords):
+            task_type = TaskType.BACKTEST_QA
+            if "优化" in message or "网格搜索" in message:
+                task_type = TaskType.OPTIMIZE_BACKTEST
+            elif "回测" in message and not any(token in message for token in ["是什么", "怎么", "解释", "说明", "介绍"]):
+                task_type = TaskType.RUN_BACKTEST
+
+            params = {"symbol": symbol} if symbol else {}
+            return RouteDecision(
+                route=RouteType.BACKTEST,
+                task_context=TaskContext(
+                    task_type=task_type,
+                    query=message,
+                    params=params,
+                ),
+                reasoning="规则匹配 backtest 关键词",
+            )
+
+        if any(keyword in message_lower for keyword in trade_keywords):
+            task_type = TaskType.TRADE_QA
+            if "撤单" in message:
+                task_type = TaskType.CANCEL_ORDER
+            elif "持仓" in message or "仓位" in message or "委托" in message or "成交" in message:
+                task_type = TaskType.CHECK_POSITIONS
+            elif "下单" in message or "开仓" in message or "平仓" in message or "买一手" in message or "卖一手" in message:
+                task_type = TaskType.PLACE_ORDER
+
+            params = {"symbol": symbol} if symbol else {}
+            return RouteDecision(
+                route=RouteType.TRADE,
+                task_context=TaskContext(
+                    task_type=task_type,
+                    query=message,
+                    params=params,
+                ),
+                reasoning="规则匹配 trade 关键词",
+            )
+
+        if any(keyword in message_lower for keyword in market_keywords) or symbol:
+            params: Dict[str, Any] = {}
+            task_type = TaskType.GET_QUOTE
+
+            if symbol:
+                params["symbol"] = symbol
+
+            if "搜索" in message or "代码" in message or ("找" in message and not symbol):
+                task_type = TaskType.SEARCH_STOCK
+                params = {"keyword": self._extract_search_keyword(message)}
+            elif any(token in message_lower for token in ["k线", "日k", "周k", "月k", "最近一周", "近一周", "走势"]):
+                task_type = TaskType.GET_KLINE
+                params["period"] = "daily"
+                params["count"] = self._infer_kline_count(message)
+            elif "趋势" in message or "形态" in message or ("分析" in message and symbol):
+                task_type = TaskType.ANALYZE_TREND
+
+            return RouteDecision(
+                route=RouteType.MARKET,
+                task_context=TaskContext(
+                    task_type=task_type,
+                    query=message,
+                    params=params,
+                ),
+                reasoning="规则匹配 market 关键词",
+            )
         
         # 默认：通用对话
         return RouteDecision(
@@ -326,6 +435,44 @@ class MainRouter:
             ),
             reasoning="无匹配关键词，默认 chat",
         )
+
+    def _extract_symbol(self, message: str) -> Optional[str]:
+        """从消息中提取股票代码或常见别名。"""
+        code_match = re.search(r"(?<!\d)([0368]\d{5})(?!\d)", message)
+        if code_match:
+            return code_match.group(1)
+
+        alias_map = {
+            "贵州茅台": "600519",
+            "茅台": "600519",
+            "平安银行": "000001",
+        }
+        for alias, symbol in alias_map.items():
+            if alias in message:
+                return symbol
+        return None
+
+    def _extract_search_keyword(self, message: str) -> str:
+        """提取搜索关键词，尽量返回短而稳定的关键词。"""
+        for alias in ["贵州茅台", "茅台", "平安银行"]:
+            if alias in message:
+                return alias
+
+        parts = re.findall(r"[\u4e00-\u9fffA-Za-z]+", message)
+        if parts:
+            return max(parts, key=len)[:12]
+        return message[:12]
+
+    def _infer_kline_count(self, message: str) -> int:
+        """根据自然语言估算 K 线数量。"""
+        if "最近一周" in message or "近一周" in message:
+            return 5
+
+        match = re.search(r"(最近|近)(\d+)(个)?(交易)?日", message)
+        if match:
+            return max(1, min(int(match.group(2)), 120))
+
+        return 30
 
 
 # 全局实例

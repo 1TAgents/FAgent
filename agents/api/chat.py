@@ -21,7 +21,7 @@ from ..services.chat_agent import chat_agent
 from ..services.llm import llm_service, AVAILABLE_MODELS
 from ..core.prompts import DEFAULT_SYSTEM_PROMPT
 from ..core.context import set_context
-from ..router import main_router
+from ..router.main_router import main_router
 
 router = APIRouter(prefix="/agent/chat", tags=["agent-chat"])
 

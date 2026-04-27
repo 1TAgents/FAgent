@@ -9,7 +9,7 @@ from pydantic import BaseModel
 from typing import Optional, List
 from enum import Enum
 
-from ..subagents import market_subagent
+from ..subagents.market_agent import market_subagent
 from ..subagents.market_agent import MarketQuery, MarketIntent
 from ..common.market import KLinePeriod
 
@@ -212,4 +212,3 @@ async def cleanup_cache() -> dict:
     from ..common.market.cache import market_cache
     market_cache.cleanup_expired()
     return {"message": "过期缓存已清理", "stats": market_cache.stats()}
-

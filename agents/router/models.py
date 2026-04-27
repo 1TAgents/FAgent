@@ -10,24 +10,42 @@ from enum import Enum
 
 class RouteType(Enum):
     """路由类型"""
-    MARKET = "market"      # 行情相关
-    NEWS = "news"          # 新闻相关（未来）
-    TRADE = "trade"        # 交易相关（未来）
-    CHAT = "chat"          # 通用对话（兜底）
+    CHAT = "chat"              # 通用对话（兜底）
+    MARKET = "market"          # 行情相关
+    STRATEGY = "strategy"      # 策略相关
+    BACKTEST = "backtest"      # 回测与参数优化
+    TRADE = "trade"            # 交易相关
+    NEWS = "news"              # 新闻相关（未来）
 
 
 class TaskType(Enum):
     """任务类型"""
-    # 行情相关
-    GET_QUOTE = "get_quote"           # 查询实时行情
-    GET_KLINE = "get_kline"           # 查询 K 线
-    SEARCH_STOCK = "search_stock"     # 搜索股票
-    ANALYZE_TREND = "analyze_trend"   # 趋势分析
-    
     # 通用对话
-    GREETING = "greeting"             # 问候
-    GENERAL_QA = "general_qa"         # 通用问答
-    UNKNOWN = "unknown"               # 未知
+    GREETING = "greeting"                 # 问候
+    GENERAL_QA = "general_qa"             # 通用问答
+
+    # 行情相关
+    GET_QUOTE = "get_quote"                 # 查询实时行情
+    GET_KLINE = "get_kline"                 # 查询 K 线
+    SEARCH_STOCK = "search_stock"           # 搜索股票
+    ANALYZE_TREND = "analyze_trend"         # 趋势分析
+
+    # 策略相关
+    LIST_STRATEGIES = "list_strategies"     # 列出可用策略
+    STRATEGY_QA = "strategy_qa"             # 策略说明/推荐/比较
+
+    # 回测相关
+    RUN_BACKTEST = "run_backtest"           # 执行回测
+    OPTIMIZE_BACKTEST = "optimize_backtest" # 参数搜索/优化
+    BACKTEST_QA = "backtest_qa"             # 回测相关问答
+
+    # 交易相关
+    TRADE_QA = "trade_qa"                   # 交易规则/流程问答
+    PLACE_ORDER = "place_order"             # 下单（占位）
+    CANCEL_ORDER = "cancel_order"           # 撤单（占位）
+    CHECK_POSITIONS = "check_positions"     # 持仓/订单查询（占位）
+
+    UNKNOWN = "unknown"                     # 未知
 
 
 @dataclass

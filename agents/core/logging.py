@@ -136,6 +136,23 @@ def _get_trace_prefix() -> str:
         return ""
 
 
+def _infer_module_tag(name: str) -> str:
+    """根据名称推断日志模块标签。"""
+    normalized = (name or "").lower()
+
+    if "market" in normalized:
+        return "[market]"
+    if "chat" in normalized or "llm" in normalized:
+        return "[llm]"
+    if "strategy" in normalized:
+        return "[strategy]"
+    if "backtest" in normalized:
+        return "[backtest]"
+    if "trade" in normalized:
+        return "[trade]"
+    return "[router]"
+
+
 def log_chain_event(
     layer: str,
     event: str,
@@ -281,8 +298,7 @@ class SubAgentLogger:
     def start(self, agent_name: str, task_type: str, context: Any = None):
         """记录 SubAgent 开始处理"""
         prefix = _get_trace_prefix()
-        # 规范化子任务标签
-        module_tag = "[market]" if "market" in agent_name.lower() else "[llm]" if "chat" in agent_name.lower() else "[router]"
+        module_tag = _infer_module_tag(agent_name)
         self._logger.info(f"{prefix}{module_tag} SubAgent 启动 | agent={agent_name} | task={task_type}")
         if context:
             if hasattr(context, 'to_dict'):
@@ -301,8 +317,7 @@ class SubAgentLogger:
     def tool_call(self, tool_name: str, params: dict = None):
         """记录工具调用"""
         prefix = _get_trace_prefix()
-        # 规范化子任务标签
-        module_tag = "[market]" if "market" in tool_name.lower() else "[llm]"
+        module_tag = _infer_module_tag(tool_name)
         self._logger.info(f"{prefix}{module_tag} 工具调用 | tool={tool_name} | params={_safe_json(params, 500)}")
         logger.info(f"{prefix}{module_tag} 工具调用 | {tool_name}")
         logger.debug(f"{prefix}{module_tag} params={_safe_json(params)}")
@@ -323,8 +338,7 @@ class SubAgentLogger:
     ):
         """记录工具调用结果"""
         prefix = _get_trace_prefix()
-        # 规范化子任务标签
-        module_tag = "[market]" if "market" in tool_name.lower() else "[llm]"
+        module_tag = _infer_module_tag(tool_name)
         if success:
             duration_str = f" | duration={duration:.3f}s" if duration else ""
             self._logger.info(f"{prefix}{module_tag} 工具完成 | tool={tool_name} | success=true{duration_str}")
@@ -387,8 +401,7 @@ class SubAgentLogger:
     def done(self, agent_name: str, duration: float, success: bool = True):
         """记录 SubAgent 完成"""
         prefix = _get_trace_prefix()
-        # 规范化子任务标签
-        module_tag = "[market]" if "market" in agent_name.lower() else "[llm]" if "chat" in agent_name.lower() else "[router]"
+        module_tag = _infer_module_tag(agent_name)
         if success:
             self._logger.info(f"{prefix}{module_tag} SubAgent 完成 | agent={agent_name} | duration={duration:.3f}s")
             logger.info(f"{prefix}{module_tag} {agent_name} | {duration:.3f}s")
