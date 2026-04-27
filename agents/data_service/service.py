@@ -102,6 +102,24 @@ class DataService:
         exchange = "XSHG" if symbol.startswith(("5", "6", "9")) else "XSHE"
         return f"{symbol}.{exchange}"
 
+    def _format_rqdata_date(self, index_value: Any) -> str:
+        """格式化 RQData 返回的索引日期，兼容 MultiIndex。"""
+        date_value = index_value[-1] if isinstance(index_value, tuple) else index_value
+        if hasattr(date_value, "strftime"):
+            return date_value.strftime("%Y-%m-%d")
+        return str(date_value)[:10]
+
+    def _lookup_rqdata_name(self, symbol: str) -> str:
+        """从 RQData 读取股票名称。"""
+        if self._rq is None:
+            return ""
+
+        try:
+            instrument = self._rq.instruments(self._to_order_book_id(symbol))
+            return str(getattr(instrument, "symbol", "") or "")
+        except Exception:
+            return ""
+
     def _lookup_local_name(self, symbol: str) -> str:
         """优先从本地聚宽表获取股票名称"""
         conn = self._get_raw_connection()
@@ -298,38 +316,79 @@ class DataService:
         return []
 
     async def _fetch_quote_from_rqdata(self, symbol: str, market: str) -> Optional[Dict]:
-        """从 RQData 获取实时行情"""
+        """从 RQData 获取行情，优先实时快照，失败时退回最近日线快照。"""
         if market != "A" or self._rq is None:
             return None
 
+        order_book_id = self._to_order_book_id(symbol)
+        name = self._lookup_local_name(symbol) or self._lookup_rqdata_name(symbol) or symbol
+
         try:
-            tick = self._rq.get_current_tick(self._to_order_book_id(symbol))
-            if not tick:
+            snapshot = self._rq.current_snapshot(order_book_id)
+            if snapshot:
+                getter = snapshot.get if isinstance(snapshot, dict) else lambda key, default=None: getattr(snapshot, key, default)
+                prev_close = getter("prev_close", getter("pre_close", getter("close", 0))) or 0
+                last_price = getter("last", getter("last_price", getter("price", getter("close", 0)))) or 0
+                turnover = float(getter("turnover", getter("total_turnover", 0)) or 0)
+                change = last_price - prev_close if prev_close else 0.0
+
+                return {
+                    "symbol": symbol,
+                    "name": name,
+                    "market": market,
+                    "price": float(last_price or 0),
+                    "open": float(getter("open", prev_close or last_price) or 0),
+                    "high": float(getter("high", last_price or prev_close or 0) or 0),
+                    "low": float(getter("low", last_price or prev_close or 0) or 0),
+                    "close": float(prev_close or 0),
+                    "change": float(change),
+                    "change_percent": float(change / prev_close * 100) if prev_close else 0.0,
+                    "volume": int(float(getter("volume", 0) or 0)),
+                    "turnover": turnover,
+                    "timestamp": str(getter("datetime", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))),
+                }
+        except Exception as e:
+            logger.warning(f"RQData 实时行情失败，尝试日线快照 | symbol={symbol} | error={e}")
+
+        try:
+            end_date = datetime.now().strftime("%Y-%m-%d")
+            start_date = (datetime.now() - timedelta(days=10)).strftime("%Y-%m-%d")
+            df = self._rq.get_price(
+                order_book_ids=order_book_id,
+                start_date=start_date,
+                end_date=end_date,
+                frequency="1d",
+                adjust_type="pre",
+                fields=["open", "high", "low", "close", "volume", "total_turnover"],
+            )
+            if df is None or df.empty:
                 return None
 
-            getter = tick.get if isinstance(tick, dict) else lambda key, default=None: getattr(tick, key, default)
-            prev_close = getter("prev_close", getter("pre_close", 0)) or 0
-            last_price = getter("last", getter("price", 0)) or 0
-            turnover = float(getter("turnover", getter("total_turnover", 0)) or 0)
-            change = last_price - prev_close if prev_close else 0.0
+            rows = list(df.tail(2).iterrows())
+            last_idx, last_row = rows[-1]
+            last_close = float(last_row.get("close", 0) or 0)
+            prev_close = float(rows[-2][1].get("close", last_row.get("open", last_close)) or 0) if len(rows) > 1 else float(last_row.get("open", last_close) or 0)
+            turnover = float(last_row.get("turnover", last_row.get("total_turnover", 0)) or 0)
+            quote_date = self._format_rqdata_date(last_idx)
+            change = last_close - prev_close if prev_close else 0.0
 
             return {
                 "symbol": symbol,
-                "name": self._lookup_local_name(symbol) or symbol,
+                "name": name,
                 "market": market,
-                "price": float(last_price or 0),
-                "open": float(getter("open", prev_close or last_price) or 0),
-                "high": float(getter("high", last_price) or 0),
-                "low": float(getter("low", last_price) or 0),
-                "close": float(prev_close or 0),
+                "price": last_close,
+                "open": float(last_row.get("open", last_close) or 0),
+                "high": float(last_row.get("high", last_close) or 0),
+                "low": float(last_row.get("low", last_close) or 0),
+                "close": prev_close,
                 "change": float(change),
                 "change_percent": float(change / prev_close * 100) if prev_close else 0.0,
-                "volume": int(float(getter("volume", 0) or 0)),
+                "volume": int(float(last_row.get("volume", 0) or 0)),
                 "turnover": turnover,
-                "timestamp": str(getter("datetime", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))),
+                "timestamp": f"{quote_date} 15:00:00",
             }
         except Exception as e:
-            logger.warning(f"RQData 实时行情失败 | symbol={symbol} | error={e}")
+            logger.warning(f"RQData 日线快照失败 | symbol={symbol} | error={e}")
             return None
 
     async def _fetch_kline_from_rqdata(self, symbol: str, period: str, count: int) -> List[Dict]:
@@ -352,7 +411,7 @@ class DataService:
 
             return [
                 {
-                    "date": idx.strftime("%Y-%m-%d") if hasattr(idx, "strftime") else str(idx)[:10],
+                    "date": self._format_rqdata_date(idx),
                     "open": float(row.get("open", 0)),
                     "high": float(row.get("high", 0)),
                     "low": float(row.get("low", 0)),

@@ -14,14 +14,14 @@ interface ChatInputProps {
 }
 
 const fallbackModels: AvailableModel[] = [
-  { id: 'qwen3.5-plus', name: 'Qwen 3.5 Plus' },
+  { id: 'deepseek-v4-pro', name: 'DeepSeek V4 Pro' },
 ];
 
 export function ChatInput({
   onSend,
   isLoading,
   onStop,
-  model = 'qwen3.5-plus',
+  model = 'deepseek-v4-pro',
   models = fallbackModels,
   onModelChange
 }: ChatInputProps) {

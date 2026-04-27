@@ -244,8 +244,17 @@ async def get_available_models():
     Returns:
         List[dict]: 可用模型列表，每个模型包含 id, name, description
     """
+    default_model = llm_service.default_model
+    default_model_id = next(
+        (
+            model["id"]
+            for model in AVAILABLE_MODELS
+            if model["id"] == default_model or model["model_id"] == default_model
+        ),
+        AVAILABLE_MODELS[0]["id"] if AVAILABLE_MODELS else None,
+    )
+
     return {
         "models": AVAILABLE_MODELS,
-        "default": AVAILABLE_MODELS[0]["id"] if AVAILABLE_MODELS else None
+        "default": default_model_id,
     }
-

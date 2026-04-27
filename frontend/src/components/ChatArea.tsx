@@ -23,9 +23,9 @@ export function ChatArea({
   isSidebarOpen,
   onToggleSidebar
 }: ChatAreaProps) {
-  const [model, setModel] = useState("qwen3.5-plus");
+  const [model, setModel] = useState("deepseek-v4-pro");
   const [models, setModels] = useState<AvailableModel[]>([
-    { id: 'qwen3.5-plus', name: 'Qwen 3.5 Plus' }
+    { id: 'deepseek-v4-pro', name: 'DeepSeek V4 Pro' }
   ]);
 
   useEffect(() => {

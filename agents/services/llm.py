@@ -19,6 +19,18 @@ logger = logging.getLogger(__name__)
 # 可用模型列表（供前端展示）
 AVAILABLE_MODELS = [
     {
+        "id": "deepseek-v4-pro",
+        "name": "DeepSeek V4 Pro",
+        "description": "默认主模型（DeepSeek）",
+        "model_id": "deepseek-v4-pro",
+    },
+    {
+        "id": "deepseek-v4-flash",
+        "name": "DeepSeek V4 Flash",
+        "description": "更快的 DeepSeek 模型",
+        "model_id": "deepseek-v4-flash",
+    },
+    {
         "id": "qwen3.5-plus",
         "name": "Qwen 3.5 Plus",
         "description": "通用问答主模型",
