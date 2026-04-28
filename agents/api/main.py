@@ -15,6 +15,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
+from ..backtest.api import router as backtest_router
 from .chat import router as chat_router
 from .market import router as market_router
 from .summary import router as summary_router
@@ -112,6 +113,7 @@ app.add_middleware(
 # 注册路由
 app.include_router(chat_router)
 app.include_router(market_router)
+app.include_router(backtest_router)
 app.include_router(summary_router)
 
 

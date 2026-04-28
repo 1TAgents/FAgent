@@ -503,7 +503,8 @@ async def lifespan(app: FastAPI):
         start_date: str,
         end_date: str,
         initial_capital: float = 100000.0,
-        params: dict = None
+        params: dict = None,
+        metadata: dict = None,
     ) -> dict:
         """回测工具包装器"""
         from agents.backtest.api import run_backtest
@@ -515,7 +516,8 @@ async def lifespan(app: FastAPI):
             start_date=start_date,
             end_date=end_date,
             initial_capital=initial_capital,
-            params=params or {}
+            params=params or {},
+            metadata=metadata or {},
         )
         
         response = await run_backtest(request)
@@ -524,7 +526,10 @@ async def lifespan(app: FastAPI):
             return {
                 "success": True,
                 "report": response.report.model_dump() if response.report else None,
-                "summary": response.report.summary() if response.report else None
+                "summary": response.report.summary() if response.report else None,
+                "report_id": response.report_id,
+                "artifacts_dir": response.artifacts_dir,
+                "engine": response.engine,
             }
         else:
             return {
@@ -564,6 +569,11 @@ async def lifespan(app: FastAPI):
                 "params": {
                     "type": "object",
                     "description": "策略参数（如 short_period, long_period 等）",
+                    "default": {}
+                },
+                "metadata": {
+                    "type": "object",
+                    "description": "附加元数据（如 query/rid/cid）",
                     "default": {}
                 }
             },

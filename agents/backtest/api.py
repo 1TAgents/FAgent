@@ -15,6 +15,7 @@ import numpy as np
 from datetime import datetime, timedelta
 from typing import Dict, Any, Optional, List
 import time
+import uuid
 
 from .models import (
     BacktestRequest, BacktestResponse, BacktestReport, StrategyConfig
@@ -22,6 +23,7 @@ from .models import (
 from .engine import BacktestEngine
 from .strategies import get_strategy_class
 from .data_loader import get_data_loader
+from .run_store import get_run_store
 from .vectorized_strategies import get_vectorized_strategy
 
 logger = logging.getLogger(__name__)
@@ -79,15 +81,29 @@ async def run_backtest(request: BacktestRequest) -> BacktestResponse:
             
             elapsed = time.time() - start_time
             logger.info(f"向量化回测完成 | time={elapsed:.3f}s, 总收益={result['total_returns']:.2%}")
+
+            report = _create_report_from_dict(
+                request.strategy_name,
+                request.symbol,
+                request.start_date,
+                request.end_date,
+                result,
+                request.params,
+                request.initial_capital,
+            )
+            report_id, artifacts_dir = get_run_store().persist_run(
+                request,
+                report,
+                engine="vectorized",
+            )
             
             # 转换为标准响应格式
             return BacktestResponse(
                 success=True,
-                report=_create_report_from_dict(
-                    request.strategy_name, request.symbol,
-                    request.start_date, request.end_date,
-                    result, request.params
-                )
+                report=report,
+                report_id=report_id,
+                artifacts_dir=artifacts_dir,
+                engine="vectorized",
             )
             
         except KeyError:
@@ -105,13 +121,21 @@ async def run_backtest(request: BacktestRequest) -> BacktestResponse:
         strategy_class = get_strategy_class(request.strategy_name)
         engine = BacktestEngine(config)
         report = engine.run(strategy_class, data)
+        report_id, artifacts_dir = get_run_store().persist_run(
+            request,
+            report,
+            engine="classic",
+        )
         
         elapsed = time.time() - start_time
         logger.info(f"回测完成 | time={elapsed:.2f}s, 总收益={report.metrics.total_return:.2f}%")
         
         return BacktestResponse(
             success=True,
-            report=report
+            report=report,
+            report_id=report_id,
+            artifacts_dir=artifacts_dir,
+            engine="classic",
         )
         
     except Exception as e:
@@ -214,19 +238,60 @@ async def grid_search(
 def _create_report_from_dict(
     strategy_name: str, symbol: str,
     start_date: str, end_date: str,
-    result: Dict, params: Dict
+    result: Dict, params: Dict,
+    initial_capital: float,
 ) -> BacktestReport:
     """从字典创建回测报告（简化版）"""
-    from .models import PerformanceMetrics
+    from .models import PerformanceMetrics, Trade
+
+    equity_values = []
+    for value in result.get("equity_curve", []):
+        if pd.isna(value):
+            equity_values.append(initial_capital)
+        else:
+            equity_values.append(float(value))
+
+    max_drawdown_pct = result.get("max_drawdown", 0) * 100
+    annual_return_pct = result.get("annual_return", result.get("total_returns", 0)) * 100
+    winning_trades = int(result.get("winning_trades", 0))
+    losing_trades = int(result.get("losing_trades", 0))
     
     metrics = PerformanceMetrics(
         total_return=result['total_returns'] * 100,
-        annual_return=result['total_returns'] * 100,  # 简化
+        annual_return=annual_return_pct,
+        volatility=result.get("volatility", 0) * 100,
         sharpe_ratio=result['sharpe_ratio'],
-        max_drawdown=result['max_drawdown'] * 100,
-        final_capital=result['equity_curve'][-1] if result['equity_curve'] else 0,
-        initial_capital=100000.0
+        max_drawdown=max_drawdown_pct,
+        calmar_ratio=(annual_return_pct / abs(max_drawdown_pct)) if max_drawdown_pct else 0,
+        final_capital=result.get("final_capital", equity_values[-1] if equity_values else initial_capital),
+        initial_capital=initial_capital,
+        total_trades=int(result.get("trades", 0)),
+        winning_trades=winning_trades,
+        losing_trades=losing_trades,
+        win_rate=result.get("win_rate", 0) * 100,
+        profit_factor=result.get("profit_factor", 0),
+        avg_win=result.get("avg_win", 0),
+        avg_loss=result.get("avg_loss", 0),
+        total_pnl=result.get("total_pnl", (equity_values[-1] - initial_capital) if equity_values else 0),
     )
+
+    trades = []
+    for raw_trade in result.get("trade_records", []):
+        trades.append(Trade(
+            trade_id=str(uuid.uuid4()),
+            symbol=raw_trade.get("symbol") or symbol,
+            entry_price=float(raw_trade["entry_price"]),
+            exit_price=raw_trade.get("exit_price"),
+            entry_time=str(raw_trade["entry_time"]),
+            exit_time=raw_trade.get("exit_time"),
+            quantity=int(raw_trade["quantity"]),
+            side=raw_trade.get("side", "long"),
+            pnl=raw_trade.get("pnl"),
+            pnl_percent=raw_trade.get("pnl_percent"),
+            commission_total=raw_trade.get("commission_total"),
+            is_open=bool(raw_trade.get("is_open", False)),
+            exit_reason=raw_trade.get("exit_reason"),
+        ))
     
     return BacktestReport(
         strategy_name=strategy_name,
@@ -234,10 +299,10 @@ def _create_report_from_dict(
         start_date=start_date,
         end_date=end_date,
         trading_days=len(result.get('dates', [])),
-        config=StrategyConfig(name=strategy_name, params=params),
+        config=StrategyConfig(name=strategy_name, initial_capital=initial_capital, params=params),
         metrics=metrics,
-        trades=[],  # 向量化版本暂不返回详细交易
-        equity_curve={str(d): v for d, v in zip(result.get('dates', []), result.get('equity_curve', []))}
+        trades=trades,
+        equity_curve={str(d): v for d, v in zip(result.get('dates', []), equity_values)}
     )
 
 
@@ -260,10 +325,11 @@ async def list_strategies() -> Dict[str, Any]:
 async def get_report(report_id: str) -> Dict[str, Any]:
     """
     获取回测报告
-    
-    TODO: 实现报告存储和查询
     """
-    return {"error": "Not implemented"}
+    payload = get_run_store().load_run(report_id)
+    if payload is None:
+        return {"success": False, "error": f"report_id 不存在：{report_id}"}
+    return {"success": True, **payload}
 
 
 @router.post("/validate")

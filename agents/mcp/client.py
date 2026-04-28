@@ -183,6 +183,58 @@ class MCPClient:
             items.append(StockInfo(**item))
         
         return items
+
+    async def run_backtest(
+        self,
+        strategy_name: str,
+        symbol: str,
+        start_date: str,
+        end_date: str,
+        initial_capital: float = 100000.0,
+        params: Optional[Dict[str, Any]] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """执行回测。"""
+        data = await self.call(
+            "backtest_run",
+            strategy_name=strategy_name,
+            symbol=symbol,
+            start_date=start_date,
+            end_date=end_date,
+            initial_capital=initial_capital,
+            params=params or {},
+            metadata=metadata or {},
+        )
+        if not data.get("success"):
+            raise MCPError(data.get("error", "回测失败"))
+        return data
+
+    async def grid_search(
+        self,
+        strategy_name: str,
+        symbol: str,
+        start_date: str,
+        end_date: str,
+        param_grid: Dict[str, Any],
+        initial_capital: float = 100000.0,
+    ) -> Dict[str, Any]:
+        """执行参数网格搜索。"""
+        data = await self.call(
+            "backtest_grid_search",
+            strategy_name=strategy_name,
+            symbol=symbol,
+            start_date=start_date,
+            end_date=end_date,
+            param_grid=param_grid,
+            initial_capital=initial_capital,
+        )
+        if not data.get("success"):
+            raise MCPError(data.get("error", "参数优化失败"))
+        return data
+
+    async def list_backtest_strategies(self) -> Dict[str, Any]:
+        """列出回测策略。"""
+        return await self.call("backtest_strategies")
     
     # ==================== 工具摘要方法（供 LLM 使用） ====================
     

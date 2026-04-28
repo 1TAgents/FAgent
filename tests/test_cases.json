@@ -1035,6 +1035,157 @@
             }
           ],
           "tags": ["chat", "tool_calling", "market", "regression"]
+        },
+        {
+          "id": "CHAT005",
+          "name": "回测工具调用-双均线策略",
+          "type": "conversation",
+          "description": "测试 AI 是否能识别回测意图，执行内置回测并落盘回测产物",
+          "steps": [
+            {
+              "step": 1,
+              "action": "create_session",
+              "expected": {
+                "success": true,
+                "has_cid": true
+              }
+            },
+            {
+              "step": 2,
+              "action": "send_message",
+              "input": {
+                "message": "帮我回测一下双均线策略在贵州茅台上的表现"
+              },
+              "expected": {
+                "success": true,
+                "has_response": true,
+                "has_message_ids": true,
+                "should_use_tool": true,
+                "response_contains": ["回测 ID", "双均线策略", "贵州茅台(600519)", "产物目录"]
+              },
+              "expected_chain": {
+                "route": {
+                  "route": "backtest",
+                  "task": "run_backtest",
+                  "params": {
+                    "symbol": "600519",
+                    "strategy_name": { "one_of": ["双均线策略", "双均线"] }
+                  }
+                },
+                "must": [
+                  {
+                    "layer": "subagent",
+                    "event": "start",
+                    "name": "BacktestSubAgent",
+                    "task": { "eq": "run_backtest" }
+                  },
+                  {
+                    "layer": "subagent",
+                    "event": "spec_normalized",
+                    "name": "BacktestSubAgent",
+                    "params": {
+                      "strategy_id": { "eq": "dual_ma" },
+                      "strategy_display_name": { "eq": "双均线策略" },
+                      "symbol": { "eq": "600519" },
+                      "start_date": { "exists": true },
+                      "end_date": { "exists": true },
+                      "initial_capital": { "eq": 100000.0 },
+                      "params": {
+                        "short_period": { "eq": 5 },
+                        "long_period": { "eq": 20 }
+                      },
+                      "metadata": {
+                        "route_task": { "eq": "run_backtest" },
+                        "query": { "contains": "双均线策略" },
+                        "original_message": { "contains": "双均线策略" },
+                        "cid": { "exists": true },
+                        "rid": { "exists": true },
+                        "mid": { "exists": true }
+                      }
+                    }
+                  },
+                  {
+                    "layer": "subagent",
+                    "event": "tool_call",
+                    "name": "mcp.backtest_run",
+                    "params": {
+                      "strategy_name": { "eq": "dual_ma" },
+                      "symbol": { "eq": "600519" },
+                      "start_date": { "exists": true },
+                      "end_date": { "exists": true },
+                      "initial_capital": { "eq": 100000.0 },
+                      "params": {
+                        "short_period": { "eq": 5 },
+                        "long_period": { "eq": 20 }
+                      },
+                      "metadata": {
+                        "route_task": { "eq": "run_backtest" },
+                        "cid": { "exists": true },
+                        "rid": { "exists": true },
+                        "mid": { "exists": true }
+                      }
+                    }
+                  },
+                  {
+                    "layer": "mcp",
+                    "event": "tool_call",
+                    "name": "backtest_run",
+                    "params": {
+                      "strategy_name": { "eq": "dual_ma" },
+                      "symbol": { "eq": "600519" },
+                      "start_date": { "exists": true },
+                      "end_date": { "exists": true },
+                      "initial_capital": { "eq": 100000.0 },
+                      "params": {
+                        "short_period": { "eq": 5 },
+                        "long_period": { "eq": 20 }
+                      }
+                    }
+                  },
+                  {
+                    "layer": "mcp",
+                    "event": "tool_result",
+                    "name": "backtest_run",
+                    "success": true
+                  },
+                  {
+                    "layer": "subagent",
+                    "event": "tool_result",
+                    "name": "mcp.backtest_run",
+                    "success": true
+                  },
+                  {
+                    "layer": "subagent",
+                    "event": "artifact_persisted",
+                    "name": "backtest_run",
+                    "params": {
+                      "report_id": { "regex": "^bt_" },
+                      "artifacts_dir": { "contains": "data/backtests/" }
+                    }
+                  }
+                ],
+                "forbid": [
+                  {
+                    "layer": "subagent",
+                    "event": "llm_call"
+                  }
+                ],
+                "order": [
+                  "router.route_decision",
+                  "subagent.start:BacktestSubAgent",
+                  "subagent.spec_normalized:BacktestSubAgent",
+                  "subagent.tool_call:mcp.backtest_run",
+                  "mcp.tool_call:backtest_run",
+                  "mcp.tool_result:backtest_run:success",
+                  "subagent.tool_result:mcp.backtest_run:success",
+                  "subagent.artifact_persisted:backtest_run",
+                  "subagent.done:BacktestSubAgent:success",
+                  "router.done"
+                ]
+              }
+            }
+          ],
+          "tags": ["chat", "tool_calling", "backtest", "regression"]
         }
       ]
     },

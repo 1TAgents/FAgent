@@ -195,7 +195,10 @@ class BacktestReport(BaseModel):
         summary += f"回测区间：{self.start_date} ~ {self.end_date}\n"
         summary += f"总收益率：{m.total_return:+.2f}% | 年化：{m.annual_return:+.2f}%\n"
         summary += f"夏普比率：{m.sharpe_ratio:.2f} | 最大回撤：{m.max_drawdown:.2f}%\n"
-        summary += f"胜率：{m.win_rate:.1f}% | 交易次数：{m.total_trades} | 盈亏比：{m.profit_factor:.2f}"
+        if m.total_trades > 0 and m.winning_trades == 0 and m.losing_trades == 0:
+            summary += f"交易次数：{m.total_trades}"
+        else:
+            summary += f"胜率：{m.win_rate:.1f}% | 交易次数：{m.total_trades} | 盈亏比：{m.profit_factor:.2f}"
         return summary
 
 
@@ -209,6 +212,7 @@ class BacktestRequest(BaseModel):
     end_date: str = Field(..., description="结束日期（YYYY-MM-DD）")
     initial_capital: float = Field(100000.0, description="初始资金")
     params: Dict[str, Any] = Field(default_factory=dict, description="策略参数")
+    metadata: Dict[str, Any] = Field(default_factory=dict, description="附加元数据（如 query/rid/cid）")
 
 
 class BacktestResponse(BaseModel):
@@ -216,3 +220,6 @@ class BacktestResponse(BaseModel):
     success: bool = Field(..., description="是否成功")
     report: Optional[BacktestReport] = Field(None, description="回测报告")
     error: Optional[str] = Field(None, description="错误信息")
+    report_id: Optional[str] = Field(None, description="回测运行 ID")
+    artifacts_dir: Optional[str] = Field(None, description="回测产物目录")
+    engine: Optional[str] = Field(None, description="执行引擎（vectorized/classic）")

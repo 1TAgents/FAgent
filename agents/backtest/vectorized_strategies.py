@@ -7,10 +7,232 @@
 """
 import pandas as pd
 import numpy as np
-from typing import List, Dict, Tuple
-from datetime import datetime
+from typing import Dict, Optional
 
-from .models import TradingSignal, SignalType
+from .trading_cost import TradingCostCalculator
+
+
+def run_long_only_backtest(
+    data: pd.DataFrame,
+    initial_capital: float = 100000.0,
+    *,
+    max_position: float = 0.95,
+    lot_size: int = 100,
+    slippage: float = 0.001,
+    cost_calculator: Optional[TradingCostCalculator] = None,
+) -> Dict:
+    """
+    执行单标的、只做多的向量化信号回测。
+
+    signal 语义：
+    - 1：空仓时买入
+    - -1：持仓时卖出
+    - 0：保持当前状态
+
+    这里显式维护持仓状态，而不是把 signal 当作每日仓位，避免只在信号当天
+    计算收益的错误。
+    """
+    if data.empty:
+        return _empty_backtest_result(initial_capital)
+
+    df = data.copy().sort_index()
+    if "signal" not in df.columns:
+        df["signal"] = 0
+
+    cost_calculator = cost_calculator or TradingCostCalculator()
+
+    cash = float(initial_capital)
+    shares = 0
+    avg_cost = 0.0
+    entry_date = None
+    entry_cost = 0.0
+    equity_curve = []
+    positions = []
+    orders = []
+    trades = []
+    total_cost = 0.0
+
+    for date, row in df.iterrows():
+        price = float(row["close"])
+        if not np.isfinite(price) or price <= 0:
+            fallback_price = equity_curve[-1]["price"] if equity_curve else 0
+            equity_curve.append({
+                "date": _format_date(date),
+                "equity": cash + shares * fallback_price,
+                "price": fallback_price,
+            })
+            positions.append(shares)
+            continue
+
+        signal = int(row.get("signal", 0) or 0)
+        date_text = _format_date(date)
+
+        if signal > 0 and shares == 0:
+            fill_price = price * (1 + slippage)
+            target_cash = cash * max_position
+            quantity = int(target_cash // fill_price // lot_size * lot_size)
+
+            while quantity > 0:
+                cost = cost_calculator.calculate_cost(fill_price, quantity, "buy")
+                if fill_price * quantity + cost <= cash:
+                    break
+                quantity -= lot_size
+
+            if quantity > 0:
+                cost = cost_calculator.calculate_cost(fill_price, quantity, "buy")
+                cash -= fill_price * quantity + cost
+                shares = quantity
+                avg_cost = fill_price
+                entry_date = date_text
+                entry_cost = cost
+                total_cost += cost
+                orders.append({
+                    "date": date_text,
+                    "side": "buy",
+                    "price": fill_price,
+                    "quantity": quantity,
+                    "cost": cost,
+                })
+
+        elif signal < 0 and shares > 0:
+            fill_price = price * (1 - slippage)
+            cost = cost_calculator.calculate_cost(fill_price, shares, "sell")
+            proceeds = fill_price * shares - cost
+            pnl = (fill_price - avg_cost) * shares - entry_cost - cost
+            pnl_percent = pnl / (avg_cost * shares) if avg_cost and shares else 0.0
+
+            cash += proceeds
+            total_cost += cost
+            orders.append({
+                "date": date_text,
+                "side": "sell",
+                "price": fill_price,
+                "quantity": shares,
+                "cost": cost,
+            })
+            trades.append({
+                "symbol": str(row.get("symbol", "")) or "UNKNOWN",
+                "entry_price": avg_cost,
+                "exit_price": fill_price,
+                "entry_time": entry_date or date_text,
+                "exit_time": date_text,
+                "quantity": shares,
+                "side": "long",
+                "pnl": pnl,
+                "pnl_percent": pnl_percent,
+                "commission_total": entry_cost + cost,
+                "is_open": False,
+                "exit_reason": "signal",
+            })
+
+            shares = 0
+            avg_cost = 0.0
+            entry_date = None
+            entry_cost = 0.0
+
+        equity = cash + shares * price
+        equity_curve.append({"date": date_text, "equity": equity, "price": price})
+        positions.append(shares)
+
+    if shares > 0:
+        last_date = equity_curve[-1]["date"]
+        last_price = float(df.iloc[-1]["close"])
+        unrealized_pnl = (last_price - avg_cost) * shares - entry_cost
+        trades.append({
+            "symbol": str(df.iloc[-1].get("symbol", "")) or "UNKNOWN",
+            "entry_price": avg_cost,
+            "exit_price": None,
+            "entry_time": entry_date or last_date,
+            "exit_time": None,
+            "quantity": shares,
+            "side": "long",
+            "pnl": unrealized_pnl,
+            "pnl_percent": unrealized_pnl / (avg_cost * shares) if avg_cost and shares else 0.0,
+            "commission_total": entry_cost,
+            "is_open": True,
+            "exit_reason": None,
+        })
+
+    equity_values = pd.Series(
+        [item["equity"] for item in equity_curve],
+        index=pd.to_datetime([item["date"] for item in equity_curve]),
+        dtype=float,
+    )
+    daily_returns = equity_values.pct_change().fillna(0.0)
+    final_capital = float(equity_values.iloc[-1]) if not equity_values.empty else initial_capital
+    total_returns = final_capital / initial_capital - 1 if initial_capital else 0.0
+    trading_days = len(equity_values)
+    annual_return = (1 + total_returns) ** (252 / trading_days) - 1 if trading_days and total_returns > -1 else -1.0
+    volatility = float(daily_returns.std() * np.sqrt(252)) if len(daily_returns) > 1 else 0.0
+    sharpe = float(np.sqrt(252) * daily_returns.mean() / daily_returns.std()) if daily_returns.std() > 0 else 0.0
+
+    rolling_max = equity_values.cummax()
+    drawdown = (equity_values - rolling_max) / rolling_max
+    max_drawdown = float(drawdown.min()) if not drawdown.empty else 0.0
+
+    closed_trades = [trade for trade in trades if not trade["is_open"]]
+    winning_trades = [trade for trade in closed_trades if (trade.get("pnl") or 0) > 0]
+    losing_trades = [trade for trade in closed_trades if (trade.get("pnl") or 0) < 0]
+    gross_profit = sum(trade["pnl"] for trade in winning_trades)
+    gross_loss = abs(sum(trade["pnl"] for trade in losing_trades))
+
+    return {
+        "total_returns": float(total_returns),
+        "annual_return": float(annual_return),
+        "volatility": volatility,
+        "sharpe_ratio": sharpe,
+        "max_drawdown": max_drawdown,
+        "trades": len(orders),
+        "closed_trades": len(closed_trades),
+        "winning_trades": len(winning_trades),
+        "losing_trades": len(losing_trades),
+        "win_rate": len(winning_trades) / len(closed_trades) if closed_trades else 0.0,
+        "profit_factor": gross_profit / gross_loss if gross_loss else (gross_profit if gross_profit else 0.0),
+        "avg_win": gross_profit / len(winning_trades) if winning_trades else 0.0,
+        "avg_loss": -gross_loss / len(losing_trades) if losing_trades else 0.0,
+        "final_capital": final_capital,
+        "total_pnl": final_capital - initial_capital,
+        "total_cost": total_cost,
+        "equity_curve": equity_values.tolist(),
+        "dates": equity_values.index.tolist(),
+        "positions": positions,
+        "orders": orders,
+        "trade_records": trades,
+        "daily_returns": daily_returns.tolist(),
+    }
+
+
+def _empty_backtest_result(initial_capital: float) -> Dict:
+    return {
+        "total_returns": 0.0,
+        "annual_return": 0.0,
+        "volatility": 0.0,
+        "sharpe_ratio": 0.0,
+        "max_drawdown": 0.0,
+        "trades": 0,
+        "closed_trades": 0,
+        "winning_trades": 0,
+        "losing_trades": 0,
+        "win_rate": 0.0,
+        "profit_factor": 0.0,
+        "avg_win": 0.0,
+        "avg_loss": 0.0,
+        "final_capital": initial_capital,
+        "total_pnl": 0.0,
+        "total_cost": 0.0,
+        "equity_curve": [],
+        "dates": [],
+        "positions": [],
+        "orders": [],
+        "trade_records": [],
+        "daily_returns": [],
+    }
+
+
+def _format_date(value) -> str:
+    if hasattr(value, "strftime"):
+        return value.strftime("%Y-%m-%d")
+    return str(value)[:10]
 
 
 class VectorizedDualMA:
@@ -72,39 +294,7 @@ class VectorizedDualMA:
         Returns:
             绩效字典
         """
-        df = data.copy()
-        
-        # 计算策略收益
-        df['returns'] = df['close'].pct_change()
-        df['strategy_returns'] = df['signal'].shift(1) * df['returns']
-        
-        # 计算累计收益
-        df['cumulative_returns'] = (1 + df['strategy_returns']).cumprod()
-        df['equity'] = initial_capital * df['cumulative_returns']
-        
-        # 绩效指标
-        total_returns = df['cumulative_returns'].iloc[-1] - 1
-        daily_returns = df['strategy_returns'].dropna()
-        
-        # 夏普比率（年化）
-        sharpe = np.sqrt(252) * daily_returns.mean() / daily_returns.std() if daily_returns.std() > 0 else 0
-        
-        # 最大回撤
-        rolling_max = df['equity'].cummax()
-        drawdown = (df['equity'] - rolling_max) / rolling_max
-        max_drawdown = drawdown.min()
-        
-        # 交易次数
-        trades = df['signal'].abs().sum()
-        
-        return {
-            'total_returns': total_returns,
-            'sharpe_ratio': sharpe,
-            'max_drawdown': max_drawdown,
-            'trades': trades,
-            'equity_curve': df['equity'].tolist(),
-            'dates': df.index.tolist()
-        }
+        return run_long_only_backtest(data, initial_capital)
 
 
 class VectorizedRSI:
@@ -141,27 +331,7 @@ class VectorizedRSI:
     
     def backtest(self, data: pd.DataFrame, initial_capital: float = 100000.0) -> Dict:
         """快速回测"""
-        df = data.copy()
-        df['returns'] = df['close'].pct_change()
-        df['strategy_returns'] = df['signal'].shift(1) * df['returns']
-        df['cumulative_returns'] = (1 + df['strategy_returns']).cumprod()
-        df['equity'] = initial_capital * df['cumulative_returns']
-        
-        total_returns = df['cumulative_returns'].iloc[-1] - 1
-        daily_returns = df['strategy_returns'].dropna()
-        sharpe = np.sqrt(252) * daily_returns.mean() / daily_returns.std() if daily_returns.std() > 0 else 0
-        
-        rolling_max = df['equity'].cummax()
-        drawdown = (df['equity'] - rolling_max) / rolling_max
-        
-        return {
-            'total_returns': total_returns,
-            'sharpe_ratio': sharpe,
-            'max_drawdown': drawdown.min(),
-            'trades': df['signal'].abs().sum(),
-            'equity_curve': df['equity'].tolist(),
-            'dates': df.index.tolist()
-        }
+        return run_long_only_backtest(data, initial_capital)
 
 
 class VectorizedMACD:
@@ -212,36 +382,7 @@ class VectorizedMACD:
     
     def backtest(self, data: pd.DataFrame, initial_capital: float = 100000.0) -> Dict:
         """快速回测"""
-        df = data.copy()
-        
-        # 计算策略收益
-        df['returns'] = df['close'].pct_change()
-        df['strategy_returns'] = df['signal'].shift(1) * df['returns']
-        
-        # 累计收益
-        df['cumulative_returns'] = (1 + df['strategy_returns']).cumprod()
-        df['equity'] = initial_capital * df['cumulative_returns']
-        
-        # 绩效指标
-        total_returns = df['cumulative_returns'].iloc[-1] - 1
-        daily_returns = df['strategy_returns'].dropna()
-        sharpe = np.sqrt(252) * daily_returns.mean() / daily_returns.std() if daily_returns.std() > 0 else 0
-        
-        # 最大回撤
-        rolling_max = df['equity'].cummax()
-        drawdown = (df['equity'] - rolling_max) / rolling_max
-        max_drawdown = drawdown.min()
-        
-        trades = df['signal'].abs().sum()
-        
-        return {
-            'total_returns': total_returns,
-            'sharpe_ratio': sharpe,
-            'max_drawdown': max_drawdown,
-            'trades': trades,
-            'equity_curve': df['equity'].tolist(),
-            'dates': df.index.tolist()
-        }
+        return run_long_only_backtest(data, initial_capital)
 
 
 class VectorizedBollinger:
@@ -271,27 +412,7 @@ class VectorizedBollinger:
     
     def backtest(self, data: pd.DataFrame, initial_capital: float = 100000.0) -> Dict:
         """快速回测"""
-        df = data.copy()
-        df['returns'] = df['close'].pct_change()
-        df['strategy_returns'] = df['signal'].shift(1) * df['returns']
-        df['cumulative_returns'] = (1 + df['strategy_returns']).cumprod()
-        df['equity'] = initial_capital * df['cumulative_returns']
-        
-        total_returns = df['cumulative_returns'].iloc[-1] - 1
-        daily_returns = df['strategy_returns'].dropna()
-        sharpe = np.sqrt(252) * daily_returns.mean() / daily_returns.std() if daily_returns.std() > 0 else 0
-        
-        rolling_max = df['equity'].cummax()
-        drawdown = (df['equity'] - rolling_max) / rolling_max
-        
-        return {
-            'total_returns': total_returns,
-            'sharpe_ratio': sharpe,
-            'max_drawdown': drawdown.min(),
-            'trades': df['signal'].abs().sum(),
-            'equity_curve': df['equity'].tolist(),
-            'dates': df.index.tolist()
-        }
+        return run_long_only_backtest(data, initial_capital)
 
 
 class VectorizedKDJ:
@@ -360,28 +481,7 @@ class VectorizedKDJ:
     
     def backtest(self, data: pd.DataFrame, initial_capital: float = 100000.0) -> Dict:
         """快速回测"""
-        df = data.copy()
-        
-        df['returns'] = df['close'].pct_change()
-        df['strategy_returns'] = df['signal'].shift(1) * df['returns']
-        df['cumulative_returns'] = (1 + df['strategy_returns']).cumprod()
-        df['equity'] = initial_capital * df['cumulative_returns']
-        
-        total_returns = df['cumulative_returns'].iloc[-1] - 1
-        daily_returns = df['strategy_returns'].dropna()
-        sharpe = np.sqrt(252) * daily_returns.mean() / daily_returns.std() if daily_returns.std() > 0 else 0
-        
-        rolling_max = df['equity'].cummax()
-        drawdown = (df['equity'] - rolling_max) / rolling_max
-        
-        return {
-            'total_returns': total_returns,
-            'sharpe_ratio': sharpe,
-            'max_drawdown': drawdown.min(),
-            'trades': df['signal'].abs().sum(),
-            'equity_curve': df['equity'].tolist(),
-            'dates': df.index.tolist()
-        }
+        return run_long_only_backtest(data, initial_capital)
 
 
 class VectorizedMomentum:
@@ -422,28 +522,7 @@ class VectorizedMomentum:
     
     def backtest(self, data: pd.DataFrame, initial_capital: float = 100000.0) -> Dict:
         """快速回测"""
-        df = data.copy()
-        
-        df['returns'] = df['close'].pct_change()
-        df['strategy_returns'] = df['signal'].shift(1) * df['returns']
-        df['cumulative_returns'] = (1 + df['strategy_returns']).cumprod()
-        df['equity'] = initial_capital * df['cumulative_returns']
-        
-        total_returns = df['cumulative_returns'].iloc[-1] - 1
-        daily_returns = df['strategy_returns'].dropna()
-        sharpe = np.sqrt(252) * daily_returns.mean() / daily_returns.std() if daily_returns.std() > 0 else 0
-        
-        rolling_max = df['equity'].cummax()
-        drawdown = (df['equity'] - rolling_max) / rolling_max
-        
-        return {
-            'total_returns': total_returns,
-            'sharpe_ratio': sharpe,
-            'max_drawdown': drawdown.min(),
-            'trades': df['signal'].abs().sum(),
-            'equity_curve': df['equity'].tolist(),
-            'dates': df.index.tolist()
-        }
+        return run_long_only_backtest(data, initial_capital)
 
 
 # 策略工厂

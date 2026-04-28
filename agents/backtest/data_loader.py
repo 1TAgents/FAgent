@@ -17,7 +17,7 @@ class BacktestDataLoader:
     回测数据加载器
     
     优先从 SQLite 数据库加载历史数据
-    如果数据缺失，自动从 AKShare 补充
+    如果数据缺失，优先从 RQData 补充，再回退到 AKShare
     """
     
     def __init__(self, data_service=None):
@@ -28,14 +28,37 @@ class BacktestDataLoader:
             data_service: DataService 实例（可选）
         """
         self.data_service = data_service
+        self._rq = None
         self._ak = None
-    
+        self._init_rqdata()
+
+    def _init_rqdata(self) -> None:
+        """初始化 RQData（如果可用）。"""
+        try:
+            import rqdatac as rq
+
+            rq.init()
+            self._rq = rq
+            logger.info("BacktestDataLoader 已启用 RQData 优先链路")
+        except Exception as e:
+            self._rq = None
+            logger.warning(f"RQData 初始化失败，回退到本地库/AKShare | error={e}")
+
     def _get_ak(self):
         """延迟加载 AKShare"""
         if self._ak is None:
             import akshare as ak
             self._ak = ak
         return self._ak
+
+    def _to_order_book_id(self, symbol: str) -> str:
+        """将 A 股代码转换为 RQData order_book_id。"""
+        code = symbol.strip()
+        if code.endswith((".XSHG", ".XSHE")):
+            return code
+        if code.startswith(("6", "9")):
+            return f"{code}.XSHG"
+        return f"{code}.XSHE"
     
     def load_klines(
         self,
@@ -63,18 +86,28 @@ class BacktestDataLoader:
         # 1. 尝试从数据库加载
         df = self._load_from_db(symbol, start_date, end_date, period)
         
-        # 2. 如果数据不足，从 AKShare 补充
+        # 2. 如果数据不足，优先从 RQData 补充
         if len(df) < self._expected_days(start_date, end_date) * 0.8:
-            logger.info(f"数据库数据不足，从 AKShare 补充 | symbol={symbol}")
+            if period == "daily":
+                logger.info(f"数据库数据不足，从 RQData 补充 | symbol={symbol}")
+                df_rq = self._load_from_rqdata(symbol, start_date, end_date)
+                if not df.empty and not df_rq.empty:
+                    df = pd.concat([df, df_rq]).drop_duplicates(subset=["date"], keep="last")
+                elif not df_rq.empty:
+                    df = df_rq
+
+        # 3. 如果仍然不足，再回退到 AKShare
+        if len(df) < self._expected_days(start_date, end_date) * 0.8:
+            logger.info(f"RQData/数据库数据不足，从 AKShare 补充 | symbol={symbol}")
             df_ak = self._load_from_akshare(symbol, start_date, end_date, period, adjust)
-            
+
             # 合并数据（数据库 + 新数据）
             if not df.empty and not df_ak.empty:
                 df = pd.concat([df, df_ak]).drop_duplicates(subset=['date'], keep='last')
             elif not df_ak.empty:
                 df = df_ak
-        
-        # 3. 数据排序和索引
+
+        # 4. 数据排序和索引
         if not df.empty:
             df = df.sort_values('date')
             df['date'] = pd.to_datetime(df['date'])
@@ -103,8 +136,58 @@ class BacktestDataLoader:
                     return df
         except Exception as e:
             logger.warning(f"数据库加载失败 | symbol={symbol}, error={e}")
-        
+
         return pd.DataFrame()
+
+    def _load_from_rqdata(
+        self,
+        symbol: str,
+        start_date: str,
+        end_date: str,
+    ) -> pd.DataFrame:
+        """从 RQData 加载前复权日线。"""
+        if self._rq is None:
+            return pd.DataFrame()
+
+        try:
+            df = self._rq.get_price(
+                order_book_ids=self._to_order_book_id(symbol),
+                start_date=start_date,
+                end_date=end_date,
+                frequency="1d",
+                adjust_type="pre",
+            )
+
+            if df is None or df.empty:
+                logger.warning(f"RQData 无数据 | symbol={symbol}")
+                return pd.DataFrame()
+
+            df = df.reset_index()
+            if "date" not in df.columns:
+                first_col = df.columns[0]
+                df = df.rename(columns={first_col: "date"})
+
+            if "turnover" not in df.columns and "total_turnover" in df.columns:
+                df = df.rename(columns={"total_turnover": "turnover"})
+
+            df["symbol"] = symbol
+            keep_columns = [
+                "date",
+                "symbol",
+                "open",
+                "high",
+                "low",
+                "close",
+                "volume",
+                "turnover",
+            ]
+            df = df[[col for col in keep_columns if col in df.columns]]
+
+            logger.debug(f"从 RQData 加载 | symbol={symbol}, rows={len(df)}")
+            return df
+        except Exception as e:
+            logger.warning(f"RQData 加载失败 | symbol={symbol}, error={e}")
+            return pd.DataFrame()
     
     def _load_from_akshare(
         self,
