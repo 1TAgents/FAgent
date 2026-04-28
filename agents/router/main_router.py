@@ -343,7 +343,10 @@ class MainRouter:
 
         strategy_keywords = ["策略", "双均线", "macd", "rsi", "布林", "均线策略", "选股策略"]
         backtest_keywords = ["回测", "最大回撤", "夏普", "收益曲线", "收益率", "参数优化", "网格搜索"]
-        trade_keywords = ["下单", "撤单", "持仓", "仓位", "委托", "成交", "开仓", "平仓", "买一手", "卖一手"]
+        trade_keywords = [
+            "下单", "撤单", "持仓", "仓位", "委托", "成交", "开仓", "平仓",
+            "买一手", "卖一手", "模拟买入", "模拟卖出",
+        ]
         market_keywords = ["行情", "股票", "股价", "涨", "跌", "k线", "均线", "趋势", "指数", "行业", "财务", "资金流", "查询", "搜索"]
 
         if any(keyword in message_lower for keyword in strategy_keywords):
@@ -379,13 +382,14 @@ class MainRouter:
                 reasoning="规则匹配 backtest 关键词",
             )
 
-        if any(keyword in message_lower for keyword in trade_keywords):
+        explicit_order = self._is_explicit_order_message(message)
+        if any(keyword in message_lower for keyword in trade_keywords) or explicit_order:
             task_type = TaskType.TRADE_QA
             if "撤单" in message:
                 task_type = TaskType.CANCEL_ORDER
             elif "持仓" in message or "仓位" in message or "委托" in message or "成交" in message:
                 task_type = TaskType.CHECK_POSITIONS
-            elif "下单" in message or "开仓" in message or "平仓" in message or "买一手" in message or "卖一手" in message:
+            elif explicit_order or "下单" in message or "开仓" in message or "平仓" in message or "买一手" in message or "卖一手" in message:
                 task_type = TaskType.PLACE_ORDER
 
             params = {"symbol": symbol} if symbol else {}
@@ -473,6 +477,18 @@ class MainRouter:
             return max(1, min(int(match.group(2)), 120))
 
         return 30
+
+    def _is_explicit_order_message(self, message: str) -> bool:
+        """识别明确交易指令，避免把“能不能买”这类分析问题误判为下单。"""
+        if not any(token in message for token in ["买入", "卖出", "买", "卖"]):
+            return False
+        if any(token in message for token in ["能不能买", "可以买吗", "能买吗", "要不要买", "值得买"]):
+            return False
+
+        has_quantity = bool(re.search(r"\d+\s*(?:手|股)", message))
+        has_order_prefix = any(token in message for token in ["模拟", "下单", "开仓", "平仓"])
+        has_symbol = self._extract_symbol(message) is not None
+        return has_quantity and (has_order_prefix or has_symbol)
 
 
 # 全局实例

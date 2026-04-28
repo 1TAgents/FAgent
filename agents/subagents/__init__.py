@@ -5,9 +5,9 @@ SubAgents - 子智能体
 - base: SubAgent 基类
 - chat_subagent: 通用对话（兜底）
 - market_agent: 行情查询、K线分析
-- strategy_subagent: 策略问答/推荐（占位骨架）
-- backtest_subagent: 回测/优化（占位骨架）
-- trade_subagent: 交易执行（占位骨架）
+- strategy_subagent: 策略问答/推荐
+- backtest_subagent: 回测/优化
+- trade_subagent: 本地模拟交易执行
 """
 
 from .base import BaseSubAgent

@@ -9,6 +9,7 @@ Agents 服务负责 LLM 调用、Router 路由决策、行情/策略/回测工�
 - 提供行情接口：报价、K 线、搜索、趋势分析
 - 提供策略说明能力：策略列表、策略逻辑、参数模板
 - 提供回测能力：标准回测、参数优化、回测产物落盘
+- 提供本地模拟交易能力：模拟下单、撤单、持仓和账户快照
 - 提供会话标题自动生成接口
 - 暴露模型列表给前端和 Backend
 - 在缺少真实 API Key 时切到 Mock 模式
@@ -35,6 +36,8 @@ agents/
 │   ├── api.py
 │   ├── run_store.py
 │   └── vectorized_strategies.py
+├── trading/
+│   └── paper.py
 ├── common/market/
 │   ├── cache.py
 │   ├── client.py
@@ -76,7 +79,7 @@ uvicorn agents.api.main:app --reload --host 0.0.0.0 --port 8001
 - `market`：行情、K 线、趋势、股票搜索
 - `strategy`：策略列表、策略说明、参数模板
 - `backtest`：标准回测、参数优化
-- `trade`：交易类请求入口，当前仍是占位，不会执行真实交易
+- `trade`：本地模拟交易入口，支持模拟下单、撤单、持仓查询；不会执行真实交易
 
 ## 主要接口
 
@@ -98,6 +101,17 @@ uvicorn agents.api.main:app --reload --host 0.0.0.0 --port 8001
 - `POST /backtest/grid_search`
 - `GET /backtest/strategies`
 - `GET /backtest/report/{report_id}`
+
+### 模拟交易
+
+当前模拟交易只通过 `MainRouter` / `TradeSubAgent` 在对话链路中使用，不暴露独立 HTTP API。
+数据默认保存到 `data/paper_trading.db`，可用 `PAPER_TRADING_DB_PATH` 覆盖。
+支持示例：
+
+- `模拟买入 600519 100股 价格 1688`
+- `模拟卖出 600519 100股 价格 1700`
+- `查看持仓`
+- `撤销 po_xxx`
 
 ### 行情
 

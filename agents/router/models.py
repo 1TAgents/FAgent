@@ -41,9 +41,9 @@ class TaskType(Enum):
 
     # 交易相关
     TRADE_QA = "trade_qa"                   # 交易规则/流程问答
-    PLACE_ORDER = "place_order"             # 下单（占位）
-    CANCEL_ORDER = "cancel_order"           # 撤单（占位）
-    CHECK_POSITIONS = "check_positions"     # 持仓/订单查询（占位）
+    PLACE_ORDER = "place_order"             # 下单
+    CANCEL_ORDER = "cancel_order"           # 撤单
+    CHECK_POSITIONS = "check_positions"     # 持仓/订单查询
 
     UNKNOWN = "unknown"                     # 未知
 
