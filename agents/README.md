@@ -1,12 +1,14 @@
 # Agents 模块
 
-Agents 服务负责三类事情：LLM 调用、Router 路由决策、行情工具与标题生成。它本身不做会话持久化，持久化由 Backend 负责。
+Agents 服务负责 LLM 调用、Router 路由决策、行情/策略/回测工具编排与标题生成。它本身不做会话持久化，持久化由 Backend 负责。
 
 ## 当前职责
 
 - 处理纯 LLM 对话接口
-- 通过 `MainRouter` 在 `chat` 和 `market` 之间路由
+- 通过 `MainRouter` 在 `chat`、`market`、`strategy`、`backtest`、`trade` 之间路由
 - 提供行情接口：报价、K 线、搜索、趋势分析
+- 提供策略说明能力：策略列表、策略逻辑、参数模板
+- 提供回测能力：标准回测、参数优化、回测产物落盘
 - 提供会话标题自动生成接口
 - 暴露模型列表给前端和 Backend
 - 在缺少真实 API Key 时切到 Mock 模式
@@ -24,8 +26,15 @@ agents/
 │   ├── main_router.py
 │   └── models.py
 ├── subagents/
+│   ├── backtest_subagent.py
 │   ├── chat_subagent.py
-│   └── market_agent.py
+│   ├── market_agent.py
+│   ├── strategy_subagent.py
+│   └── trade_subagent.py
+├── backtest/
+│   ├── api.py
+│   ├── run_store.py
+│   └── vectorized_strategies.py
 ├── common/market/
 │   ├── cache.py
 │   ├── client.py
@@ -58,13 +67,16 @@ uvicorn agents.api.main:app --reload --host 0.0.0.0 --port 8001
 
 1. 从 Backend 传入 `cid`、`message_id`、`user_message`
 2. `MainRouter` 读取历史消息并调用 LLM 做意图判断
-3. 将请求分发到 `ChatSubAgent` 或 `MarketSubAgent`
+3. 将请求分发到对应的 SubAgent
 4. 直接把子 Agent 的输出流式透传回 Backend
 
 当前主要路由方向：
 
 - `chat`：问候、闲聊、通用问答
 - `market`：行情、K 线、趋势、股票搜索
+- `strategy`：策略列表、策略说明、参数模板
+- `backtest`：标准回测、参数优化
+- `trade`：交易类请求入口，当前仍是占位，不会执行真实交易
 
 ## 主要接口
 
@@ -79,6 +91,13 @@ uvicorn agents.api.main:app --reload --host 0.0.0.0 --port 8001
 ### 标题生成
 
 - `POST /agent/summary/generate`
+
+### 回测
+
+- `POST /backtest/run`
+- `POST /backtest/grid_search`
+- `GET /backtest/strategies`
+- `GET /backtest/report/{report_id}`
 
 ### 行情
 
