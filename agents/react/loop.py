@@ -354,6 +354,11 @@ class ReActAgentLoop:
 
     async def _call_llm(self, messages: List[dict]) -> Any:
         """调用 LLM，带工具配置。"""
+        # 上下文压缩：如果消息过多，压缩旧对话
+        non_system = [m for m in messages if m["role"] != "system"]
+        if len(non_system) > 12:
+            self._compact_messages(messages)
+
         tool_schemas = self._build_tool_schemas_for_llm()
 
         params = {
@@ -494,3 +499,31 @@ class ReActAgentLoop:
             logger.info(f"Trace saved: {self.trace.trace_id} ({len(result.turns)} turns)")
         except Exception as e:
             logger.warning(f"Failed to save trace: {e}")
+
+    def _compact_messages(self, messages: List[dict]) -> None:
+        """就地压缩旧消息，保留 system prompt 和最近的消息。"""
+        from ..core.compaction import compaction
+
+        # 分离 system prompt
+        system_idx = 0 if messages and messages[0]["role"] == "system" else -1
+        if system_idx >= 0:
+            system_msg = messages[0]
+            old_messages = messages[1:]
+        else:
+            system_msg = None
+            old_messages = messages
+
+        compacted, summary = compaction.compact(old_messages, max_tokens=6000, keep_recent=6)
+
+        if not summary:
+            return  # 未触发压缩
+
+        # 替换为压缩结果
+        new_messages = [system_msg] if system_msg else []
+        new_messages.extend(compacted)
+
+        # 就地修改原列表
+        messages.clear()
+        messages.extend(new_messages)
+
+        logger.info(f"上下文压缩: {len(old_messages)} 条 -> {len(compacted)} 条 | 摘要: {summary[:80]}")

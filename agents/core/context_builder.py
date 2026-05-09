@@ -163,6 +163,7 @@ class ContextBuilderWithBudget(AgentContextBuilder):
         """
         budget = budget or ContextBudget()
         messages: List[Message] = []
+        metadata_compaction: dict = {"summary_applied": False}
 
         # 1. System prompt
         system_tokens = count_messages_tokens([{"role": "system", "content": system_prompt}])
@@ -176,16 +177,14 @@ class ContextBuilderWithBudget(AgentContextBuilder):
             tools_msg = {"role": "system", "content": f"可用工具:\n{tools_desc}"}
             messages.append(tools_msg)
 
-        # 3. 历史消息（带预算裁剪）
+        # 3. 历史消息（先压缩，再裁剪）
         if history:
             history_msg = [dict(m) for m in history]
-            trimmed = trim_messages_to_budget(
-                history_msg,
-                budget.history,
-                budget.preserve_head,
-                budget.preserve_tail,
-            )
-            messages.extend(trimmed)
+            compacted, summary = _compact_or_trim(history_msg, budget.history)
+            messages.extend(compacted)
+            if summary:
+                metadata_compaction["summary_applied"] = True
+                metadata_compaction["summary_preview"] = summary[:200]
 
         # 4. 当前用户消息
         messages.append({"role": "user", "content": user_message})
@@ -199,6 +198,7 @@ class ContextBuilderWithBudget(AgentContextBuilder):
             "available_for_output": available_for_output,
             "over_budget": total_tokens > (budget.max_total - budget.reserve),
             "history_count": len([m for m in messages if m["role"] in ("user", "assistant")]),
+            "compaction": metadata_compaction,
         }
 
         if metadata["over_budget"]:
@@ -227,6 +227,37 @@ def _format_tool_schemas_for_context(schemas: List[dict]) -> str:
         if param_descs:
             lines.extend(param_descs)
     return "\n".join(lines)
+
+
+def _compact_or_trim(
+    messages: List[dict],
+    max_tokens: int,
+) -> tuple[List[dict], Optional[str]]:
+    """先尝试压缩摘要，不够则回退到裁剪。
+
+    Args:
+        messages: 历史消息列表
+        max_tokens: 历史 token 预算
+
+    Returns:
+        (消息列表, 摘要文本或None)
+    """
+    from .compaction import compaction
+
+    # 先尝试压缩（保留最近 4 条消息）
+    keep_recent = 4
+    compacted, summary = compaction.compact(messages, max_tokens, keep_recent)
+
+    if summary:
+        return compacted, summary
+
+    # 压缩未触发（说明 token 够），但还是要检查是否需要裁剪
+    return trim_messages_to_budget(
+        messages,
+        max_tokens,
+        preserve_head=1,
+        preserve_tail=keep_recent,
+    ), None
 
 
 context_builder = AgentContextBuilder()
