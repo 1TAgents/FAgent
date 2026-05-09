@@ -31,15 +31,13 @@
 | Memory 接入主链路 | 5 (Memory) | ReActRouter 召回记忆并注入系统提示，ReActLoop 防重复 |
 | 模型回退链 | 9 (Provider) | 主模型失败自动回退到其他提供商的模型 |
 | API 限流 | 8 (Security) | 滑动窗口限流中间件，chat 30/min, auth 10/min |
+| CLI 命令完整实现 | 10 (CLI) | `message` (send/list/show/search)、`memory` (5级披露API)、`test` (4项断言测试)、current_cid 跨调用持久化 |
 
 ### 下一步
 
-1. **Trace 回放与成本统计** — 为 observability 端点增加历史 trace 查询和 token 成本聚合。
-2. **CLI 命令补齐** — `message` / `memory` / `test` 命令的真实实现。
-3. **Memory 自动抽取** — 对话结束后自动从对话中提取用户偏好和事实存入记忆。
-4. **旧 API 端点下线** — `/agent/chat/completion` 和 `/agent/chat/stream`（纯 LLM）逐步替换为 Router 路径。
-5. **自动化冒烟测试** — 为前后端增加端到端测试脚本。
-6. **部署文档** — 生产代理、反向代理、HTTPS 配置。
+1. **旧 API 端点下线** — `/agent/chat/completion` 和 `/agent/chat/stream`（纯 LLM）逐步替换为 Router 路径。
+2. **自动化冒烟测试** — 为前后端增加端到端测试脚本。
+3. **部署文档** — 生产代理、反向代理、HTTPS 配置。
 
 ## 备注
 
