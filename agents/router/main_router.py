@@ -22,14 +22,10 @@ from backend.services.storage import message_storage
 from .models import TaskContext, TaskType, RouteType, RouteDecision
 from .policy import normalize_route_for_task
 from ..services.llm import llm_service
-from ..subagents.backtest_subagent import backtest_subagent
-from ..subagents.chat_subagent import chat_subagent
-from ..subagents.market_agent import market_subagent
-from ..subagents.strategy_subagent import strategy_subagent
-from ..subagents.trade_subagent import trade_subagent
 from ..core.logging import logger, log_router, log_subagent
 from ..core.context import set_context
 from ..core.context_builder import context_builder
+from .react_router import react_router
 
 
 # 路由决策 Prompt
@@ -125,17 +121,7 @@ class MainRouter:
     
     def __init__(self):
         self.llm = llm_service
-        
-        # 注册 SubAgents
-        self.subagents = {
-            RouteType.MARKET: market_subagent,
-            RouteType.CHAT: chat_subagent,
-            RouteType.STRATEGY: strategy_subagent,
-            RouteType.BACKTEST: backtest_subagent,
-            RouteType.TRADE: trade_subagent,
-        }
-        
-        logger.info("MainRouter 初始化完成")
+        logger.info("MainRouter 初始化完成 (ReAct 模式)")
     
     async def process_stream(
         self,
@@ -147,29 +133,29 @@ class MainRouter:
     ) -> AsyncIterator[str]:
         """
         处理用户消息（流式）- 系统主入口
-        
+
         Args:
             cid: 会话 ID
             message_id: 当前消息 ID（用于获取历史）
             user_message: 用户消息
             history_limit: 历史消息条数限制
             model: 动态模型选择（可选）
-            
+
         Yields:
             流式文本片段
         """
         start_time = time.time()
-        
+
         # 设置 mid 到上下文
         set_context(mid=str(message_id))
-        
+
         # 记录请求
         log_router.request(cid=cid, message_id=message_id, user_message=user_message)
-        
+
         # 1. 获取对话历史
         history = self._get_history(cid, message_id, history_limit)
         log_router.history(cid=cid, message_count=len(history), messages=history if len(history) < 10 else None)
-        
+
         # 2. 路由决策
         decision = await self._route(user_message, history)
         log_router.intent(
@@ -178,32 +164,33 @@ class MainRouter:
             params=decision.task_context.params,
             raw_response=decision.reasoning,
         )
-        
-        # 3. 获取对应的 SubAgent
-        subagent = self.subagents.get(decision.route, self.subagents[RouteType.CHAT])
-        subagent_name = subagent.__class__.__name__
-        
-        # 4. 设置上下文的原始信息
+
+        # 3. 设置上下文的原始信息
         decision.task_context.original_message = user_message
         decision.task_context.cid = cid
         decision.task_context.model = model
-        
-        # 记录上下文和分发
+
         log_router.context(decision.task_context)
-        log_router.dispatch(subagent_name, decision.task_context.task_type.value)
-        
-        # 5. 流式透传 SubAgent 的输出
+
+        # 4. 执行：ReAct 循环（带工具调用）
         try:
-            async for chunk in subagent.process_stream(decision.task_context):
+            log_router.dispatch(
+                f"ReAct({decision.route.value})",
+                decision.task_context.task_type.value,
+            )
+            async for chunk in react_router.process_stream(
+                route=decision.route,
+                context=decision.task_context,
+                history=history,
+            ):
                 yield chunk
-                
-            # 记录完成
+
             duration = time.time() - start_time
             log_router.done(cid=cid, duration=duration, route=decision.route.value)
-            
+
         except Exception as e:
-            logger.error(f"[ROUTER] SubAgent 处理失败 | 输入=cid={cid}, subagent={subagent_name} | 原因={str(e)}")
-            log_router.fallback(f"SubAgent 处理失败: {str(e)}")
+            logger.error(f"[ROUTER] ReAct 处理失败 | 输入=cid={cid}, route={decision.route.value} | 原因={str(e)}")
+            log_router.fallback(f"ReAct 处理失败: {str(e)}")
             yield f"抱歉，处理请求时出现错误：{str(e)}"
     
     async def process(
