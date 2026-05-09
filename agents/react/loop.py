@@ -26,6 +26,7 @@ from typing import Any, Dict, Iterator, List, Optional, Sequence
 from ..core.logging import log_subagent, log_chain_event
 from ..tools.registry import ToolRegistry, tool_registry
 from ..tools.result import ToolResult
+from ..services.memory_bridge import memory_bridge, MemoryEntry
 
 logger = logging.getLogger(__name__)
 
@@ -85,6 +86,7 @@ class ReActAgentLoop:
         max_turns: int = 10,
         model: Optional[str] = None,
         verbose: bool = False,
+        use_memory: bool = True,
     ):
         self.llm = llm_service
         self.system_prompt = system_prompt
@@ -92,6 +94,7 @@ class ReActAgentLoop:
         self.max_turns = max_turns
         self.model = model
         self.verbose = verbose
+        self.use_memory = use_memory
 
     def run(
         self,
@@ -289,7 +292,15 @@ class ReActAgentLoop:
         history: Optional[Sequence[dict]] = None,
     ) -> List[dict]:
         """构建完整的 LLM 消息列表。"""
-        messages = [{"role": "system", "content": self.system_prompt}]
+        system_prompt = self.system_prompt
+
+        # 注入记忆上下文
+        if self.use_memory:
+            memory_text = memory_bridge.format_for_prompt(max_entries=5)
+            if memory_text:
+                system_prompt = system_prompt + "\n" + memory_text
+
+        messages = [{"role": "system", "content": system_prompt}]
 
         if history:
             messages.extend([dict(m) for m in history])
