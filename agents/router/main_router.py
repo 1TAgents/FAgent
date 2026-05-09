@@ -28,6 +28,7 @@ from ..subagents.strategy_subagent import strategy_subagent
 from ..subagents.trade_subagent import trade_subagent
 from ..core.logging import logger, log_router, log_subagent
 from ..core.context import set_context
+from ..core.context_builder import context_builder
 
 
 # 路由决策 Prompt
@@ -239,28 +240,11 @@ class MainRouter:
         
         使用 LLM 分析意图并决定路由
         """
-        # 构建消息
-        messages = [
-            {"role": "system", "content": ROUTER_SYSTEM_PROMPT},
-        ]
-        
-        # 添加历史（简化版，只取最近几条）
-        if history:
-            history_text = "\n".join([
-                f"{'用户' if m['role'] == 'user' else 'AI'}: {m['content'][:100]}..."
-                if len(m['content']) > 100 else
-                f"{'用户' if m['role'] == 'user' else 'AI'}: {m['content']}"
-                for m in history[-6:]  # 最近 6 条
-            ])
-            messages.append({
-                "role": "user",
-                "content": f"【对话历史】\n{history_text}\n\n【当前问题】\n{user_message}"
-            })
-        else:
-            messages.append({
-                "role": "user",
-                "content": f"【当前问题】\n{user_message}"
-            })
+        messages = context_builder.build_router_messages(
+            system_prompt=ROUTER_SYSTEM_PROMPT,
+            history=history,
+            user_message=user_message,
+        )
         
         # 调用 LLM
         try:

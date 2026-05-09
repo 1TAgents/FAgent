@@ -19,6 +19,7 @@ from backend.core.context import ctx_logger as logger
 from backend.services.storage import message_storage
 from .llm import llm_service
 from ..core.prompts import DEFAULT_SYSTEM_PROMPT
+from ..core.context_builder import context_builder
 
 
 class ChatAgent:
@@ -73,20 +74,11 @@ class ChatAgent:
         Returns:
             完整的 messages 列表
         """
-        messages = []
-        
-        # 1. System Prompt
-        prompt = system_prompt or DEFAULT_SYSTEM_PROMPT
-        if prompt:
-            messages.append({"role": "system", "content": prompt})
-        
-        # 2. 历史消息
-        messages.extend(history)
-        
-        # 3. 当前用户消息
-        messages.append({"role": "user", "content": user_message})
-        
-        return messages
+        return context_builder.build_chat_messages(
+            system_prompt=system_prompt or DEFAULT_SYSTEM_PROMPT,
+            history=history,
+            user_message=user_message,
+        )
     
     def process_stream(
         self,
@@ -184,4 +176,3 @@ class ChatAgent:
 
 # 全局实例
 chat_agent = ChatAgent()
-
