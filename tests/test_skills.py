@@ -108,22 +108,17 @@ class TestSkillRegistry:
 
 
 class TestLoadSkillTool:
-    def test_load_existing_skill(self, registry):
+    @pytest.mark.asyncio
+    async def test_load_existing_skill(self, registry):
         tool = LoadSkillTool(registry)
-        # execute is async, so we need to run it in an async context
-        import asyncio
-        result = asyncio.get_event_loop().run_until_complete(
-            tool.execute(skill_name="test_analysis")
-        )
+        result = await tool.execute(skill_name="test_analysis")
         assert result.success
         assert "测试技能内容" in result.text
 
-    def test_load_nonexistent_skill(self, registry):
+    @pytest.mark.asyncio
+    async def test_load_nonexistent_skill(self, registry):
         tool = LoadSkillTool(registry)
-        import asyncio
-        result = asyncio.get_event_loop().run_until_complete(
-            tool.execute(skill_name="nonexistent")
-        )
+        result = await tool.execute(skill_name="nonexistent")
         assert not result.success
         assert "不存在" in result.error
 
