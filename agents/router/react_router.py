@@ -25,6 +25,7 @@ from ..services.llm import llm_service
 from ..tools.registry import ToolRegistry, tool_registry
 from ..tools.builtin import register_builtin_tools
 from ..tools.builtin.market import get_market_tools
+from ..tools.permissions import permissions_for_route
 from ..react.loop import ReActAgentLoop, ReActResult
 from ..core.logging import log_router, log_subagent
 from ..core.prompt_builder import prompt_builder
@@ -111,6 +112,9 @@ class ReActRouter:
             started_at=time.time(),
         )
 
+        # 根据路由类型设置权限
+        permissions = permissions_for_route(route.value)
+
         # 创建 ReAct 循环
         loop = ReActAgentLoop(
             llm_service=llm_service,
@@ -121,6 +125,7 @@ class ReActRouter:
             use_memory=True,
             trace=trace,
             cid=cid,
+            permissions=permissions,
         )
 
         # 执行 ReAct 循环

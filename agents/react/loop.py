@@ -29,6 +29,7 @@ from ..core.tracing import ExecutionTrace, TurnTrace, trace_store
 from ..core.session_state import session_state
 from ..tools.registry import ToolRegistry, tool_registry
 from ..tools.result import ToolResult
+from ..tools.permissions import ToolPermissions
 from ..services.memory_bridge import memory_bridge, MemoryEntry
 
 logger = logging.getLogger(__name__)
@@ -102,6 +103,7 @@ class ReActAgentLoop:
         self.use_memory = use_memory
         self.trace = trace
         self.cid = cid
+        self.permissions = ToolPermissions()  # 默认允许所有已注册工具
 
     async def run(
         self,
@@ -442,6 +444,15 @@ class ReActAgentLoop:
     async def _execute_single(self, tool_name: str, tool_args: dict) -> ToolResult:
         """执行单个工具，返回 ToolResult。"""
         exec_start = time.monotonic()
+
+        # 权限检查
+        tool = self.registry.get(tool_name)
+        if tool:
+            if not self.permissions.is_allowed(tool_name, tool.danger_level):
+                reason = self.permissions.deny_reason(tool_name, tool.danger_level)
+                logger.warning(f"工具权限拒绝: {tool_name} - {reason}")
+                return ToolResult.fail(tool_name, error=reason)
+
         try:
             result = await asyncio.wait_for(
                 self.registry.execute(tool_name, **tool_args),

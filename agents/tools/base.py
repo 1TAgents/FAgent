@@ -9,9 +9,24 @@ BaseTool - 工具抽象基类
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from enum import IntEnum
 from typing import Any, Optional
 
 from .result import ToolResult
+
+
+class DangerLevel(IntEnum):
+    """工具危险等级。
+
+    - READ_ONLY: 纯读取，无副作用
+    - WRITE: 修改内部状态或数据
+    - EXECUTE: 可能产生外部副作用
+    - TRADE: 直接涉及交易操作
+    """
+    READ_ONLY = 0
+    WRITE = 1
+    EXECUTE = 2
+    TRADE = 3
 
 
 class BaseTool(ABC):
@@ -28,6 +43,7 @@ class BaseTool(ABC):
     description: str = ""
     category: str = "builtin"  # builtin | market | backtest | trading | mcp | external
     timeout_seconds: int = 30  # 单个工具执行超时时间
+    danger_level: DangerLevel = DangerLevel.READ_ONLY
 
     @property
     def parameters(self) -> dict:

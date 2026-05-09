@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import List
 
-from ..base import BaseTool
+from ..base import BaseTool, DangerLevel
 from ..result import ToolResult
 from ...common.market import market_service, KLinePeriod
 from ...core.logging import logger
@@ -20,6 +20,7 @@ class GetQuoteTool(BaseTool):
     name = "get_quote"
     description = "查询股票实时行情，包括当前价、涨跌幅、成交量等"
     category = "market"
+    danger_level = DangerLevel.READ_ONLY
 
     @property
     def parameters(self) -> dict:
@@ -58,6 +59,7 @@ class GetKLineTool(BaseTool):
     name = "get_kline"
     description = "查询股票K线数据（日K/周K/月K/分钟K），返回OHLCV数据"
     category = "market"
+    danger_level = DangerLevel.READ_ONLY
 
     @property
     def parameters(self) -> dict:
@@ -108,6 +110,7 @@ class SearchStockTool(BaseTool):
     name = "search_stock"
     description = "根据关键词搜索股票，支持名称、拼音等搜索方式"
     category = "market"
+    danger_level = DangerLevel.READ_ONLY
 
     @property
     def parameters(self) -> dict:
@@ -151,6 +154,7 @@ class AnalyzeTrendTool(BaseTool):
     name = "analyze_trend"
     description = "对指定股票进行趋势分析，计算均线(MA5/MA10/MA20)、判断趋势方向、识别金叉/死叉信号"
     category = "market"
+    danger_level = DangerLevel.READ_ONLY
 
     @property
     def parameters(self) -> dict:
