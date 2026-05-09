@@ -17,11 +17,12 @@ ReAct Agent Loop - LLM 驱动的工具调用循环
 """
 from __future__ import annotations
 
+import asyncio
 import time
 import json
 import logging
 from dataclasses import dataclass, field
-from typing import Any, Dict, Iterator, List, Optional, Sequence
+from typing import Any, AsyncIterator, Dict, List, Optional, Sequence
 
 from ..core.logging import log_subagent, log_chain_event
 from ..tools.registry import ToolRegistry, tool_registry
@@ -96,7 +97,7 @@ class ReActAgentLoop:
         self.verbose = verbose
         self.use_memory = use_memory
 
-    def run(
+    async def run(
         self,
         user_message: str,
         history: Optional[Sequence[dict]] = None,
@@ -150,43 +151,23 @@ class ReActAgentLoop:
                     "tool_calls": tool_calls,
                 })
 
-                # 3. 执行工具
-                for tc in tool_calls:
-                    tool_name = tc.get("name", "")
-                    tool_args = tc.get("arguments", {})
+                # 3. 并行执行工具
+                tool_results = await self._execute_tools_parallel(tool_calls)
+                turn.tool_results = tool_results
+
+                for tc, tr in zip(tool_calls, tool_results):
                     tool_id = tc.get("id", "")
-
-                    log_subagent.tool_call(tool_name, tool_args)
-                    exec_start = time.monotonic()
-
-                    import asyncio
-                    try:
-                        tool_result = asyncio.get_event_loop().run_until_complete(
-                            self.registry.execute(tool_name, **tool_args)
-                        )
-                    except RuntimeError:
-                        # 如果没有事件循环，创建一个新的
-                        tool_result = asyncio.run(
-                            self.registry.execute(tool_name, **tool_args)
-                        )
-
-                    duration = (time.monotonic() - exec_start) * 1000
-                    tool_result.duration_ms = duration
-                    turn.tool_results.append(tool_result)
-
                     log_subagent.tool_result(
-                        tool_name,
-                        tool_result.success,
-                        data=tool_result.to_llm_content()[:200],
-                        error=tool_result.error,
-                        duration=duration / 1000,
+                        tr.tool_name,
+                        tr.success,
+                        data=tr.to_llm_content()[:200],
+                        error=tr.error,
+                        duration=tr.duration_ms / 1000,
                     )
-
-                    # 回写 tool result 消息
                     messages.append({
                         "role": "tool",
                         "tool_call_id": tool_id,
-                        "content": tool_result.to_llm_content(),
+                        "content": tr.to_llm_content(),
                     })
 
                 result.total_tokens += 100  # 粗略估算
@@ -206,11 +187,11 @@ class ReActAgentLoop:
         result.content = "抱歉，处理您的请求时超出了最大循环次数。"
         return result
 
-    def run_stream(
+    async def run_stream(
         self,
         user_message: str,
         history: Optional[Sequence[dict]] = None,
-    ) -> Iterator[str]:
+    ) -> AsyncIterator[str]:
         """执行 ReAct 循环（流式输出最终回复）。
 
         工具调用阶段不输出中间结果，只在 LLM 返回最终回复时流式输出。
@@ -243,35 +224,21 @@ class ReActAgentLoop:
                     stuck_counter = 0
                     last_tool_signature = sig
 
-                # 执行工具
-                for tc in tool_calls:
-                    tool_name = tc.get("name", "")
-                    tool_args = tc.get("arguments", {})
+                # 并行执行工具
+                tool_results = await self._execute_tools_parallel(tool_calls)
+
+                for tc, tr in zip(tool_calls, tool_results):
                     tool_id = tc.get("id", "")
-
-                    log_subagent.tool_call(tool_name, tool_args)
-
-                    import asyncio
-                    try:
-                        tool_result = asyncio.get_event_loop().run_until_complete(
-                            self.registry.execute(tool_name, **tool_args)
-                        )
-                    except RuntimeError:
-                        tool_result = asyncio.run(
-                            self.registry.execute(tool_name, **tool_args)
-                        )
-
                     log_subagent.tool_result(
-                        tool_name,
-                        tool_result.success,
-                        data=tool_result.to_llm_content()[:200],
-                        error=tool_result.error,
+                        tr.tool_name,
+                        tr.success,
+                        data=tr.to_llm_content()[:200],
+                        error=tr.error,
                     )
-
                     messages.append({
                         "role": "tool",
                         "tool_call_id": tool_id,
-                        "content": tool_result.to_llm_content(),
+                        "content": tr.to_llm_content(),
                     })
                 # 继续循环
             else:
@@ -367,3 +334,42 @@ class ReActAgentLoop:
         if message and hasattr(message, "content"):
             return message.content
         return None
+
+    async def _execute_tools_parallel(
+        self,
+        tool_calls: List[dict],
+    ) -> List[ToolResult]:
+        """并行执行多个工具调用。
+
+        每个工具调用独立执行，失败不影响其他工具。
+        返回结果列表（与 tool_calls 顺序一致）。
+        """
+        coros = []
+        for tc in tool_calls:
+            tool_name = tc.get("name", "")
+            tool_args = tc.get("arguments", {})
+            log_subagent.tool_call(tool_name, tool_args)
+            coros.append(self._execute_single(tool_name, tool_args))
+
+        results = await asyncio.gather(*coros, return_exceptions=True)
+
+        processed = []
+        for i, result in enumerate(results):
+            if isinstance(result, Exception):
+                tool_name = tool_calls[i].get("name", "unknown")
+                tr = ToolResult.fail(tool_name, error=str(result))
+            else:
+                tr = result
+            processed.append(tr)
+
+        return processed
+
+    async def _execute_single(self, tool_name: str, tool_args: dict) -> ToolResult:
+        """执行单个工具，返回 ToolResult。"""
+        exec_start = time.monotonic()
+        try:
+            result = await self.registry.execute(tool_name, **tool_args)
+        except Exception as e:
+            result = ToolResult.fail(tool_name, error=str(e))
+        result.duration_ms = (time.monotonic() - exec_start) * 1000
+        return result

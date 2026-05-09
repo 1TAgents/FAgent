@@ -96,34 +96,40 @@ def registry():
 
 
 class TestReActAgentLoop:
-    def test_single_turn_no_tools(self):
+    @pytest.mark.asyncio
+    async def test_single_turn_no_tools(self):
         llm = MockLLM(behavior="single_turn")
         reg = ToolRegistry()
         loop = ReActAgentLoop(llm, system_prompt="test", registry=reg, model="test")
-        result = loop.run("你好")
+        result = await loop.run("你好")
         assert result.content == "贵州茅台当前股价为 1850.00 元。"
         assert result.error is None
         assert len(result.turns) == 1
 
-    def test_two_turn_with_tool_call(self, registry):
+    @pytest.mark.asyncio
+    async def test_two_turn_with_tool_call(self, registry):
         llm = MockLLM(behavior="two_turn")
         loop = ReActAgentLoop(llm, system_prompt="test", registry=registry, model="test")
-        result = loop.run("茅台股价多少？")
+        result = await loop.run("茅台股价多少？")
         assert result.content == "贵州茅台当前股价为 1850.00 元。"
         assert result.error is None
         assert len(result.turns) == 2
         assert len(result.turns[0].tool_calls) == 1
         assert result.turns[0].tool_calls[0]["name"] == "get_quote"
 
-    def test_stream_output(self):
+    @pytest.mark.asyncio
+    async def test_stream_output(self):
         llm = MockLLM(behavior="single_turn")
         reg = ToolRegistry()
         loop = ReActAgentLoop(llm, system_prompt="test", registry=reg, model="test")
-        chunks = list(loop.run_stream("你好"))
+        chunks = []
+        async for chunk in loop.run_stream("你好"):
+            chunks.append(chunk)
         assert len(chunks) > 0
         assert "1850" in "".join(chunks)
 
-    def test_stuck_detection(self, registry):
+    @pytest.mark.asyncio
+    async def test_stuck_detection(self, registry):
         """测试循环调用检测。"""
         class StuckLLM:
             def __init__(self):
@@ -155,7 +161,7 @@ class TestReActAgentLoop:
 
         llm = StuckLLM()
         loop = ReActAgentLoop(llm, system_prompt="test", registry=registry, model="test")
-        result = loop.run("茅台股价？")
+        result = await loop.run("茅台股价？")
         assert result.error is None  # stuck 终止不视为错误
         assert "循环" in result.content
 

@@ -97,7 +97,7 @@ class ReActRouter:
         )
 
         # 执行 ReAct 循环
-        for chunk in loop.run_stream(context.query, history):
+        async for chunk in loop.run_stream(context.query, history):
             yield chunk
 
         duration = time.time() - start_time
