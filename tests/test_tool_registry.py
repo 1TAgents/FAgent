@@ -128,7 +128,7 @@ class TestToolRegistry:
         reg = ToolRegistry()
         register_builtin_tools(reg)
         schemas = reg.get_all_schemas()
-        assert len(schemas) == 4
+        assert len(schemas) == 11
         for s in schemas:
             assert "name" in s
             assert "description" in s
@@ -138,8 +138,10 @@ class TestToolRegistry:
         reg = ToolRegistry()
         register_builtin_tools(reg)
         summary = reg.summary()
-        assert summary["total"] == 4
+        assert summary["total"] == 11
         assert "market" in summary["categories"]
+        assert "backtest" in summary["categories"]
+        assert "trading" in summary["categories"]
 
     def test_repr(self):
         reg = ToolRegistry()
@@ -153,11 +155,18 @@ class TestBuiltinTools:
     def test_all_tools_registered(self):
         reg = ToolRegistry()
         register_builtin_tools(reg)
-        assert reg.count == 4
+        assert reg.count == 11
         assert reg.has("get_quote")
         assert reg.has("get_kline")
         assert reg.has("search_stock")
         assert reg.has("analyze_trend")
+        assert reg.has("list_strategies")
+        assert reg.has("get_strategy_info")
+        assert reg.has("run_backtest")
+        assert reg.has("optimize_backtest")
+        assert reg.has("place_order")
+        assert reg.has("cancel_order")
+        assert reg.has("check_positions")
 
     def test_tool_repr(self):
         tool = GetQuoteTool()

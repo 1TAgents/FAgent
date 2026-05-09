@@ -25,6 +25,8 @@ from ..services.llm import llm_service
 from ..tools.registry import ToolRegistry, tool_registry
 from ..tools.builtin import register_builtin_tools
 from ..tools.builtin.market import get_market_tools
+from ..tools.builtin.backtest import get_backtest_tools
+from ..tools.builtin.trading import get_trading_tools
 from ..tools.permissions import permissions_for_route
 from ..skills.registry import skill_registry
 from ..skills.builtin import ALL_BUILTIN_SKILLS
@@ -42,10 +44,10 @@ logger = logging.getLogger(__name__)
 ROUTE_TOOLS: dict[RouteType, list] = {
     RouteType.MARKET: get_market_tools,
     RouteType.CHAT: lambda: [],
-    RouteType.STRATEGY: lambda: [],  # 策略问答暂不需要工具
-    RouteType.BACKTEST: lambda: [],   # 回测暂不需要工具
-    RouteType.TRADE: lambda: [],      # 交易暂不需要工具
-    RouteType.NEWS: lambda: [],       # 新闻暂不需要工具
+    RouteType.STRATEGY: lambda: get_backtest_tools()[:2],  # list_strategies + get_strategy_info
+    RouteType.BACKTEST: get_backtest_tools,                 # 全部回测工具
+    RouteType.TRADE: get_trading_tools,                     # place_order + cancel_order + check_positions
+    RouteType.NEWS: lambda: [],
 }
 
 
