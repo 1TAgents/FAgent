@@ -22,7 +22,7 @@ class SummaryService:
         self.llm = llm_service
         logger.info("SummaryService 初始化完成")
     
-    def generate_summary(
+    async def generate_summary(
         self,
         messages: List[Dict],
         max_messages: int = 6
@@ -55,7 +55,7 @@ class SummaryService:
         logger.debug(f"生成会话总结 | messages_count={len(recent_messages)}")
         
         try:
-            response = self.llm.chat_completion(
+            response = await self.llm.chat_completion(
                 messages=llm_messages,
                 temperature=0.3,  # 低温度，输出更稳定
                 max_tokens=50     # 标题不需要很长

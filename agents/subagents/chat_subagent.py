@@ -76,7 +76,7 @@ class ChatSubAgent(BaseSubAgent):
         
         # 流式调用 LLM（传递 model 参数）
         chunk_count = 0
-        for chunk in self.llm.chat_completion_stream(
+        async for chunk in self.llm.chat_completion_stream(
             messages=messages,
             temperature=0.7,
             model=model,
@@ -99,7 +99,7 @@ class ChatSubAgent(BaseSubAgent):
         messages = self._build_messages(context)
         
         # 非流式调用 LLM（传递 model 参数）
-        response = self.llm.chat_completion(
+        response = await self.llm.chat_completion(
             messages=messages,
             temperature=0.7,
             model=context.model,

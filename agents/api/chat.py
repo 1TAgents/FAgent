@@ -77,7 +77,7 @@ async def agent_chat_completion(request: AgentChatRequest):
         if request.reasoning:
             kwargs["reasoning"] = {"enabled": True}
         
-        response = llm_service.chat_completion(
+        response = await llm_service.chat_completion(
             messages=messages,
             temperature=request.temperature,
             max_tokens=request.max_tokens,
@@ -116,10 +116,10 @@ async def agent_chat_stream(request: AgentChatRequest):
         temperature = request.temperature
         max_tokens = request.max_tokens
         
-        def generate():
+        async def generate():
             """SSE 事件生成器"""
             try:
-                for chunk in llm_service.chat_completion_stream(
+                async for chunk in llm_service.chat_completion_stream(
                     messages=messages,
                     temperature=temperature,
                     max_tokens=max_tokens,
@@ -127,10 +127,10 @@ async def agent_chat_stream(request: AgentChatRequest):
                 ):
                     data = json.dumps({"content": chunk}, ensure_ascii=False)
                     yield f"data: {data}\n\n"
-                
+
                 # 发送完成信号
                 yield "data: [DONE]\n\n"
-                
+
             except Exception as e:
                 error_data = json.dumps({"error": str(e)}, ensure_ascii=False)
                 yield f"data: {error_data}\n\n"

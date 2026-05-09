@@ -80,7 +80,7 @@ class ChatAgent:
             user_message=user_message,
         )
     
-    def process_stream(
+    async def process_stream(
         self,
         cid: int,
         message_id: int,
@@ -118,7 +118,7 @@ class ChatAgent:
         logger.debug(f"构建上下文完成 | total_messages={len(messages)}")
         
         # 3. 调用 LLM（流式）
-        for chunk in self.llm.chat_completion_stream(
+        async for chunk in self.llm.chat_completion_stream(
             messages=messages,
             temperature=temperature,
             max_tokens=max_tokens,
@@ -126,7 +126,7 @@ class ChatAgent:
         ):
             yield chunk
     
-    def process(
+    async def process(
         self,
         cid: int,
         message_id: int,
@@ -164,7 +164,7 @@ class ChatAgent:
         logger.debug(f"构建上下文完成 | total_messages={len(messages)}")
         
         # 3. 调用 LLM（非流式）
-        response = self.llm.chat_completion(
+        response = await self.llm.chat_completion(
             messages=messages,
             temperature=temperature,
             max_tokens=max_tokens,

@@ -226,7 +226,7 @@ class MainRouter:
     ) -> RouteDecision:
         """
         路由决策
-        
+
         使用 LLM 分析意图并决定路由
         """
         messages = context_builder.build_router_messages(
@@ -234,10 +234,10 @@ class MainRouter:
             history=history,
             user_message=user_message,
         )
-        
+
         # 调用 LLM
         try:
-            response = self.llm.chat_completion(
+            response = await self.llm.chat_completion(
                 messages=messages,
                 temperature=0.3,  # 低温度，更确定性
             )

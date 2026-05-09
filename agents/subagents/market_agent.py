@@ -172,7 +172,7 @@ class MarketSubAgent(BaseSubAgent):
         )
         
         chunk_count = 0
-        for chunk in self.llm.chat_completion_stream(
+        async for chunk in self.llm.chat_completion_stream(
             messages=messages,
             temperature=0.7,
             model=model,
