@@ -27,6 +27,7 @@ class BaseTool(ABC):
     name: str = ""
     description: str = ""
     category: str = "builtin"  # builtin | market | backtest | trading | mcp | external
+    timeout_seconds: int = 30  # 单个工具执行超时时间
 
     @property
     def parameters(self) -> dict:
@@ -57,10 +58,16 @@ class BaseTool(ABC):
 
     async def __call__(self, **kwargs) -> ToolResult:
         """便捷调用入口。"""
+        import asyncio
         import time
         start = time.monotonic()
         try:
-            result = await self.execute(**kwargs)
+            result = await asyncio.wait_for(
+                self.execute(**kwargs),
+                timeout=self.timeout_seconds,
+            )
+        except asyncio.TimeoutError:
+            result = ToolResult.fail(self.name, error=f"工具执行超时 ({self.timeout_seconds}s)")
         except Exception as e:
             result = ToolResult.fail(self.name, error=str(e))
         result.duration_ms = (time.monotonic() - start) * 1000

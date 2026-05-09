@@ -243,7 +243,7 @@ class ReActAgentLoop:
                             tool_calls=[tc.get("name", "") for tc in tool_calls],
                         ))
                         yield "抱歉，处理您的请求时遇到循环，已终止。"
-                        self._save_trace_from_stream(turns, total_tokens, user_message, error=None)
+                        self._save_trace_from_stream(turns, total_tokens, user_message, error="stuck: repeated tool calls")
                         return
                 else:
                     stuck_counter = 0
@@ -429,7 +429,12 @@ class ReActAgentLoop:
         """执行单个工具，返回 ToolResult。"""
         exec_start = time.monotonic()
         try:
-            result = await self.registry.execute(tool_name, **tool_args)
+            result = await asyncio.wait_for(
+                self.registry.execute(tool_name, **tool_args),
+                timeout=30,
+            )
+        except asyncio.TimeoutError:
+            result = ToolResult.fail(tool_name, error="工具执行超时 (30s)")
         except Exception as e:
             result = ToolResult.fail(tool_name, error=str(e))
         result.duration_ms = (time.monotonic() - exec_start) * 1000
