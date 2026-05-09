@@ -33,11 +33,11 @@
 | API 限流 | 8 (Security) | 滑动窗口限流中间件，chat 30/min, auth 10/min |
 | CLI 命令完整实现 | 10 (CLI) | `message` (send/list/show/search)、`memory` (5级披露API)、`test` (4项断言测试)、current_cid 跨调用持久化 |
 | 冒烟测试 | 10 (Testing) | 8个端到端测试覆盖工具注册/ReAct Loop/Trace/Memory/Prompt/Session/CLI/Observability |
+| 旧 API 端点下线 | 2 (Runtime) | `/api/chat/send` 从 `/agent/chat/completion` 迁移到 `/agent/chat/router/completion` |
 
 ### 下一步
 
-1. **旧 API 端点下线** — `/agent/chat/completion` 和 `/agent/chat/stream`（纯 LLM）逐步替换为 Router 路径。
-2. **部署文档** — 生产代理、反向代理、HTTPS 配置。
+1. **部署文档** — 生产代理、反向代理、HTTPS 配置。
 
 ## 备注
 
