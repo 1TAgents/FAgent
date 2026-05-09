@@ -20,8 +20,11 @@ import time
 import logging
 from typing import AsyncIterator, List, Optional
 
+import asyncio
+
 from .models import TaskContext, RouteType
 from ..services.llm import llm_service
+from ..services.memory_extractor import memory_extractor
 from ..tools.registry import ToolRegistry, tool_registry
 from ..tools.builtin import register_builtin_tools
 from ..tools.builtin.market import get_market_tools
@@ -148,8 +151,10 @@ class ReActRouter:
         )
 
         # 执行 ReAct 循环
+        full_response = ""
         try:
             async for chunk in loop.run_stream(context.query, history):
+                full_response += chunk
                 yield chunk
         except Exception as e:
             session_state.set_error(cid)
@@ -157,6 +162,16 @@ class ReActRouter:
         finally:
             if not session_state.is_cancelled(cid):
                 session_state.finish(cid)
+
+        # 后台抽取记忆
+        if full_response and not session_state.is_cancelled(cid):
+            asyncio.create_task(
+                memory_extractor.extract_and_store(
+                    context.query,
+                    full_response,
+                    cid=cid,
+                ),
+            )
 
         duration = time.time() - start_time
         log_router.done(
