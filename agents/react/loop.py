@@ -338,8 +338,8 @@ class ReActAgentLoop:
         """构建完整的 LLM 消息列表。"""
         system_prompt = self.system_prompt
 
-        # 注入记忆上下文
-        if self.use_memory:
+        # 注入记忆上下文（如果 Router 尚未注入）
+        if self.use_memory and "已由 Router 注入" not in system_prompt:
             memory_text = memory_bridge.format_for_prompt(max_entries=5)
             if memory_text:
                 system_prompt = system_prompt + "\n" + memory_text

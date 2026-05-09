@@ -89,7 +89,7 @@ class SystemPromptBuilder:
         if not memories:
             return base_prompt
 
-        lines = ["\n【上下文记忆】"]
+        lines = ["\n【上下文记忆】(已由 Router 注入)"]
         lines.extend(memories)
         lines.append("")
 

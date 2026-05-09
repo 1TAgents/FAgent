@@ -31,6 +31,7 @@ from ..tools.permissions import permissions_for_route
 from ..skills.registry import skill_registry
 from ..skills.builtin import ALL_BUILTIN_SKILLS
 from ..skills.load_skill import get_skill_tools
+from ..services.memory_bridge import memory_bridge
 from ..react.loop import ReActAgentLoop, ReActResult
 from ..core.logging import log_router, log_subagent
 from ..core.prompt_builder import prompt_builder
@@ -107,12 +108,15 @@ class ReActRouter:
         for st in skill_tools:
             tool_registry.register(st)
 
-        # 构建系统提示词（注入技能索引）
+        # 构建系统提示词（注入技能索引 + 记忆召回）
         skill_index_text = skill_registry.get_index_for_route(route.value)
+        memories = memory_bridge.recall_all(limit_per_category=3)
+        memory_lines = [e.to_prompt_line() for e in memories] if memories else None
         system_prompt = prompt_builder.build(
             route=route.value,
             tool_schemas=[t.schema for t in tools] if tools else None,
             skill_index=skill_index_text if skill_index_text else None,
+            memories=memory_lines,
         )
 
         # 创建 ExecutionTrace
