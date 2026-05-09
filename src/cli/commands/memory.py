@@ -33,30 +33,49 @@ def memory():
 def memory_overview():
     """Level 1: 会话概览"""
     memory_mgr = get_memory()
-    
+
     if not memory_mgr.current_cid:
         console.print("[yellow]暂无当前会话，请先创建或切换会话[/yellow]")
         console.print("\n使用 [cyan]fagent session new[/cyan] 创建会话")
         return
-    
+
     cid = memory_mgr.current_cid
-    
+
     try:
-        # TODO: 实现会话概览 API
-        # overview = memory_mgr.api.get_conversation_overview(cid)
-        
+        info = memory_mgr.get_session_info(cid)
+        if not info:
+            console.print(f"[red]会话不存在：{cid}[/red]")
+            return
+
+        messages = memory_mgr.get_messages(cid, limit=100)
+        summaries = memory_mgr.get_summaries(cid)
+
+        # 统计各角色消息数
+        role_counts = {}
+        for msg in messages:
+            role_counts[msg.role.value] = role_counts.get(msg.role.value, 0) + 1
+
+        stats_lines = []
+        for role, count in sorted(role_counts.items()):
+            stats_lines.append(f"  {role}: {count}")
+
+        # 最后一条消息时间
+        last_msg_time = messages[-1].timestamp[:19] if messages else "-"
+
         console.print(Panel(
-            f"[bold]会话 ID:[/bold] {cid}\n\n"
-            f"[yellow]⚠ 会话概览功能待实现[/yellow]\n\n"
-            f"[dim]该功能将显示:[/dim]\n"
-            f"- 摘要列表\n"
-            f"- 每个摘要的覆盖消息数\n"
-            f"- 快速导航提示",
-            title="📊 FAgent Memory - Level 1 概览",
+            f"[bold]会话 ID:[/bold] {cid}\n"
+            f"[bold]标题:[/bold] {info['title'] or '-'}\n"
+            f"[bold]状态:[/bold] {info['status']}\n"
+            f"[bold]消息总数:[/bold] {len(messages)}\n"
+            f"[bold]摘要数:[/bold] {len(summaries)}\n"
+            f"[bold]最后活跃:[/bold] {last_msg_time}\n\n"
+            f"[bold]消息分布:[/bold]\n"
+            + "\n".join(stats_lines) if stats_lines else "  暂无消息",
+            title="FAgent Memory - Level 1 概览",
             border_style="blue"
         ))
     except Exception as e:
-        console.print(f"[red]✗ 查询失败：{e}[/red]")
+        console.print(f"[red]查询失败：{e}[/red]")
 
 
 @memory.command('messages')
@@ -64,44 +83,46 @@ def memory_overview():
 @click.option('--start', '-s', default=0, help='起始位置')
 def memory_messages(limit, start):
     """Level 2: 消息列表（分页，带摘要标记）"""
-    api = get_api()
     memory_mgr = get_memory()
-    
+
     if not memory_mgr.current_cid:
         console.print("[yellow]暂无当前会话[/yellow]")
         return
-    
+
     cid = memory_mgr.current_cid
-    
+
     try:
-        result = api.get_conversation_messages(cid, start=start, limit=limit)
-        
-        console.print(Panel(
-            f"[bold]会话 ID:[/bold] {result['cid']}\n"
-            f"[bold]消息数:[/bold] {len(result['messages'])}\n"
-            f"[green]✓ 消息列表[/green]",
-            title="📋 FAgent Memory - Level 2 消息列表",
-            border_style="cyan"
-        ))
-        
-        if result['messages']:
-            table = Table(show_header=True, header_style="bold magenta")
-            table.add_column("MID", style="cyan", max_width=20)
-            table.add_column("角色", style="white")
-            table.add_column("内容", style="yellow")
-            table.add_column("摘要", style="green")
-            
-            for msg in result['messages']:
-                table.add_row(
-                    msg['mid'],
-                    msg['role'],
-                    msg['content_preview'][:50],
-                    "✓" if msg['has_summary'] else "-"
-                )
-            
-            console.print(table)
+        messages = memory_mgr.get_messages(cid, start=start, limit=limit)
+        summaries = memory_mgr.get_summaries(cid)
+        summary_mids = set()
+        for s in summaries:
+            for mid in s.covered_mids:
+                summary_mids.add(mid)
+
+        if not messages:
+            console.print("[yellow]暂无消息[/yellow]")
+            return
+
+        table = Table(show_header=True, header_style="bold magenta")
+        table.add_column("序号", style="dim", max_width=6)
+        table.add_column("MID", style="cyan", max_width=20)
+        table.add_column("角色", style="white")
+        table.add_column("内容", style="yellow")
+        table.add_column("摘要", style="green")
+
+        for msg in messages:
+            table.add_row(
+                str(msg.sequence_num),
+                msg.mid,
+                msg.role.value,
+                msg.content[:50],
+                "已覆盖" if msg.mid in summary_mids else "-",
+            )
+
+        console.print(table)
+        console.print(f"\n[dim]共 {len(messages)} 条消息 (offset={start})[/dim]")
     except Exception as e:
-        console.print(f"[red]✗ 查询失败：{e}[/red]")
+        console.print(f"[red]查询失败：{e}[/red]")
 
 
 @memory.command('detail')
@@ -109,31 +130,43 @@ def memory_messages(limit, start):
 def memory_detail(mid):
     """Level 3: 单条消息详情（完整原始内容）"""
     memory_mgr = get_memory()
-    
+
     if not memory_mgr.current_cid:
         console.print("[yellow]暂无当前会话[/yellow]")
         return
-    
+
     cid = memory_mgr.current_cid
-    
+
     try:
-        # TODO: 实现消息详情 API
-        # detail = memory_mgr.api.get_message_detail(cid, mid)
-        
-        console.print(Panel(
-            f"[bold]消息 ID:[/bold] {mid}\n"
-            f"[bold]会话 ID:[/bold] {cid}\n\n"
-            f"[yellow]⚠ 消息详情功能待实现[/yellow]\n\n"
-            f"[dim]该功能将显示:[/dim]\n"
-            f"- 完整原始内容（不截断）\n"
-            f"- 消息元数据（时间戳、角色、序号）\n"
-            f"- 关联的摘要\n"
-            f"- 导航提示",
-            title="📄 FAgent Memory - Level 3 消息详情",
-            border_style="green"
-        ))
+        msg = memory_mgr.get_message(cid, mid)
+        if not msg:
+            console.print(f"[red]消息不存在：{mid}[/red]")
+            return
+
+        summaries = memory_mgr.get_summaries(cid)
+        covered_by = [s for s in summaries if mid in s.covered_mids]
+
+        lines = [
+            f"[bold]消息 ID:[/bold] {msg.mid}",
+            f"[bold]会话:[/bold] {msg.cid}",
+            f"[bold]角色:[/bold] {msg.role.value}",
+            f"[bold]时间:[/bold] {msg.timestamp[:19] if msg.timestamp else '-'}",
+            f"[bold]序号:[/bold] {msg.sequence_num}",
+            f"[bold]状态:[/bold] {msg.status.value}",
+            "",
+            f"[bold]内容:[/bold]",
+            msg.content,
+        ]
+
+        if covered_by:
+            lines.append("")
+            lines.append(f"[bold]被 {len(covered_by)} 个摘要覆盖:[/bold]")
+            for s in covered_by:
+                lines.append(f"  - {s.sid}: {s.summary[:60]}...")
+
+        console.print(Panel("\n".join(lines), title="FAgent Memory - Level 3 消息详情", border_style="green"))
     except Exception as e:
-        console.print(f"[red]✗ 查询失败：{e}[/red]")
+        console.print(f"[red]查询失败：{e}[/red]")
 
 
 @memory.command('tool')
@@ -142,32 +175,42 @@ def memory_detail(mid):
 def memory_tool(rid, full):
     """Level 4: 工具响应详情（摘要 + 懒加载完整内容）"""
     memory_mgr = get_memory()
-    
-    if not memory_mgr.current_cid:
-        console.print("[yellow]暂无当前会话[/yellow]")
-        return
-    
-    cid = memory_mgr.current_cid
-    
+
     try:
-        # TODO: 实现工具响应 API
-        # tool_detail = memory_mgr.api.get_tool_response_detail(rid)
-        
-        console.print(Panel(
-            f"[bold]响应 ID:[/bold] {rid}\n"
-            f"[bold]会话 ID:[/bold] {cid}\n"
-            f"[bold]完整内容:[/bold] {'是' if full else '否'}\n\n"
-            f"[yellow]⚠ 工具响应功能待实现[/yellow]\n\n"
-            f"[dim]该功能将显示:[/dim]\n"
-            f"- 工具名称和输入\n"
-            f"- 响应摘要\n"
-            f"- 关键数据（结构化）\n"
-            f"- 完整内容（懒加载，--full 选项）",
-            title="🔧 FAgent Memory - Level 4 工具响应",
-            border_style="yellow"
-        ))
+        response = memory_mgr.get_tool_response(rid)
+        if not response:
+            console.print(f"[red]工具响应不存在：{rid}[/red]")
+            return
+
+        lines = [
+            f"[bold]响应 ID:[/bold] {response.rid}",
+            f"[bold]会话:[/bold] {response.cid}",
+            f"[bold]消息:[/bold] {response.mid}",
+            f"[bold]工具:[/bold] {response.tool_name}",
+            f"[bold]存储类型:[/bold] {response.storage_type.value}",
+            f"[bold]响应大小:[/bold] {response.response_size} bytes",
+            f"[bold]创建时间:[/bold] {response.created_at[:19]}",
+            "",
+            f"[bold]摘要:[/bold] {response.summary}",
+        ]
+
+        if response.key_data:
+            lines.append("")
+            lines.append("[bold]关键数据:[/bold]")
+            for k, v in response.key_data.items():
+                lines.append(f"  {k}: {v}")
+
+        if full and response.inline_content:
+            lines.append("")
+            lines.append("[bold]完整内容:[/bold]")
+            lines.append(response.inline_content)
+        elif response.can_load_full and not full:
+            lines.append("")
+            lines.append(f"[dim]使用 --full 加载完整内容（{response.response_size} bytes）[/dim]")
+
+        console.print(Panel("\n".join(lines), title="FAgent Memory - Level 4 工具响应", border_style="yellow"))
     except Exception as e:
-        console.print(f"[red]✗ 查询失败：{e}[/red]")
+        console.print(f"[red]查询失败：{e}[/red]")
 
 
 @memory.command('expand')
@@ -175,31 +218,45 @@ def memory_tool(rid, full):
 @click.option('--limit', '-l', default=10, help='显示消息数量')
 def memory_expand(sid, limit):
     """Level 5: 展开摘要（查看覆盖的原始消息）"""
-    api = get_api()
-    
+    memory_mgr = get_memory()
+
     try:
-        result = api.expand_summary(sid)
-        
-        if "error" in result:
-            console.print(f"[red]✗ {result['error']}[/red]")
+        summary = memory_mgr.get_summary(sid)
+        if not summary:
+            console.print(f"[red]摘要不存在：{sid}[/red]")
             return
-        
-        console.print(Panel(
-            f"[bold]摘要 ID:[/bold] {result['sid']}\n"
-            f"[bold]覆盖消息数:[/bold] {result['message_count']}\n"
-            f"[green]✓ 摘要展开[/green]",
-            title="🔍 FAgent Memory - Level 5 摘要展开",
-            border_style="magenta"
-        ))
-        
-        console.print(f"\n[bold]摘要内容:[/bold]\n{result['summary']['summary']}")
-        
-        if result['covered_messages']:
-            console.print(f"\n[bold]覆盖的消息:[/bold]")
-            for msg in result['covered_messages'][:limit]:
-                console.print(f"  • {msg['mid']} ({msg['role']}): {msg['content'][:50]}...")
+
+        covered_messages = []
+        for mid in summary.covered_mids:
+            msg = memory_mgr.get_message(summary.cid, mid)
+            if msg:
+                covered_messages.append(msg)
+
+        lines = [
+            f"[bold]摘要 ID:[/bold] {summary.sid}",
+            f"[bold]会话:[/bold] {summary.cid}",
+            f"[bold]类型:[/bold] {summary.summary_type}",
+            f"[bold]覆盖消息数:[/bold] {summary.message_count}",
+            "",
+            f"[bold]摘要内容:[/bold]",
+            summary.summary,
+        ]
+
+        if summary.key_points:
+            lines.append("")
+            lines.append("[bold]要点:[/bold]")
+            for kp in summary.key_points:
+                lines.append(f"  - {kp}")
+
+        if covered_messages:
+            lines.append("")
+            lines.append(f"[bold]覆盖的消息 (前 {min(limit, len(covered_messages))} 条):[/bold]")
+            for msg in covered_messages[:limit]:
+                lines.append(f"  {msg.mid} ({msg.role.value}): {msg.content[:60]}...")
+
+        console.print(Panel("\n".join(lines), title="FAgent Memory - Level 5 摘要展开", border_style="magenta"))
     except Exception as e:
-        console.print(f"[red]✗ 查询失败：{e}[/red]")
+        console.print(f"[red]查询失败：{e}[/red]")
 
 
 @memory.command('search')
@@ -208,28 +265,40 @@ def memory_expand(sid, limit):
 def memory_search(query, limit):
     """搜索消息（在完整内容中搜索）"""
     memory_mgr = get_memory()
-    
+
     if not memory_mgr.current_cid:
         console.print("[yellow]暂无当前会话[/yellow]")
         return
-    
+
     cid = memory_mgr.current_cid
-    
+
     try:
-        # TODO: 实现搜索 API
-        # results = memory_mgr.api.search_messages(cid, query, limit=limit)
-        
-        console.print(Panel(
-            f"[bold]搜索词:[/bold] {query}\n"
-            f"[bold]会话 ID:[/bold] {cid}\n"
-            f"[bold]限制:[/bold] {limit}\n\n"
-            f"[yellow]⚠ 搜索功能待实现[/yellow]\n\n"
-            f"[dim]该功能将显示:[/dim]\n"
-            f"- 匹配的消息列表\n"
-            f"- 高亮显示匹配内容\n"
-            f"- 消息元数据",
-            title="🔎 FAgent Memory - 搜索",
-            border_style="white"
-        ))
+        messages = memory_mgr.get_messages(cid, limit=200)
+        results = [m for m in messages if query.lower() in m.content.lower()]
+        results = results[:limit]
+
+        if not results:
+            console.print(f"[yellow]未找到匹配 '{query}' 的消息[/yellow]")
+            return
+
+        table = Table(show_header=True, header_style="bold magenta")
+        table.add_column("MID", style="cyan", max_width=20)
+        table.add_column("角色", style="white")
+        table.add_column("内容", style="yellow")
+
+        for msg in results:
+            idx = msg.content.lower().index(query.lower())
+            start = max(0, idx - 20)
+            end = min(len(msg.content), idx + len(query) + 40)
+            snippet = msg.content[start:end]
+            if start > 0:
+                snippet = "..." + snippet
+            if end < len(msg.content):
+                snippet = snippet + "..."
+
+            table.add_row(msg.mid, msg.role.value, snippet)
+
+        console.print(table)
+        console.print(f"\n[dim]找到 {len(results)} 条匹配消息[/dim]")
     except Exception as e:
-        console.print(f"[red]✗ 搜索失败：{e}[/red]")
+        console.print(f"[red]搜索失败：{e}[/red]")

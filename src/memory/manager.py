@@ -38,27 +38,49 @@ class MemoryManager:
     def __init__(self, data_dir: str = "fagent_memory"):
         if self._initialized:
             return
-        
+
         self.data_dir = Path(data_dir)
         self.data_dir.mkdir(parents=True, exist_ok=True)
-        
+
         # 初始化存储层
         self.db = MemoryDatabase(str(self.data_dir))
-        
+
         # ID 缓存
         self._id_counter = 0
-        
+
+        # 加载持久化的当前会话 ID
+        self._current_cid = self._load_current_cid()
+
         self._initialized = True
-    
+
+    def _current_cid_file(self) -> Path:
+        return self.data_dir / "current_cid"
+
+    def _load_current_cid(self) -> Optional[str]:
+        try:
+            return self._current_cid_file().read_text().strip() or None
+        except (FileNotFoundError, OSError):
+            return None
+
+    def _save_current_cid(self, cid: Optional[str]) -> None:
+        if cid:
+            self._current_cid_file().write_text(cid)
+        else:
+            try:
+                self._current_cid_file().unlink(missing_ok=True)
+            except OSError:
+                pass
+
     @property
     def current_cid(self) -> Optional[str]:
         """获取当前会话 ID"""
         return self._current_cid
-    
+
     @current_cid.setter
-    def current_cid(self, cid: str):
+    def current_cid(self, cid: Optional[str]):
         """设置当前会话 ID"""
         self._current_cid = cid
+        self._save_current_cid(cid)
     
     # ==================== 会话管理 ====================
     
@@ -86,7 +108,7 @@ class MemoryManager:
         conn_sqlite.close()
         
         # 自动切换到新会话
-        self._current_cid = cid
+        self.current_cid = cid
         
         return cid
     
@@ -136,7 +158,7 @@ class MemoryManager:
         conn.close()
         
         if exists:
-            self._current_cid = cid
+            self.current_cid = cid
             return True
         return False
     
@@ -191,7 +213,7 @@ class MemoryManager:
         conn.close()
         
         if affected and self._current_cid == cid:
-            self._current_cid = None
+            self.current_cid = None
         
         return affected
     

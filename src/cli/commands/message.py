@@ -12,7 +12,6 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 from rich.markdown import Markdown
-from datetime import datetime
 
 console = Console()
 
@@ -31,36 +30,33 @@ def message():
 
 @message.command('send')
 @click.argument('content')
-@click.option('--role', '-r', default='user', 
+@click.option('--role', '-r', default='user',
               type=click.Choice(['user', 'assistant', 'system']),
               help='消息角色')
 def message_send(content, role):
     """发送消息"""
     memory = get_memory()
-    
-    # 检查是否有当前会话
+
     if not memory.current_cid:
-        # 自动创建新会话
         cid = memory.start_session()
-        console.print(f"[dim]✓ 自动创建新会话：{cid}[/dim]\n")
-    
+        console.print(f"[dim]自动创建新会话：{cid}[/dim]\n")
+
     cid = memory.current_cid
-    
+
     try:
-        # TODO: 实现消息保存
-        # mid = memory.save_message(cid=cid, role=role, content=content)
-        
+        mid = memory.save_message(cid=cid, role=role, content=content)
+
         console.print(Panel(
-            f"[green]✓ 消息已发送[/green]\n\n"
+            f"[green]消息已发送[/green]\n\n"
             f"[bold]角色:[/bold] {role}\n"
             f"[bold]内容:[/bold] {content[:100]}{'...' if len(content) > 100 else ''}\n"
-            f"[dim]会话：{cid}[/dim]\n\n"
-            f"[yellow]⚠ 消息保存功能待实现[/yellow]",
-            title="📤 FAgent 消息",
+            f"[bold]会话:[/bold] {cid}\n"
+            f"[bold]消息 ID:[/bold] {mid}",
+            title="FAgent 消息",
             border_style="green"
         ))
     except Exception as e:
-        console.print(f"[red]✗ 发送失败：{e}[/red]")
+        console.print(f"[red]发送失败：{e}[/red]")
 
 
 @message.command('list')
@@ -71,27 +67,42 @@ def message_send(content, role):
 def message_list(limit, role):
     """列出消息"""
     memory = get_memory()
-    
+
     if not memory.current_cid:
         console.print("[yellow]暂无当前会话，请先创建或切换会话[/yellow]")
         console.print("\n使用 [cyan]fagent session new[/cyan] 创建会话")
         return
-    
+
     cid = memory.current_cid
-    
+
     try:
-        # TODO: 实现消息检索
-        # messages = memory.get_messages(cid, limit=limit)
-        
-        console.print(Panel(
-            f"[bold]会话:[/bold] {cid}\n"
-            f"[bold]消息数:[/bold] 0 (待实现)\n\n"
-            f"[yellow]⚠ 消息列表功能待实现[/yellow]",
-            title="📋 FAgent 消息列表",
-            border_style="blue"
-        ))
+        messages = memory.get_messages(cid, limit=limit)
+
+        if role:
+            messages = [m for m in messages if m.role.value == role]
+
+        if not messages:
+            console.print("[yellow]暂无消息[/yellow]")
+            return
+
+        table = Table(show_header=True, header_style="bold magenta")
+        table.add_column("MID", style="cyan", max_width=20)
+        table.add_column("角色", style="white")
+        table.add_column("内容", style="yellow")
+        table.add_column("时间", style="dim", max_width=20)
+
+        for msg in messages:
+            table.add_row(
+                msg.mid,
+                msg.role.value,
+                msg.content[:60],
+                msg.timestamp[:19] if msg.timestamp else "-",
+            )
+
+        console.print(table)
+        console.print(f"\n[dim]共 {len(messages)} 条消息[/dim]")
     except Exception as e:
-        console.print(f"[red]✗ 查询失败：{e}[/red]")
+        console.print(f"[red]查询失败：{e}[/red]")
 
 
 @message.command('show')
@@ -99,26 +110,31 @@ def message_list(limit, role):
 def message_show(mid):
     """显示消息详情"""
     memory = get_memory()
-    
+
     if not memory.current_cid:
         console.print("[yellow]暂无当前会话[/yellow]")
         return
-    
+
     cid = memory.current_cid
-    
+
     try:
-        # TODO: 实现消息详情查询
-        # detail = memory.get_message_detail(cid, mid)
-        
+        msg = memory.get_message(cid, mid)
+        if not msg:
+            console.print(f"[red]消息不存在：{mid}[/red]")
+            return
+
         console.print(Panel(
-            f"[bold]消息 ID:[/bold] {mid}\n"
-            f"[bold]会话:[/bold] {cid}\n\n"
-            f"[yellow]⚠ 消息详情功能待实现[/yellow]",
-            title="📄 FAgent 消息详情",
+            f"[bold]消息 ID:[/bold] {msg.mid}\n"
+            f"[bold]会话:[/bold] {msg.cid}\n"
+            f"[bold]角色:[/bold] {msg.role.value}\n"
+            f"[bold]时间:[/bold] {msg.timestamp[:19] if msg.timestamp else '-'}\n"
+            f"[bold]序号:[/bold] {msg.sequence_num}\n\n"
+            f"{msg.content}",
+            title="FAgent 消息详情",
             border_style="cyan"
         ))
     except Exception as e:
-        console.print(f"[red]✗ 查询失败：{e}[/red]")
+        console.print(f"[red]查询失败：{e}[/red]")
 
 
 @message.command('search')
@@ -127,23 +143,45 @@ def message_show(mid):
 def message_search(query, limit):
     """搜索消息"""
     memory = get_memory()
-    
+
     if not memory.current_cid:
         console.print("[yellow]暂无当前会话[/yellow]")
         return
-    
+
     cid = memory.current_cid
-    
+
     try:
-        # TODO: 实现消息搜索
-        # results = memory.search_messages(cid, query, limit=limit)
-        
-        console.print(Panel(
-            f"[bold]搜索:[/bold] {query}\n"
-            f"[bold]会话:[/bold] {cid}\n\n"
-            f"[yellow]⚠ 消息搜索功能待实现[/yellow]",
-            title="🔍 FAgent 消息搜索",
-            border_style="yellow"
-        ))
+        messages = memory.get_messages(cid, limit=200)
+        results = [m for m in messages if query.lower() in m.content.lower()]
+        results = results[:limit]
+
+        if not results:
+            console.print(f"[yellow]未找到匹配 '{query}' 的消息[/yellow]")
+            return
+
+        table = Table(show_header=True, header_style="bold magenta")
+        table.add_column("MID", style="cyan", max_width=20)
+        table.add_column("角色", style="white")
+        table.add_column("内容", style="yellow")
+
+        for msg in results:
+            # 高亮匹配片段
+            idx = msg.content.lower().index(query.lower())
+            start = max(0, idx - 20)
+            end = min(len(msg.content), idx + len(query) + 40)
+            snippet = msg.content[start:end]
+            if start > 0:
+                snippet = "..." + snippet
+            if end < len(msg.content):
+                snippet = snippet + "..."
+
+            table.add_row(
+                msg.mid,
+                msg.role.value,
+                snippet,
+            )
+
+        console.print(table)
+        console.print(f"\n[dim]找到 {len(results)} 条匹配消息[/dim]")
     except Exception as e:
-        console.print(f"[red]✗ 搜索失败：{e}[/red]")
+        console.print(f"[red]搜索失败：{e}[/red]")

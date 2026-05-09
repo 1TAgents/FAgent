@@ -38,11 +38,13 @@ class RawMessage:
     # === 标识 ===
     cid: str  # 会话 ID
     mid: str  # 消息 ID
-    parent_mid: Optional[str] = None  # 父消息 ID（回复链）
-    
+
     # === 内容 ===
     role: Role  # 消息角色
     content: str  # 原始内容（完整，不截断）
+
+    # === 可选字段 ===
+    parent_mid: Optional[str] = None  # 父消息 ID（回复链）
     content_hash: str = ""  # 内容哈希（用于去重）
     
     # === 元数据 ===

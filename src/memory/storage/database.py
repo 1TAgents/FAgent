@@ -178,7 +178,7 @@ class MemoryDatabase:
     
     def save_message(self, msg: "RawMessage"):
         """保存原始消息"""
-        from memory.models.message import Role, MessageStatus
+        from src.memory.models.message import Role, MessageStatus
         
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
@@ -203,7 +203,7 @@ class MemoryDatabase:
     
     def get_message(self, cid: str, mid: str) -> Optional["RawMessage"]:
         """获取单条消息"""
-        from memory.models.message import RawMessage, Role, MessageStatus
+        from src.memory.models.message import RawMessage, Role, MessageStatus
         
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
@@ -226,7 +226,7 @@ class MemoryDatabase:
     
     def get_messages(self, cid: str, start: int = 0, limit: int = 100) -> List["RawMessage"]:
         """获取会话消息（分页）"""
-        from memory.models.message import RawMessage, Role, MessageStatus
+        from src.memory.models.message import RawMessage, Role, MessageStatus
         
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
@@ -294,8 +294,12 @@ class MemoryDatabase:
         cursor = conn.cursor()
         
         cursor.execute('''
-            INSERT OR REPLACE INTO summaries VALUES 
-            (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT OR REPLACE INTO summaries
+            (sid, cid, summary_type, covered_mids, start_mid, end_mid,
+             message_count, summary, key_points, entities, topics,
+             parent_summary_id, child_summary_ids, can_expand, expansion_hint,
+             created_at, created_by)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ''', (
             summary.sid, summary.cid, summary.summary_type,
             json.dumps(summary.covered_mids), summary.start_mid, summary.end_mid,
@@ -304,7 +308,7 @@ class MemoryDatabase:
             json.dumps(summary.topics), summary.parent_summary_id,
             json.dumps(summary.child_summary_ids),
             1 if summary.can_expand else 0,
-            summary.expansion_hint, summary.created_at, summary.created_by
+            summary.expansion_hint, summary.created_at, summary.created_by,
         ))
         
         conn.commit()
@@ -312,7 +316,7 @@ class MemoryDatabase:
     
     def get_summary(self, sid: str) -> Optional["MessageSummary"]:
         """获取摘要"""
-        from memory.models.summary import MessageSummary
+        from src.memory.models.summary import MessageSummary
         
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
@@ -338,7 +342,7 @@ class MemoryDatabase:
     
     def get_summaries_for_conversation(self, cid: str) -> List["MessageSummary"]:
         """获取会话的所有摘要"""
-        from memory.models.summary import MessageSummary
+        from src.memory.models.summary import MessageSummary
         
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
@@ -389,7 +393,7 @@ class MemoryDatabase:
     
     def get_tool_response(self, rid: str) -> Optional["ToolResponse"]:
         """获取工具响应"""
-        from memory.models.tool_response import ToolResponse, ResponseStorage
+        from src.memory.models.tool_response import ToolResponse, ResponseStorage
         
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
