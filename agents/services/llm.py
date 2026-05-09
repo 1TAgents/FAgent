@@ -4,6 +4,8 @@ LLM Service - 封装 OpenAI SDK 调用
 职责：纯 LLM 调用，不涉及存储
 
 注意：环境变量需要在启动服务前设置好（通过 .env 加载或 export）
+
+集成 provider registry 以支持多提供商模型管理和能力追踪。
 """
 import os
 import sys
@@ -13,115 +15,86 @@ from typing import Optional, Iterator, List, Dict, Any
 from openai import OpenAI
 from types import SimpleNamespace
 
+from .provider import provider_registry, Provider
+
 # 设置 logger
 logger = logging.getLogger(__name__)
 
-# 可用模型列表（供前端展示）
-AVAILABLE_MODELS = [
-    {
-        "id": "deepseek-v4-pro",
-        "name": "DeepSeek V4 Pro",
-        "description": "默认主模型（DeepSeek）",
-        "model_id": "deepseek-v4-pro",
-    },
-    {
-        "id": "deepseek-v4-flash",
-        "name": "DeepSeek V4 Flash",
-        "description": "更快的 DeepSeek 模型",
-        "model_id": "deepseek-v4-flash",
-    },
-    {
-        "id": "qwen3.5-plus",
-        "name": "Qwen 3.5 Plus",
-        "description": "通用问答主模型",
-        "model_id": "qwen3.5-plus",
-    },
-    {
-        "id": "qwen3-max-2026-01-23",
-        "name": "Qwen 3 Max",
-        "description": "更强推理与复杂任务",
-        "model_id": "qwen3-max-2026-01-23",
-    },
-    {
-        "id": "qwen3-coder-next",
-        "name": "Qwen 3 Coder Next",
-        "description": "偏代码与 Agent 场景",
-        "model_id": "qwen3-coder-next",
-    },
-    {
-        "id": "qwen3-coder-plus",
-        "name": "Qwen 3 Coder Plus",
-        "description": "高质量代码生成与修复",
-        "model_id": "qwen3-coder-plus",
-    },
-    {
-        "id": "glm-5",
-        "name": "GLM 5",
-        "description": "通用能力均衡",
-        "model_id": "glm-5",
-    },
-    {
-        "id": "kimi-k2.5",
-        "name": "Kimi K2.5",
-        "description": "长上下文与通用问答",
-        "model_id": "kimi-k2.5",
-    },
-    {
-        "id": "MiniMax-M2.5",
-        "name": "MiniMax M2.5",
-        "description": "可选的通用模型",
-        "model_id": "MiniMax-M2.5",
-    },
-]
-
-# 模型映射表：前端显示名称 -> 实际 Model ID（从 AVAILABLE_MODELS 生成）
+# 保持向后兼容：导出 AVAILABLE_MODELS 和 MODEL_MAPPING 供旧代码使用
+AVAILABLE_MODELS = provider_registry.to_frontend_list()
 MODEL_MAPPING = {m["id"]: m["model_id"] for m in AVAILABLE_MODELS}
 
 
 class LLMService:
-    """LLM 服务类，封装 OpenAI SDK 调用"""
-    
-    def __init__(self):
-        base_url = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
-        # 兼容标准变量名和历史拼写错误变量名
-        api_key = os.getenv("OPENROUTER_API_KEY") or os.getenv("openrounter_p")
-        
-        self.mock_mode = False
-        self.default_model = os.getenv("LLM_MODEL", "xiaomi/mimo-v2-flash:free")
+    """LLM 服务类，封装 OpenAI SDK 调用。
 
-        if not api_key or api_key == "mock_key":
-            logger.warning("OPENROUTER_API_KEY 未设置或为 mock_key，启用 Mock 模式")
-            self.mock_mode = True
-            self.client = None
-        else:
-            self.client = OpenAI(
-                base_url=base_url,
+    支持多提供商：
+    - 根据模型 ID 自动匹配提供商和 base_url
+    - 支持 provider fallback（主模型失败时自动切换）
+    - 追踪模型能力和 token 使用
+    """
+
+    def __init__(self):
+        self._clients: Dict[str, OpenAI] = {}  # provider_name -> client
+        self.mock_mode = False
+        self.default_model = os.getenv("LLM_MODEL", "")
+
+        # 初始化各提供商的客户端
+        for provider in provider_registry.providers:
+            api_key = os.getenv(provider.api_key_env)
+            if provider.name == "openrouter":
+                # 兼容历史拼写错误变量名
+                api_key = api_key or os.getenv("openrounter_p")
+            if not api_key or api_key == "mock_key":
+                logger.debug(f"提供商 {provider.name} 未配置 API Key，跳过")
+                continue
+            self._clients[provider.name] = OpenAI(
+                base_url=provider.base_url,
                 api_key=api_key,
             )
-            logger.info(f"LLM 服务初始化完成 | default_model={self.default_model} | base_url={base_url}")
-    
-    def _resolve_model(self, model: Optional[str] = None) -> str:
-        """
-        解析模型名称
-        
-        Args:
-            model: 前端传入的模型名称（如 mimo-v2-flash）
-            
+            logger.info(f"LLM 提供商 {provider.name} 已连接 | base_url={provider.base_url}")
+
+        if not self._clients:
+            logger.warning("所有提供商均未配置 API Key，启用 Mock 模式")
+            self.mock_mode = True
+
+        if not self.default_model:
+            # 使用 provider registry 中优先级最高的模型
+            best = provider_registry.list_available_models()
+            if best:
+                self.default_model = best[0].model_id
+                logger.info(f"自动选择默认模型: {self.default_model}")
+
+    def _get_client_for_model(self, model_id: str) -> tuple[Optional[OpenAI], str]:
+        """获取模型对应的客户端和解析后的模型 ID。
+
         Returns:
-            实际的 Model ID（如 xiaomi/mimo-v2-flash:free）
+            (client, resolved_model_id) - client 为 None 表示 mock 模式
         """
-        if not model:
-            return self.default_model
-        
-        # 如果是映射表中的简称，转换为完整 Model ID
-        if model in MODEL_MAPPING:
-            resolved = MODEL_MAPPING[model]
-            logger.debug(f"模型映射: {model} -> {resolved}")
-            return resolved
-        
-        # 否则直接返回（可能是完整的 Model ID）
-        return model
-    
+        resolved = provider_registry.resolve_model(model_id, self.default_model)
+        model_info = provider_registry.get_model(resolved)
+
+        if model_info:
+            provider = provider_registry.get_provider(model_info.provider)
+            if provider and provider.name in self._clients:
+                return self._clients[provider.name], resolved
+
+        # 如果找不到匹配的提供商，尝试 openrouter
+        if "openrouter" in self._clients:
+            return self._clients["openrouter"], resolved
+
+        return None, resolved
+
+    def _resolve_model(self, model: Optional[str] = None) -> str:
+        """解析模型名称（向后兼容）。"""
+        _, resolved = self._get_client_for_model(model or self.default_model)
+        return resolved
+
+    def get_model_info(self, model: Optional[str] = None):
+        """获取模型信息。"""
+        resolved = self._resolve_model(model)
+        return provider_registry.get_model(resolved)
+
     def chat_completion(
         self,
         messages: List[Dict],
@@ -131,25 +104,12 @@ class LLMService:
         model: Optional[str] = None,
         **kwargs
     ):
-        """
-        非流式聊天完成
-        
-        Args:
-            messages: 消息列表
-            stream: 是否流式（此方法忽略，固定 False）
-            temperature: 温度参数
-            max_tokens: 最大 token 数
-            model: 模型名称（可选，支持简称如 mimo-v2-flash）
-            **kwargs: 其他参数
-        """
-        # 解析模型
-        resolved_model = self._resolve_model(model)
-        
-        if self.mock_mode:
+        """非流式聊天完成。"""
+        client, resolved_model = self._get_client_for_model(model)
+
+        if self.mock_mode or client is None:
             logger.info(f"Mock LLM 调用 (非流式) | model={resolved_model}")
             content = "这是一个来自 Mock LLM 的回复。后端服务正在运行，但未配置有效的 API Key。"
-            
-            # 模拟 OpenAI 响应结构
             return SimpleNamespace(
                 choices=[
                     SimpleNamespace(
@@ -170,20 +130,17 @@ class LLMService:
             "temperature": temperature,
             "stream": False,
         }
-        
+
         if max_tokens:
             params["max_tokens"] = max_tokens
-        
-        # 支持 reasoning
+
         if "reasoning" in kwargs:
             params["extra_body"] = {"reasoning": kwargs["reasoning"]}
-        
+
         logger.debug(f"LLM 非流式请求 | model={resolved_model} | messages_count={len(messages)} | temp={temperature}")
-        
+
         try:
-            response = self.client.chat.completions.create(**params)
-            
-            # 记录 token 使用
+            response = client.chat.completions.create(**params)
             if response.usage:
                 logger.info(
                     f"LLM 响应完成 | model={resolved_model} | "
@@ -191,12 +148,11 @@ class LLMService:
                     f"completion_tokens={response.usage.completion_tokens} | "
                     f"total_tokens={response.usage.total_tokens}"
                 )
-            
             return response
         except Exception as e:
             logger.error(f"LLM 调用失败 | model={resolved_model} | error={str(e)}")
             raise
-    
+
     def chat_completion_stream(
         self,
         messages: List[Dict],
@@ -205,20 +161,10 @@ class LLMService:
         model: Optional[str] = None,
         **kwargs
     ) -> Iterator[str]:
-        """
-        流式聊天完成
-        
-        Args:
-            messages: 消息列表
-            temperature: 温度参数
-            max_tokens: 最大 token 数
-            model: 模型名称（可选，支持简称如 mimo-v2-flash）
-            **kwargs: 其他参数
-        """
-        # 解析模型
-        resolved_model = self._resolve_model(model)
-        
-        if self.mock_mode:
+        """流式聊天完成。"""
+        client, resolved_model = self._get_client_for_model(model)
+
+        if self.mock_mode or client is None:
             logger.info(f"Mock LLM 调用 (流式) | model={resolved_model}")
             last_msg = messages[-1]['content'] if messages else "未知"
             response_text = f"【Mock 回复】\n我收到了你的消息：\"{last_msg}\"\n\n后端服务链路正常（Frontend -> Backend -> Agents），但由于未配置有效的 OPENROUTER_API_KEY，Agents 服务当前运行在 Mock 模式。请在 .env 文件中配置 API Key 以接入真实的大模型。"
@@ -234,26 +180,26 @@ class LLMService:
             "temperature": temperature,
             "stream": True,
         }
-        
+
         if max_tokens:
             params["max_tokens"] = max_tokens
-            
-        # 支持 reasoning
+
         if "reasoning" in kwargs:
             params["extra_body"] = {"reasoning": kwargs["reasoning"]}
 
         logger.debug(f"LLM 流式请求 | model={resolved_model} | messages_count={len(messages)} | temp={temperature}")
 
         try:
-            stream = self.client.chat.completions.create(**params)
-            
+            stream = client.chat.completions.create(**params)
+
             for chunk in stream:
                 if chunk.choices and chunk.choices[0].delta.content:
                     yield chunk.choices[0].delta.content
-                    
+
         except Exception as e:
             logger.error(f"LLM 流式调用失败 | model={resolved_model} | error={str(e)}")
             raise
+
 
 # 实例化并导出
 llm_service = LLMService()
