@@ -37,11 +37,20 @@ class ToolResult:
     def fail(cls, tool_name: str, error: str, **kw) -> ToolResult:
         return cls(tool_name=tool_name, success=False, error=error, **kw)
 
-    def to_llm_content(self) -> str:
-        """生成适合回写给 LLM 的内容。"""
+    def to_llm_content(self, max_chars: int = 4000) -> str:
+        """生成适合回写给 LLM 的内容。
+
+        Args:
+            max_chars: 最大字符数，超出部分会被截断并附加提示。
+        """
         if self.success:
-            return self.text or str(self.data) if self.data else "执行成功，无返回数据"
-        return f"工具执行失败: {self.error}"
+            content = self.text or str(self.data) if self.data else "执行成功，无返回数据"
+        else:
+            content = f"工具执行失败: {self.error}"
+
+        if len(content) > max_chars:
+            content = content[:max_chars] + f"\n...(内容已截断，共 {len(content)} 字符)"
+        return content
 
     def to_dict(self) -> dict:
         d = {

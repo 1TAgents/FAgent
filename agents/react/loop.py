@@ -180,7 +180,7 @@ class ReActAgentLoop:
                     log_subagent.tool_result(
                         tr.tool_name,
                         tr.success,
-                        data=tr.to_llm_content()[:200],
+                        data=tr.to_llm_content()[:300],
                         error=tr.error,
                         duration=tr.duration_ms / 1000,
                     )
@@ -271,7 +271,7 @@ class ReActAgentLoop:
                     log_subagent.tool_result(
                         tr.tool_name,
                         tr.success,
-                        data=tr.to_llm_content()[:200],
+                        data=tr.to_llm_content()[:300],
                         error=tr.error,
                     )
                     messages.append({
