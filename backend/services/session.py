@@ -176,7 +176,8 @@ class SessionManager:
         self, 
         limit: Optional[int] = None, 
         offset: int = 0,
-        user_id: Optional[int] = None
+        user_id: Optional[int] = None,
+        anonymous_only: bool = False,
     ) -> List[Dict]:
         """
         列出会话
@@ -185,8 +186,14 @@ class SessionManager:
             limit: 返回条数限制
             offset: 偏移量
             user_id: 用户ID（可选，用于数据隔离）
+            anonymous_only: 只返回匿名会话
         """
-        return message_storage.list_conversations(limit=limit, offset=offset, user_id=user_id)
+        return message_storage.list_conversations(
+            limit=limit,
+            offset=offset,
+            user_id=user_id,
+            anonymous_only=anonymous_only,
+        )
     
     def check_conversation_owner(self, cid: int, user_id: int) -> bool:
         """

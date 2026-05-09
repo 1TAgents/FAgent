@@ -26,6 +26,7 @@ import json
 from backend.core.context import set_context, get_context, ctx_logger as logger
 from backend.core.logging import log_request, log_response, log_call_agents, log_store_message
 from backend.services.session import session_manager
+from backend.services.session_access import can_access_session
 from backend.services.storage import message_storage
 from backend.api.auth import get_optional_user
 
@@ -33,6 +34,18 @@ router = APIRouter(prefix="/api/chat", tags=["chat"])
 
 # Agents 服务地址
 AGENTS_BASE_URL = os.getenv("AGENTS_BASE_URL", "http://localhost:8001")
+
+
+def _require_session_access(cid: int, current_user: Optional[dict]) -> dict:
+    """Load a session and enforce user/anonymous isolation."""
+    session = session_manager.get_session(cid)
+    if session is None:
+        raise HTTPException(status_code=404, detail=f"Conversation {cid} not found")
+
+    if not can_access_session(session, current_user):
+        raise HTTPException(status_code=403, detail="No access to this conversation")
+
+    return session
 
 
 # ==================== 后台任务 ====================
@@ -127,7 +140,10 @@ class UpdateConversationRequest(BaseModel):
 # ==================== 核心业务接口 ====================
 
 @router.post("/send", response_model=ChatSendResponse)
-async def chat_send(request: ChatSendRequest):
+async def chat_send(
+    request: ChatSendRequest,
+    current_user: Optional[dict] = Depends(get_optional_user),
+):
     """
     发送消息接口（非流式）
     
@@ -141,6 +157,8 @@ async def chat_send(request: ChatSendRequest):
     logger.info("/send 请求")
     
     try:
+        _require_session_access(request.cid, current_user)
+
         # 1. 存储用户消息
         user_message_id = session_manager.add_message(
             cid=request.cid,
@@ -195,6 +213,8 @@ async def chat_send(request: ChatSendRequest):
             user_message_id=user_message_id,
             assistant_message_id=assistant_message_id
         )
+    except HTTPException:
+        raise
     except httpx.HTTPError as e:
         logger.error(f"[AGENTS] 服务调用失败 | 输入=cid={request.cid} | 原因={str(e)}")
         raise HTTPException(status_code=502, detail=f"Agents service error: {str(e)}")
@@ -204,7 +224,10 @@ async def chat_send(request: ChatSendRequest):
 
 
 @router.post("/send/stream")
-async def chat_send_stream(request: ChatSendRequest):
+async def chat_send_stream(
+    request: ChatSendRequest,
+    current_user: Optional[dict] = Depends(get_optional_user),
+):
     """
     发送消息接口（流式）
     
@@ -226,6 +249,8 @@ async def chat_send_stream(request: ChatSendRequest):
     )
     
     try:
+        _require_session_access(request.cid, current_user)
+
         # 1. 存储用户消息
         user_message_id = session_manager.add_message(
             cid=request.cid,
@@ -363,6 +388,8 @@ async def chat_send_stream(request: ChatSendRequest):
                 "X-Accel-Buffering": "no",
             }
         )
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"[CHAT] /send/stream 处理失败 | 输入=cid={request.cid} | 原因={str(e)}")
         log_response(
@@ -377,7 +404,10 @@ async def chat_send_stream(request: ChatSendRequest):
 
 
 @router.post("/send/router/stream")
-async def chat_send_router_stream(request: ChatSendRequest):
+async def chat_send_router_stream(
+    request: ChatSendRequest,
+    current_user: Optional[dict] = Depends(get_optional_user),
+):
     """
     🆕 发送消息接口（Router 模式，流式）
     
@@ -392,6 +422,8 @@ async def chat_send_router_stream(request: ChatSendRequest):
     logger.info("/send/router/stream 请求")
     
     try:
+        _require_session_access(request.cid, current_user)
+
         # 1. 存储用户消息
         user_message_id = session_manager.add_message(
             cid=request.cid,
@@ -476,6 +508,8 @@ async def chat_send_router_stream(request: ChatSendRequest):
                 "X-Accel-Buffering": "no",
             }
         )
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"[ROUTER] /send/router/stream 请求失败 | 输入=cid={request.cid} | 原因={str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -507,20 +541,24 @@ async def create_session(
 
 
 @router.get("/conversation/{cid}")
-async def get_conversation(cid: int):
+async def get_conversation(
+    cid: int,
+    current_user: Optional[dict] = Depends(get_optional_user),
+):
     """获取完整会话记录（包含所有消息）"""
+    _require_session_access(cid, current_user)
     conversation = session_manager.get_conversation_with_messages(cid)
-    if conversation is None:
-        raise HTTPException(status_code=404, detail=f"Conversation {cid} not found")
     return conversation
 
 
 @router.get("/conversation/{cid}/messages")
-async def get_conversation_messages(cid: int, limit: Optional[int] = None):
+async def get_conversation_messages(
+    cid: int,
+    limit: Optional[int] = None,
+    current_user: Optional[dict] = Depends(get_optional_user),
+):
     """获取会话的消息列表"""
-    session = session_manager.get_session(cid)
-    if session is None:
-        raise HTTPException(status_code=404, detail=f"Conversation {cid} not found")
+    _require_session_access(cid, current_user)
     
     messages = session_manager.get_messages(cid, limit=limit)
     return {
@@ -534,9 +572,11 @@ async def get_conversation_messages(cid: int, limit: Optional[int] = None):
 async def get_conversation_history(
     cid: int,
     before_message_id: int,
-    limit: Optional[int] = None
+    limit: Optional[int] = None,
+    current_user: Optional[dict] = Depends(get_optional_user),
 ):
     """获取指定消息之前的历史消息"""
+    _require_session_access(cid, current_user)
     messages = session_manager.get_history_before_message(cid, before_message_id, limit)
     return {
         "cid": cid,
@@ -547,7 +587,11 @@ async def get_conversation_history(
 
 
 @router.patch("/conversation/{cid}")
-async def update_conversation(cid: int, request: UpdateConversationRequest):
+async def update_conversation(
+    cid: int,
+    request: UpdateConversationRequest,
+    current_user: Optional[dict] = Depends(get_optional_user),
+):
     """
     更新会话信息（如标题）
     
@@ -555,9 +599,7 @@ async def update_conversation(cid: int, request: UpdateConversationRequest):
     - 手动重命名会话
     - 自动生成的会话总结
     """
-    session = session_manager.get_session(cid)
-    if session is None:
-        raise HTTPException(status_code=404, detail=f"Conversation {cid} not found")
+    _require_session_access(cid, current_user)
     
     success = session_manager.update_session_title(cid, request.title)
     if not success:
@@ -567,8 +609,12 @@ async def update_conversation(cid: int, request: UpdateConversationRequest):
 
 
 @router.delete("/conversation/{cid}")
-async def delete_conversation(cid: int):
+async def delete_conversation(
+    cid: int,
+    current_user: Optional[dict] = Depends(get_optional_user),
+):
     """删除会话及其所有消息"""
+    _require_session_access(cid, current_user)
     success = session_manager.delete_session(cid)
     if not success:
         raise HTTPException(status_code=404, detail=f"Conversation {cid} not found")
@@ -576,11 +622,12 @@ async def delete_conversation(cid: int):
 
 
 @router.post("/conversation/{cid}/clear")
-async def clear_conversation(cid: int):
+async def clear_conversation(
+    cid: int,
+    current_user: Optional[dict] = Depends(get_optional_user),
+):
     """清空会话消息（保留会话）"""
-    session = session_manager.get_session(cid)
-    if session is None:
-        raise HTTPException(status_code=404, detail=f"Conversation {cid} not found")
+    _require_session_access(cid, current_user)
     
     session_manager.clear_session(cid)
     return {"message": "Conversation cleared successfully", "cid": cid}
@@ -598,7 +645,12 @@ async def list_conversations(
     如果已登录，只返回当前用户的会话；否则返回所有匿名会话（user_id=None）
     """
     user_id = current_user["id"] if current_user else None
-    conversations = session_manager.list_sessions(limit=limit, offset=offset, user_id=user_id)
+    conversations = session_manager.list_sessions(
+        limit=limit,
+        offset=offset,
+        user_id=user_id,
+        anonymous_only=current_user is None,
+    )
     return {
         "conversations": conversations,
         "count": len(conversations)
