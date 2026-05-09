@@ -181,90 +181,22 @@ class ProviderRegistry:
 
 # ---------- 预定义提供商 ----------
 
-def create_openrouter_provider() -> Provider:
-    """创建 OpenRouter 提供商（默认主提供商）。"""
+def create_deepseek_provider() -> Provider:
+    """创建 DeepSeek 提供商（直连 API，备用模型）。"""
     return Provider(
-        name="openrouter",
-        base_url="https://openrouter.ai/api/v1",
-        api_key_env="OPENROUTER_API_KEY",
+        name="deepseek",
+        base_url="https://api.deepseek.com",
+        api_key_env="DEEPSEEK_API_KEY",
         models=[
             ModelInfo(
-                model_id="qwen/qwen3.5-plus",
-                display_name="Qwen 3.5 Plus",
-                provider="openrouter",
-                context_window=131072,
+                model_id="deepseek-chat",
+                display_name="DeepSeek V4 Pro (直连)",
+                provider="deepseek",
+                context_window=128000,
                 max_output_tokens=8192,
                 supports_tool_use=True,
                 priority=1,
-                description="主模型：通用能力强，工具调用稳定",
-            ),
-            ModelInfo(
-                model_id="qwen/qwen3-max",
-                display_name="Qwen 3 Max",
-                provider="openrouter",
-                context_window=131072,
-                max_output_tokens=8192,
-                supports_tool_use=True,
-                supports_reasoning=True,
-                priority=2,
-                description="更强推理能力",
-            ),
-            ModelInfo(
-                model_id="deepseek/deepseek-v4-pro",
-                display_name="DeepSeek V4 Pro",
-                provider="openrouter",
-                context_window=128000,
-                max_output_tokens=8192,
-                supports_tool_use=True,
-                priority=3,
-                description="备选主模型",
-            ),
-            ModelInfo(
-                model_id="deepseek/deepseek-v4-flash",
-                display_name="DeepSeek V4 Flash",
-                provider="openrouter",
-                context_window=128000,
-                max_output_tokens=8192,
-                supports_tool_use=True,
-                priority=4,
-                description="快速响应模型",
-            ),
-            ModelInfo(
-                model_id="qwen/qwen3-coder-plus",
-                display_name="Qwen 3 Coder Plus",
-                provider="openrouter",
-                context_window=131072,
-                max_output_tokens=8192,
-                supports_tool_use=True,
-                priority=5,
-                description="代码场景优化",
-            ),
-            ModelInfo(
-                model_id="zhipu/glm-5",
-                display_name="GLM 5",
-                provider="openrouter",
-                context_window=131072,
-                max_output_tokens=8192,
-                supports_tool_use=True,
-                priority=6,
-            ),
-            ModelInfo(
-                model_id="moonshot/kimi-k2.5",
-                display_name="Kimi K2.5",
-                provider="openrouter",
-                context_window=131072,
-                max_output_tokens=8192,
-                supports_tool_use=True,
-                priority=7,
-            ),
-            ModelInfo(
-                model_id="minimax/minimax-m2.5",
-                display_name="MiniMax M2.5",
-                provider="openrouter",
-                context_window=131072,
-                max_output_tokens=8192,
-                supports_tool_use=True,
-                priority=8,
+                description="备用模型：通用能力强",
             ),
         ],
     )
@@ -360,7 +292,7 @@ def create_ollama_provider() -> Provider:
 # ---------- 全局实例 ----------
 
 provider_registry = ProviderRegistry()
-# 默认注册 OpenRouter
-provider_registry.register(create_openrouter_provider())
-# 阿里云 Token Plan
+# 阿里云 Token Plan（主模型，优先级 1）
 provider_registry.register(create_aliyun_token_plan_provider())
+# DeepSeek 直连（备用模型）
+provider_registry.register(create_deepseek_provider())

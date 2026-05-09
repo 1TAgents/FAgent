@@ -42,9 +42,6 @@ class LLMService:
         # 初始化各提供商的客户端
         for provider in provider_registry.providers:
             api_key = os.getenv(provider.api_key_env)
-            if provider.name == "openrouter":
-                # 兼容历史拼写错误变量名
-                api_key = api_key or os.getenv("openrounter_p")
             if not api_key or api_key == "mock_key":
                 logger.debug(f"提供商 {provider.name} 未配置 API Key，跳过")
                 continue
@@ -78,10 +75,6 @@ class LLMService:
             provider = provider_registry.get_provider(model_info.provider)
             if provider and provider.name in self._clients:
                 return self._clients[provider.name], resolved
-
-        # 如果找不到匹配的提供商，尝试 openrouter
-        if "openrouter" in self._clients:
-            return self._clients["openrouter"], resolved
 
         return None, resolved
 
