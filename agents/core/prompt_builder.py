@@ -100,6 +100,7 @@ class SystemPromptBuilder:
         route: Optional[str] = None,
         tool_schemas: Optional[List[dict]] = None,
         memories: Optional[List[str]] = None,
+        skill_index: Optional[str] = None,
     ) -> str:
         """一站式构建完整系统提示词。
 
@@ -107,6 +108,7 @@ class SystemPromptBuilder:
             route: 路由类型（market/strategy/backtest/trade/chat）
             tool_schemas: 工具 schema 列表
             memories: 记忆上下文
+            skill_index: 技能索引文本（由 SkillRegistry 生成）
 
         Returns:
             完整的系统提示词
@@ -115,6 +117,9 @@ class SystemPromptBuilder:
             prompt = self.for_route(route)
         else:
             prompt = self.default()
+
+        if skill_index:
+            prompt = prompt + "\n" + skill_index
 
         if tool_schemas:
             prompt = self.with_tools(prompt, tool_schemas)

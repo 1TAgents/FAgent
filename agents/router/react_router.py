@@ -26,6 +26,9 @@ from ..tools.registry import ToolRegistry, tool_registry
 from ..tools.builtin import register_builtin_tools
 from ..tools.builtin.market import get_market_tools
 from ..tools.permissions import permissions_for_route
+from ..skills.registry import skill_registry
+from ..skills.builtin import ALL_BUILTIN_SKILLS
+from ..skills.load_skill import get_skill_tools
 from ..react.loop import ReActAgentLoop, ReActResult
 from ..core.logging import log_router, log_subagent
 from ..core.prompt_builder import prompt_builder
@@ -52,6 +55,9 @@ class ReActRouter:
     def __init__(self):
         # 注册内置工具到全局 registry
         register_builtin_tools(tool_registry)
+        # 注册内置技能
+        for skill in ALL_BUILTIN_SKILLS:
+            skill_registry.register(skill)
 
     def _get_tools_for_route(self, route: RouteType) -> list:
         """获取指定路由的工具集。"""
@@ -94,10 +100,17 @@ class ReActRouter:
         # 构建工具集
         tools = self._get_tools_for_route(route)
 
-        # 构建系统提示词
+        # 注册 load_skill 工具（让 LLM 可以按需加载技能内容）
+        skill_tools = get_skill_tools(skill_registry)
+        for st in skill_tools:
+            tool_registry.register(st)
+
+        # 构建系统提示词（注入技能索引）
+        skill_index_text = skill_registry.get_index_for_route(route.value)
         system_prompt = prompt_builder.build(
             route=route.value,
             tool_schemas=[t.schema for t in tools] if tools else None,
+            skill_index=skill_index_text if skill_index_text else None,
         )
 
         # 创建 ExecutionTrace
@@ -119,7 +132,7 @@ class ReActRouter:
         loop = ReActAgentLoop(
             llm_service=llm_service,
             system_prompt=system_prompt,
-            registry=tool_registry if tools else None,
+            registry=tool_registry,
             max_turns=8,
             model=context.model,
             use_memory=True,
