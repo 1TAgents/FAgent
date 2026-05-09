@@ -25,6 +25,7 @@ from dataclasses import dataclass, field
 from typing import Any, AsyncIterator, Dict, List, Optional, Sequence
 
 from ..core.logging import log_subagent, log_chain_event
+from ..core.tracing import ExecutionTrace, TurnTrace, trace_store
 from ..tools.registry import ToolRegistry, tool_registry
 from ..tools.result import ToolResult
 from ..services.memory_bridge import memory_bridge, MemoryEntry
@@ -88,6 +89,7 @@ class ReActAgentLoop:
         model: Optional[str] = None,
         verbose: bool = False,
         use_memory: bool = True,
+        trace: Optional[ExecutionTrace] = None,
     ):
         self.llm = llm_service
         self.system_prompt = system_prompt
@@ -96,6 +98,7 @@ class ReActAgentLoop:
         self.model = model
         self.verbose = verbose
         self.use_memory = use_memory
+        self.trace = trace
 
     async def run(
         self,
@@ -128,6 +131,12 @@ class ReActAgentLoop:
             tool_calls = self._extract_tool_calls(response)
             assistant_content = self._extract_assistant_content(response)
 
+            # 2b. 累加 token 使用量
+            if hasattr(response, "usage") and response.usage:
+                turn.input_tokens = response.usage.prompt_tokens or 0
+                turn.output_tokens = response.usage.completion_tokens or 0
+                result.total_tokens += turn.input_tokens + turn.output_tokens
+
             if tool_calls:
                 turn.tool_calls = tool_calls
                 # 检查是否卡住（重复调用相同工具相同参数）
@@ -139,6 +148,7 @@ class ReActAgentLoop:
                         turn.final_response = "抱歉，处理您的请求时遇到循环，已终止。"
                         result.content = turn.final_response
                         result.turns.append(turn)
+                        self._finalize_trace(result, user_message)
                         return result
                 else:
                     stuck_counter = 0
@@ -170,7 +180,6 @@ class ReActAgentLoop:
                         "content": tr.to_llm_content(),
                     })
 
-                result.total_tokens += 100  # 粗略估算
                 result.turns.append(turn)
                 # 继续下一轮循环
 
@@ -180,11 +189,13 @@ class ReActAgentLoop:
                 result.content = assistant_content or "抱歉，我没有得到有效的回复。"
                 result.turns.append(turn)
                 log_subagent.done("ReActAgent", turn.latency_ms / 1000)
+                self._finalize_trace(result, user_message)
                 return result
 
         # 超出最大循环次数
         result.error = f"超出最大工具调用次数 ({self.max_turns})"
         result.content = "抱歉，处理您的请求时超出了最大循环次数。"
+        self._finalize_trace(result, user_message)
         return result
 
     async def run_stream(
@@ -199,11 +210,20 @@ class ReActAgentLoop:
         messages = self._build_messages(user_message, history)
         stuck_counter = 0
         last_tool_signature = ""
+        total_tokens = 0
+        turns: List[TurnTrace] = []
+        finished = False
 
         for turn_id in range(1, self.max_turns + 1):
+            turn_start = time.monotonic()
             response = self._call_llm(messages)
+            latency = (time.monotonic() - turn_start) * 1000
             tool_calls = self._extract_tool_calls(response)
             assistant_content = self._extract_assistant_content(response)
+
+            # 累加 token
+            if hasattr(response, "usage") and response.usage:
+                total_tokens += (response.usage.prompt_tokens or 0) + (response.usage.completion_tokens or 0)
 
             if tool_calls:
                 # 追加 assistant 消息
@@ -218,7 +238,12 @@ class ReActAgentLoop:
                 if sig == last_tool_signature:
                     stuck_counter += 1
                     if stuck_counter >= 3:
+                        turns.append(TurnTrace(
+                            turn_id=turn_id, model=self.model or "", latency_ms=latency,
+                            tool_calls=[tc.get("name", "") for tc in tool_calls],
+                        ))
                         yield "抱歉，处理您的请求时遇到循环，已终止。"
+                        self._save_trace_from_stream(turns, total_tokens, user_message, error=None)
                         return
                 else:
                     stuck_counter = 0
@@ -240,18 +265,54 @@ class ReActAgentLoop:
                         "tool_call_id": tool_id,
                         "content": tr.to_llm_content(),
                     })
+
+                turns.append(TurnTrace(
+                    turn_id=turn_id, model=self.model or "", latency_ms=latency,
+                    tool_calls=[tc.get("name", "") for tc in tool_calls],
+                ))
                 # 继续循环
             else:
                 # 流式输出最终回复
+                response_text = ""
                 for chunk in self.llm.chat_completion_stream(
                     messages=messages,
                     temperature=0.7,
                     model=self.model,
                 ):
+                    response_text += chunk
                     yield chunk
+
+                turns.append(TurnTrace(
+                    turn_id=turn_id, model=self.model or "", latency_ms=latency,
+                ))
+                self._save_trace_from_stream(turns, total_tokens, user_message, final=response_text)
                 return
 
         yield "抱歉，处理您的请求时超出了最大循环次数。"
+        self._save_trace_from_stream(turns, total_tokens, user_message, error="exceeded max turns")
+
+    def _save_trace_from_stream(
+        self,
+        turns: List[TurnTrace],
+        total_tokens: int,
+        user_message: str,
+        *,
+        final: str = "",
+        error: Optional[str] = None,
+    ) -> None:
+        """流式模式下保存 trace（无 ReActResult 对象）。"""
+        if not self.trace:
+            return
+        self.trace.turns = turns
+        self.trace.total_tokens = total_tokens
+        self.trace.total_latency_ms = sum(t.latency_ms for t in turns)
+        self.trace.final_response = final
+        self.trace.error = error
+        self.trace.finished_at = time.time()
+        try:
+            trace_store.save(self.trace)
+        except Exception as e:
+            logger.warning(f"Failed to save stream trace: {e}")
 
     def _build_messages(
         self,
@@ -373,3 +434,33 @@ class ReActAgentLoop:
             result = ToolResult.fail(tool_name, error=str(e))
         result.duration_ms = (time.monotonic() - exec_start) * 1000
         return result
+
+    def _finalize_trace(self, result: ReActResult, user_message: str) -> None:
+        """从 ReActResult 构建 ExecutionTrace 并持久化。"""
+        if not self.trace:
+            return
+        self.trace.total_tokens = result.total_tokens
+        self.trace.total_latency_ms = sum(t.latency_ms for t in result.turns)
+        self.trace.error = result.error
+        self.trace.finished_at = time.time()
+
+        # 构建 TurnTrace
+        for rt in result.turns:
+            tt = TurnTrace(
+                turn_id=rt.turn_id,
+                model=rt.model,
+                input_tokens=rt.input_tokens,
+                output_tokens=rt.output_tokens,
+                latency_ms=rt.latency_ms,
+                tool_calls=[tc.get("name", "") for tc in rt.tool_calls],
+            )
+            self.trace.turns.append(tt)
+
+        if result.content:
+            self.trace.final_response = result.content
+
+        try:
+            trace_store.save(self.trace)
+            logger.info(f"Trace saved: {self.trace.trace_id} ({len(result.turns)} turns)")
+        except Exception as e:
+            logger.warning(f"Failed to save trace: {e}")

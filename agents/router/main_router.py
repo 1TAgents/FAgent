@@ -168,6 +168,7 @@ class MainRouter:
         # 3. 设置上下文的原始信息
         decision.task_context.original_message = user_message
         decision.task_context.cid = cid
+        decision.task_context.mid = message_id
         decision.task_context.model = model
 
         log_router.context(decision.task_context)

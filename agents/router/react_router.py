@@ -28,6 +28,7 @@ from ..tools.builtin.market import get_market_tools
 from ..react.loop import ReActAgentLoop, ReActResult
 from ..core.logging import log_router, log_subagent
 from ..core.prompt_builder import prompt_builder
+from ..core.tracing import ExecutionTrace
 
 logger = logging.getLogger(__name__)
 
@@ -86,6 +87,18 @@ class ReActRouter:
             tool_schemas=[t.schema for t in tools] if tools else None,
         )
 
+        # 创建 ExecutionTrace
+        import time as _time
+        trace = ExecutionTrace(
+            trace_id=f"rid_{int(_time.time() * 1000)}",
+            cid=context.cid or 0,
+            mid=context.mid or 0,
+            user_message=context.original_message or context.query,
+            route=route.value,
+            task_type=context.task_type.value,
+            started_at=time.time(),
+        )
+
         # 创建 ReAct 循环
         loop = ReActAgentLoop(
             llm_service=llm_service,
@@ -94,6 +107,7 @@ class ReActRouter:
             max_turns=8,
             model=context.model,
             use_memory=True,
+            trace=trace,
         )
 
         # 执行 ReAct 循环
