@@ -171,25 +171,16 @@ async def chat_send(
         log_store_message(cid=request.cid, role="user", message_id=user_message_id, content_length=len(request.user_message))
         logger.info(f"[CHAT] 用户消息存储完成 | cid={request.cid} | mid={user_message_id}")
         
-        # 2. 构建 messages 列表
-        history = message_storage.get_history_before_message(
-            cid=request.cid,
-            before_message_id=user_message_id,
-            limit=request.history_limit
-        )
-        messages = [{"role": msg["role"], "content": msg["content"]} for msg in history]
-        messages.append({"role": "user", "content": request.user_message})
-        
-        # 3. 调用 Agents 服务
+        # 2. 调用 Agents Router 服务
         async with httpx.AsyncClient() as client:
             response = await client.post(
-                f"{AGENTS_BASE_URL}/agent/chat/completion",
+                f"{AGENTS_BASE_URL}/agent/chat/router/completion",
                 json={
-                    "messages": messages,
-                    "temperature": request.temperature,
-                    "max_tokens": request.max_tokens,
                     "cid": request.cid,
-                    "message_id": user_message_id
+                    "message_id": user_message_id,
+                    "user_message": request.user_message,
+                    "history_limit": request.history_limit,
+                    "model": request.model,
                 },
                 timeout=60.0
             )
