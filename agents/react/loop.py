@@ -26,6 +26,7 @@ from typing import Any, AsyncIterator, Dict, List, Optional, Sequence
 
 from ..core.logging import log_subagent, log_chain_event
 from ..core.tracing import ExecutionTrace, TurnTrace, trace_store
+from ..core.session_state import session_state
 from ..tools.registry import ToolRegistry, tool_registry
 from ..tools.result import ToolResult
 from ..services.memory_bridge import memory_bridge, MemoryEntry
@@ -90,6 +91,7 @@ class ReActAgentLoop:
         verbose: bool = False,
         use_memory: bool = True,
         trace: Optional[ExecutionTrace] = None,
+        cid: int = 0,
     ):
         self.llm = llm_service
         self.system_prompt = system_prompt
@@ -99,6 +101,7 @@ class ReActAgentLoop:
         self.verbose = verbose
         self.use_memory = use_memory
         self.trace = trace
+        self.cid = cid
 
     async def run(
         self,
@@ -120,6 +123,13 @@ class ReActAgentLoop:
         last_tool_signature = ""
 
         for turn_id in range(1, self.max_turns + 1):
+            # 检查取消
+            if session_state.is_cancelled(self.cid):
+                result.content = "请求已被取消。"
+                result.error = "cancelled"
+                self._finalize_trace(result, user_message)
+                return result
+
             turn_start = time.monotonic()
             turn = ReActTurn(turn_id=turn_id, model=self.model or "")
 
@@ -215,6 +225,10 @@ class ReActAgentLoop:
         finished = False
 
         for turn_id in range(1, self.max_turns + 1):
+            if session_state.is_cancelled(self.cid):
+                yield "请求已被取消。"
+                self._save_trace_from_stream(turns, total_tokens, user_message, error="cancelled")
+                return
             turn_start = time.monotonic()
             response = self._call_llm(messages)
             latency = (time.monotonic() - turn_start) * 1000

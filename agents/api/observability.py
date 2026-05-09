@@ -7,6 +7,7 @@ from fastapi import APIRouter, HTTPException
 
 from ..core.tracing import trace_store
 from ..core.logging import logger
+from ..core.session_state import session_state
 from ..tools.registry import tool_registry
 from ..tools.builtin import register_builtin_tools
 from ..services.provider import provider_registry
@@ -109,6 +110,31 @@ async def get_session_metrics(cid: int):
 async def get_memory_stats():
     """获取记忆系统统计信息。"""
     return {"memory": memory_bridge.stats()}
+
+
+@router.get("/sessions/{cid}/state")
+async def get_session_state(cid: int):
+    """获取会话状态。"""
+    info = session_state.get_info(cid)
+    if not info:
+        return {"cid": cid, "state": "idle"}
+    return info
+
+
+@router.get("/sessions/active")
+async def list_active_sessions():
+    """列出所有活跃会话。"""
+    active = session_state.list_active()
+    return {"active": active, "total": len(active)}
+
+
+@router.post("/sessions/{cid}/cancel")
+async def cancel_session(cid: int):
+    """取消指定会话。"""
+    cancelled = session_state.cancel(cid)
+    if cancelled:
+        return {"cid": cid, "cancelled": True}
+    raise HTTPException(status_code=400, detail=f"Session cid={cid} 未在处理中或不存在")
 
 
 @router.get("/observability/summary")

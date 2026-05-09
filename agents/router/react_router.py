@@ -29,6 +29,7 @@ from ..react.loop import ReActAgentLoop, ReActResult
 from ..core.logging import log_router, log_subagent
 from ..core.prompt_builder import prompt_builder
 from ..core.tracing import ExecutionTrace
+from ..core.session_state import session_state
 
 logger = logging.getLogger(__name__)
 
@@ -73,10 +74,21 @@ class ReActRouter:
             流式文本片段
         """
         start_time = time.time()
+        cid = context.cid or 0
+
+        # 如果会话已在运行中，拒绝
+        if session_state.is_running(cid):
+            log_router.fallback(f"Session cid={cid} 已在处理中，拒绝新请求")
+            yield "上一条消息仍在处理中，请稍后再试。"
+            return
+
         log_router.dispatch(
             f"ReAct({route.value})",
             context.task_type.value,
         )
+
+        # 启动会话
+        session_state.start(cid, context.mid or 0)
 
         # 构建工具集
         tools = self._get_tools_for_route(route)
@@ -91,7 +103,7 @@ class ReActRouter:
         import time as _time
         trace = ExecutionTrace(
             trace_id=f"rid_{int(_time.time() * 1000)}",
-            cid=context.cid or 0,
+            cid=cid,
             mid=context.mid or 0,
             user_message=context.original_message or context.query,
             route=route.value,
@@ -108,15 +120,23 @@ class ReActRouter:
             model=context.model,
             use_memory=True,
             trace=trace,
+            cid=cid,
         )
 
         # 执行 ReAct 循环
-        async for chunk in loop.run_stream(context.query, history):
-            yield chunk
+        try:
+            async for chunk in loop.run_stream(context.query, history):
+                yield chunk
+        except Exception as e:
+            session_state.set_error(cid)
+            raise
+        finally:
+            if not session_state.is_cancelled(cid):
+                session_state.finish(cid)
 
         duration = time.time() - start_time
         log_router.done(
-            cid=context.cid or 0,
+            cid=cid,
             duration=duration,
             route=route.value,
         )
