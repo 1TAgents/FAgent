@@ -20,6 +20,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 from backend.services.storage import message_storage
 
 from .models import TaskContext, TaskType, RouteType, RouteDecision
+from .policy import normalize_route_for_task
 from ..services.llm import llm_service
 from ..subagents.backtest_subagent import backtest_subagent
 from ..subagents.chat_subagent import chat_subagent
@@ -294,6 +295,16 @@ class MainRouter:
                 task_type = TaskType(task_str)
             except ValueError:
                 task_type = TaskType.GENERAL_QA
+
+            normalized_route = normalize_route_for_task(route, task_type)
+            reasoning = data.get("reasoning", "")
+            if normalized_route != route:
+                suffix = (
+                    f"route normalized from {route.value} to "
+                    f"{normalized_route.value} for task {task_type.value}"
+                )
+                reasoning = f"{reasoning} | {suffix}" if reasoning else suffix
+                route = normalized_route
             
             # 构建 TaskContext
             task_context = TaskContext(
@@ -307,7 +318,7 @@ class MainRouter:
                 route=route,
                 task_context=task_context,
                 confidence=1.0,
-                reasoning=data.get("reasoning", ""),
+                reasoning=reasoning,
             )
             
         except Exception as e:
