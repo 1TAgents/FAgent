@@ -143,21 +143,33 @@ class ProviderRegistry:
     def get_fallback_models(self, primary: str) -> List[str]:
         """获取主模型失败后的回退模型列表。
 
-        按优先级排序，返回同级或更低优先级的模型。
+        先尝试相同 provider 的其他模型，再回退到其他 provider 的模型。
+        排除当前主模型，按优先级排序。
         """
         primary_info = self.get_model(primary)
         if not primary_info:
             return []
 
-        # 返回相同 provider 的其他模型，按优先级排序
-        provider = self.get_provider(primary_info.provider)
-        if not provider:
-            return []
-
         fallbacks = []
-        for m in sorted(provider.models, key=lambda x: x.priority):
-            if m.model_id != primary:
-                fallbacks.append(m.model_id)
+        seen = {primary}
+
+        # 1. 相同 provider 的其他模型
+        provider = self.get_provider(primary_info.provider)
+        if provider:
+            for m in sorted(provider.models, key=lambda x: x.priority):
+                if m.model_id not in seen:
+                    fallbacks.append(m.model_id)
+                    seen.add(m.model_id)
+
+        # 2. 其他 provider 的模型，按优先级排序
+        for p in self.providers:
+            if p.name == primary_info.provider:
+                continue
+            for m in sorted(p.models, key=lambda x: x.priority):
+                if m.model_id not in seen:
+                    fallbacks.append(m.model_id)
+                    seen.add(m.model_id)
+
         return fallbacks
 
     def to_frontend_list(self) -> List[dict]:

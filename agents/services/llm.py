@@ -212,6 +212,56 @@ class LLMService:
             logger.error(f"LLM API 错误 | model={resolved_model} | error={e}")
             raise
 
+    async def chat_completion_with_fallback(
+        self,
+        messages: List[Dict],
+        temperature: float = 0.7,
+        max_tokens: Optional[int] = None,
+        model: Optional[str] = None,
+        tools: Optional[List[dict]] = None,
+        **kwargs,
+    ):
+        """带模型回退链的聊天完成。
+
+        当主模型失败（限流、超时、服务不可）时，自动尝试其他模型。
+        认证错误不回退（配置问题无法通过换模型解决）。
+        """
+        resolved_model = model or self.default_model
+        fallback_models = provider_registry.get_fallback_models(resolved_model)
+        all_models = [resolved_model] + fallback_models
+
+        last_error = None
+        for model_id in all_models:
+            if model_id != resolved_model:
+                logger.warning(f"主模型失败，回退到: {model_id}")
+            try:
+                return await self.chat_completion(
+                    messages=messages,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                    model=model_id,
+                    tools=tools,
+                    **kwargs,
+                )
+            except AuthenticationError:
+                raise  # 配置错误不回退
+            except (RateLimitError, APIError, OpenAIError) as e:
+                last_error = e
+                logger.warning(f"模型 {model_id} 调用失败: {e}")
+                continue
+
+        if last_error:
+            logger.error(f"所有模型均失败，最后错误: {last_error}")
+            raise last_error
+        # 所有模型均未配置
+        return SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(
+                content="所有模型均未配置或不可用。"
+            ))],
+            model=resolved_model,
+            usage=SimpleNamespace(prompt_tokens=0, completion_tokens=0, total_tokens=0),
+        )
+
 
 # 实例化并导出
 llm_service = LLMService()
