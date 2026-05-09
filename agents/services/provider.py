@@ -163,10 +163,12 @@ class ProviderRegistry:
     def to_frontend_list(self) -> List[dict]:
         """生成前端展示用的模型列表。"""
         result = []
+        seen = set()
         for model in sorted(self._all_models.values(), key=lambda m: (m.priority, m.display_name)):
-            # 去重：只保留一次（避免 model_id 和 short_id 重复）
-            if model.model_id in [r["id"] for r in result]:
+            key = f"{model.provider}/{model.short_id}"
+            if key in seen:
                 continue
+            seen.add(key)
             result.append({
                 "id": model.short_id,
                 "name": model.display_name,
@@ -310,6 +312,28 @@ def create_dashscope_provider() -> Provider:
     )
 
 
+def create_aliyun_token_plan_provider() -> Provider:
+    """创建阿里云 Token Plan（MAAS）提供商。"""
+    return Provider(
+        name="aliyun-token-plan",
+        base_url="https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1",
+        api_key_env="ALIYUN_TOKEN_PLAN_API_KEY",
+        models=[
+            ModelInfo(
+                model_id="qwen3.6-plus",
+                display_name="Qwen 3.6 Plus (Aliyun Token Plan)",
+                provider="aliyun-token-plan",
+                context_window=131072,
+                max_output_tokens=8192,
+                supports_tool_use=True,
+                supports_reasoning=True,
+                priority=1,
+                description="千问 3.6 Plus：推理模型、视觉理解、文本生成",
+            ),
+        ],
+    )
+
+
 def create_ollama_provider() -> Provider:
     """创建 Ollama（本地模型）提供商。"""
     import os
@@ -338,3 +362,5 @@ def create_ollama_provider() -> Provider:
 provider_registry = ProviderRegistry()
 # 默认注册 OpenRouter
 provider_registry.register(create_openrouter_provider())
+# 阿里云 Token Plan
+provider_registry.register(create_aliyun_token_plan_provider())
