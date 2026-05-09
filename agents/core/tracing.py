@@ -305,6 +305,96 @@ class TraceStore:
                 ).fetchall()
                 return [dict(r) for r in rows]
 
+    def get_traces_filtered(
+        self,
+        *,
+        route: Optional[str] = None,
+        cid: Optional[int] = None,
+        start_ts: Optional[float] = None,
+        end_ts: Optional[float] = None,
+        limit: int = 50,
+    ) -> List[dict]:
+        """按条件过滤追踪记录。"""
+        clauses = []
+        params: list = []
+        if route:
+            clauses.append("route = ?")
+            params.append(route)
+        if cid is not None:
+            clauses.append("cid = ?")
+            params.append(cid)
+        if start_ts is not None:
+            clauses.append("created_at >= ?")
+            params.append(start_ts)
+        if end_ts is not None:
+            clauses.append("created_at <= ?")
+            params.append(end_ts)
+
+        where = ""
+        if clauses:
+            where = "WHERE " + " AND ".join(clauses)
+
+        with self._lock:
+            with sqlite3.connect(self._db_path) as conn:
+                conn.row_factory = sqlite3.Row
+                rows = conn.execute(
+                    f"SELECT * FROM traces {where} ORDER BY created_at DESC LIMIT ?",
+                    params + [limit],
+                ).fetchall()
+                return [dict(r) for r in rows]
+
+    def get_global_metrics(self) -> Dict[str, Any]:
+        """获取全局聚合指标。"""
+        with self._lock:
+            with sqlite3.connect(self._db_path) as conn:
+                conn.row_factory = sqlite3.Row
+                row = conn.execute(
+                    """SELECT
+                         COUNT(*) as total_requests,
+                         COUNT(DISTINCT cid) as unique_sessions,
+                         SUM(turns) as total_turns,
+                         SUM(total_tokens) as total_tokens,
+                         SUM(total_latency_ms) as total_latency_ms,
+                         COUNT(CASE WHEN error IS NOT NULL THEN 1 END) as error_count,
+                         MIN(created_at) as first_active,
+                         MAX(created_at) as last_active
+                       FROM traces""",
+                ).fetchone()
+
+                # 路由分布
+                route_rows = conn.execute(
+                    "SELECT route, COUNT(*) as cnt, SUM(total_tokens) as tk FROM traces "
+                    "WHERE route IS NOT NULL GROUP BY route ORDER BY cnt DESC",
+                ).fetchall()
+                route_dist = {
+                    r["route"]: {"count": r["cnt"], "tokens": r["tk"] or 0}
+                    for r in route_rows
+                }
+
+                # 按小时聚合（最近 24 小时）
+                hour_rows = conn.execute(
+                    """SELECT
+                         strftime('%Y-%m-%d %H:00', datetime(created_at, 'unixepoch', 'localtime')) as hour,
+                         COUNT(*) as cnt,
+                         SUM(total_tokens) as tk
+                       FROM traces
+                       WHERE created_at >= ?
+                       GROUP BY hour
+                       ORDER BY hour""",
+                    (time.time() - 86400,),
+                ).fetchall()
+                hourly = [
+                    {"hour": r["hour"], "requests": r["cnt"], "tokens": r["tk"] or 0}
+                    for r in hour_rows
+                ]
+
+        metrics = dict(row) if row else {}
+        return {
+            **metrics,
+            "route_distribution": route_dist,
+            "hourly_activity": hourly,
+        }
+
 
 # 全局单例
 trace_store = TraceStore()

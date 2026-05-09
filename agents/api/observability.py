@@ -3,7 +3,9 @@ Observability API - 可观测性接口
 
 提供追踪、指标、工具列表、模型列表等查询端点。
 """
-from fastapi import APIRouter, HTTPException
+from typing import Optional
+
+from fastapi import APIRouter, HTTPException, Query
 
 from ..core.tracing import trace_store
 from ..core.logging import logger
@@ -162,3 +164,49 @@ async def observability_summary():
         },
         "memory": memory_stats,
     }
+
+
+# ==================== 增强端点 ====================
+
+
+@router.get("/traces/filter")
+async def filter_traces(
+    route: Optional[str] = None,
+    cid: Optional[int] = None,
+    start_ts: Optional[float] = None,
+    end_ts: Optional[float] = None,
+    limit: int = Query(default=50, le=200),
+):
+    """按条件过滤追踪记录（路由/会话/时间范围）。"""
+    traces = trace_store.get_traces_filtered(
+        route=route, cid=cid, start_ts=start_ts, end_ts=end_ts, limit=limit,
+    )
+    for t in traces:
+        t.pop("trace_json", None)
+        t.pop("final_response", None)
+    return {"traces": traces, "total": len(traces)}
+
+
+@router.get("/metrics/global")
+async def global_metrics():
+    """全局聚合指标：总请求数、token 消耗、路由分布、24h 活跃度。"""
+    return {"metrics": trace_store.get_global_metrics()}
+
+
+@router.get("/metrics/by-route")
+async def metrics_by_route():
+    """按路由类型分组的指标。"""
+    global_data = trace_store.get_global_metrics()
+    routes = global_data.get("route_distribution", {})
+    # 补充各路由的平均延迟
+    result = {}
+    for route_name, info in routes.items():
+        cid_traces = trace_store.get_traces_filtered(route=route_name, limit=500)
+        total_latency = sum(t.get("total_latency_ms", 0) for t in cid_traces)
+        count = len(cid_traces)
+        result[route_name] = {
+            **info,
+            "avg_latency_ms": round(total_latency / max(count, 1), 1),
+            "sample_count": count,
+        }
+    return {"routes": result}
