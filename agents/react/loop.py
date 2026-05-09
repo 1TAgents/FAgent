@@ -136,7 +136,7 @@ class ReActAgentLoop:
             turn = ReActTurn(turn_id=turn_id, model=self.model or "")
 
             # 1. 调用 LLM（带工具）
-            response = self._call_llm(messages)
+            response = await self._call_llm(messages)
             turn.latency_ms = (time.monotonic() - turn_start) * 1000
 
             # 2. 解析 LLM 响应
@@ -232,7 +232,7 @@ class ReActAgentLoop:
                 self._save_trace_from_stream(turns, total_tokens, user_message, error="cancelled")
                 return
             turn_start = time.monotonic()
-            response = self._call_llm(messages)
+            response = await self._call_llm(messages)
             latency = (time.monotonic() - turn_start) * 1000
             tool_calls = self._extract_tool_calls(response)
             assistant_content = self._extract_assistant_content(response)
@@ -290,7 +290,7 @@ class ReActAgentLoop:
             else:
                 # 流式输出最终回复
                 response_text = ""
-                for chunk in self.llm.chat_completion_stream(
+                async for chunk in self.llm.chat_completion_stream(
                     messages=messages,
                     temperature=0.7,
                     model=self.model,
@@ -352,7 +352,7 @@ class ReActAgentLoop:
         messages.append({"role": "user", "content": user_message})
         return messages
 
-    def _call_llm(self, messages: List[dict]) -> Any:
+    async def _call_llm(self, messages: List[dict]) -> Any:
         """调用 LLM，带工具配置。"""
         tool_schemas = self._build_tool_schemas_for_llm()
 
@@ -365,7 +365,7 @@ class ReActAgentLoop:
         if tool_schemas:
             params["tools"] = tool_schemas
 
-        return self.llm.chat_completion(**params)
+        return await self.llm.chat_completion(**params)
 
     def _build_tool_schemas_for_llm(self) -> List[dict]:
         """将内部工具 schema 转换为 LLM tool use 格式。"""

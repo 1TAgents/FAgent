@@ -25,7 +25,7 @@ class MockLLM:
         self.behavior = behavior
         self.call_count = 0
 
-    def chat_completion(self, messages, temperature=0.7, model=None, tools=None, **kw):
+    async def chat_completion(self, messages, temperature=0.7, model=None, tools=None, **kw):
         self.call_count += 1
         from types import SimpleNamespace
 
@@ -60,8 +60,9 @@ class MockLLM:
                 usage=SimpleNamespace(prompt_tokens=200, completion_tokens=30, total_tokens=230),
             )
 
-    def chat_completion_stream(self, messages, temperature=0.7, model=None, **kw):
-        yield "贵州茅台当前股价为 1850.00 元。"
+    async def chat_completion_stream(self, messages, temperature=0.7, model=None, **kw):
+        for char in "贵州茅台当前股价为 1850.00 元。":
+            yield char
 
 
 @pytest.fixture
@@ -135,7 +136,7 @@ class TestReActAgentLoop:
             def __init__(self):
                 self.call_count = 0
 
-            def chat_completion(self, messages, temperature=0.7, model=None, tools=None, **kw):
+            async def chat_completion(self, messages, temperature=0.7, model=None, tools=None, **kw):
                 self.call_count += 1
                 from types import SimpleNamespace
                 # 每次都返回相同的工具调用
@@ -156,7 +157,7 @@ class TestReActAgentLoop:
                     usage=SimpleNamespace(prompt_tokens=100, completion_tokens=20, total_tokens=120),
                 )
 
-            def chat_completion_stream(self, messages, temperature=0.7, model=None, **kw):
+            async def chat_completion_stream(self, messages, temperature=0.7, model=None, **kw):
                 yield ""
 
         llm = StuckLLM()
