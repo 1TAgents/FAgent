@@ -32,6 +32,7 @@
 | 模型回退链 | 9 (Provider) | 主模型失败自动回退到其他提供商的模型 |
 | API 限流 | 8 (Security) | 滑动窗口限流中间件，chat 30/min, auth 10/min |
 | CLI 命令完整实现 | 10 (CLI) | `message` (send/list/show/search)、`memory` (5级披露API)、`test` (4项断言测试)、current_cid 跨调用持久化 |
+| CLI send 命令 | 10 (CLI) | `fagent send "消息"` 通过后端 API 走完整链路，支持流式/非流式、模型选择、自动创建 session、本地消息存储 |
 | 冒烟测试 | 10 (Testing) | 8个端到端测试覆盖工具注册/ReAct Loop/Trace/Memory/Prompt/Session/CLI/Observability |
 | 旧 API 端点下线 | 2 (Runtime) | `/api/chat/send` 从 `/agent/chat/completion` 迁移到 `/agent/chat/router/completion` |
 
