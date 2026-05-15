@@ -15,6 +15,7 @@ from .commands.session import session
 from .commands.message import message
 from .commands import memory as memory_commands
 from .commands import test as test_commands
+from .commands.send import send
 
 # 创建全局 console 实例
 console = Console()
@@ -29,10 +30,11 @@ def cli():
     
     \b
     示例:
-        fagent session new          创建新会话
-        fagent message send "你好"   发送消息
-        fagent memory overview      查看会话概览
-        fagent test all             运行所有测试
+        fagent send "你好"            发送消息给 Agent
+        fagent send "测试" --no-stream  非流式发送
+        fagent session new            创建新会话
+        fagent memory overview        查看会话概览
+        fagent test all               运行所有测试
     """
     pass
 
@@ -42,6 +44,7 @@ cli.add_command(session)
 cli.add_command(message)
 cli.add_command(memory_commands.memory)
 cli.add_command(test_commands.test)
+cli.add_command(send)
 
 
 @cli.command()
