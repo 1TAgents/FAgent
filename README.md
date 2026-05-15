@@ -9,6 +9,7 @@ FAgent 是一个面向股票/期货研究场景的对话式应用，当前以 We
 - Agents 已提供 Router 路由、行情工具、标题生成和 OpenRouter 兼容 LLM 调用
 - 未配置真实 LLM API Key 时，Agents 会自动进入 Mock 模式，便于联调
 - `src/memory/` 与 `fagent_cli.py` 已落地基础版本，但仍处于实验性阶段
+- CLI 已提供 `doctor security-scan`，可在提交前扫描本机路径、API key、token 和私钥等高风险内容
 
 ## 架构
 
@@ -139,6 +140,20 @@ npm run dev
 - `POST /api/auth/login`
 - `GET /api/chat/models`
 - `POST /api/chat/market/chat`
+
+## CLI 诊断
+
+提交或发布前可以运行本地安全扫描：
+
+```bash
+python3 fagent_cli.py doctor security-scan
+```
+
+默认只扫描 git 已跟踪文件，输出相对路径、行号和规则名，不打印命中的敏感值。需要检查未跟踪文件时使用：
+
+```bash
+python3 fagent_cli.py doctor security-scan --include-untracked
+```
 
 ## 文档导航
 

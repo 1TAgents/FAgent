@@ -45,6 +45,18 @@ def test_hello():
     print("✓ hello 命令测试通过")
 
 
+def test_doctor_help():
+    """测试 doctor --help 命令"""
+    result = subprocess.run(
+        ['python3', 'fagent_cli.py', 'doctor', '--help'],
+        capture_output=True,
+        text=True
+    )
+    assert result.returncode == 0
+    assert 'security-scan' in result.stdout
+    print("✓ doctor 帮助测试通过")
+
+
 def main():
     """运行所有测试"""
     print("运行 CLI 框架测试...\n")
@@ -53,6 +65,7 @@ def main():
         test_help,
         test_version,
         test_hello,
+        test_doctor_help,
     ]
     
     passed = 0

@@ -1,6 +1,6 @@
 # FAgent 开发路线图
 
-> 更新日期：2026-05-09
+> 更新日期：2026-05-15
 
 本文档记录 FAgent 基于 10 维度分析的改进进展和下一步方向。
 
@@ -35,6 +35,7 @@
 | CLI send 命令 | 10 (CLI) | `fagent send "消息"` 通过后端 API 走完整链路，支持流式/非流式、模型选择、自动创建 session、本地消息存储 |
 | 冒烟测试 | 10 (Testing) | 8个端到端测试覆盖工具注册/ReAct Loop/Trace/Memory/Prompt/Session/CLI/Observability |
 | 旧 API 端点下线 | 2 (Runtime) | `/api/chat/send` 从 `/agent/chat/completion` 迁移到 `/agent/chat/router/completion` |
+| CLI 安全诊断 | 8 (Security) / 10 (Observability) | `fagent doctor security-scan` 扫描本机路径、API key、token、私钥等高风险内容，默认只扫 git 已跟踪文件且不输出敏感值 |
 
 ### 下一步
 

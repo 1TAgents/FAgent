@@ -45,7 +45,11 @@ def test_all_commands():
         (['fagent_cli.py', 'memory', '--help'], "memory 帮助"),
         (['fagent_cli.py', 'memory', 'overview'], "memory overview"),
         (['fagent_cli.py', 'memory', 'messages'], "memory messages"),
-        
+
+        # 诊断命令
+        (['fagent_cli.py', 'doctor', '--help'], "doctor 帮助"),
+        (['fagent_cli.py', 'doctor', 'security-scan'], "doctor security-scan"),
+
         # 测试命令
         (['fagent_cli.py', 'test', '--help'], "test 帮助"),
         (['fagent_cli.py', 'test', 'session'], "test session"),
