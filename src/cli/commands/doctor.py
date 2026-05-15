@@ -11,7 +11,7 @@ import click
 from rich.console import Console
 from rich.table import Table
 
-from src.cli.security_scan import scan_repo
+from src.cli.security_scan import scan_repo, scan_staged
 
 
 console = Console()
@@ -30,16 +30,29 @@ def doctor():
     help="同时扫描未跟踪但未被 .gitignore 忽略的文件",
 )
 @click.option("--json", "json_output", is_flag=True, help="输出 JSON，便于 CI 或脚本使用")
+@click.option("--staged", is_flag=True, help="只扫描 git 暂存区中的内容")
 @click.option(
     "--root",
     type=click.Path(exists=True, file_okay=False, path_type=Path),
     default=None,
     hidden=True,
 )
-def doctor_security_scan(include_untracked: bool, json_output: bool, root: Path | None):
+def doctor_security_scan(
+    include_untracked: bool,
+    json_output: bool,
+    staged: bool,
+    root: Path | None,
+):
     """扫描本地路径、API key、token 和私钥等明显风险"""
+    if staged and include_untracked:
+        raise click.UsageError("--staged 不能和 --include-untracked 同时使用")
+
     scan_root = root or Path.cwd()
-    report = scan_repo(scan_root, include_untracked=include_untracked)
+    report = (
+        scan_staged(scan_root)
+        if staged
+        else scan_repo(scan_root, include_untracked=include_untracked)
+    )
 
     if json_output:
         click.echo(json.dumps(report.to_dict(), ensure_ascii=False, indent=2))

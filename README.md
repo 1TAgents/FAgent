@@ -155,6 +155,12 @@ python3 fagent_cli.py doctor security-scan
 python3 fagent_cli.py doctor security-scan --include-untracked
 ```
 
+只检查本次暂存区内容时使用：
+
+```bash
+python3 fagent_cli.py doctor security-scan --staged
+```
+
 ## 文档导航
 
 - [Backend 文档](backend/README.md)

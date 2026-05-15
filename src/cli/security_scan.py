@@ -212,6 +212,44 @@ def scan_repo(
     return ScanReport(root=".", scanned_files=scanned, findings=findings)
 
 
+def scan_staged(
+    root: Path | str,
+    *,
+    max_file_size: int = DEFAULT_MAX_FILE_SIZE,
+) -> ScanReport:
+    """Scan staged git blobs, not the working-tree files."""
+    root_path = Path(root).resolve()
+    staged_paths = _git_files(
+        root_path,
+        ["diff", "--cached", "--name-only", "--diff-filter=ACMR", "-z"],
+    )
+    if staged_paths is None:
+        raise RuntimeError("staged scan requires a git repository")
+
+    findings: list[SecurityFinding] = []
+    scanned = 0
+
+    for rel_path in staged_paths:
+        path = root_path / rel_path
+        if not _is_scannable_path(root_path, path):
+            continue
+
+        blob = _git_blob(root_path, rel_path)
+        if blob is None or len(blob) > max_file_size:
+            continue
+
+        try:
+            content = blob.decode("utf-8")
+        except UnicodeDecodeError:
+            continue
+
+        scanned += 1
+        findings.extend(scan_text(Path(rel_path).as_posix(), content))
+
+    findings.sort(key=lambda item: (item.path, item.line, item.rule_id))
+    return ScanReport(root=".", scanned_files=scanned, findings=findings)
+
+
 def _candidate_files(root: Path, *, include_untracked: bool) -> Iterable[Path]:
     tracked = _git_files(root, ["ls-files", "-z"])
     if tracked is None:
@@ -243,6 +281,19 @@ def _git_files(root: Path, args: list[str]) -> list[str] | None:
     return [item for item in raw.split("\0") if item]
 
 
+def _git_blob(root: Path, rel_path: str) -> bytes | None:
+    try:
+        result = subprocess.run(
+            ["git", "show", f":{rel_path}"],
+            cwd=root,
+            capture_output=True,
+            check=True,
+        )
+    except (OSError, subprocess.CalledProcessError):
+        return None
+    return result.stdout
+
+
 def _walk_files(root: Path) -> Iterable[Path]:
     for path in root.rglob("*"):
         if path.is_file():
@@ -250,6 +301,16 @@ def _walk_files(root: Path) -> Iterable[Path]:
 
 
 def _is_scannable_file(root: Path, path: Path, *, max_file_size: int) -> bool:
+    if not _is_scannable_path(root, path):
+        return False
+
+    try:
+        return path.is_file() and path.stat().st_size <= max_file_size
+    except OSError:
+        return False
+
+
+def _is_scannable_path(root: Path, path: Path) -> bool:
     try:
         relative_parts = path.relative_to(root).parts
     except ValueError:
@@ -260,10 +321,7 @@ def _is_scannable_file(root: Path, path: Path, *, max_file_size: int) -> bool:
     if path.suffix.lower() in EXCLUDED_SUFFIXES:
         return False
 
-    try:
-        return path.is_file() and path.stat().st_size <= max_file_size
-    except OSError:
-        return False
+    return True
 
 
 def _is_placeholder_line(line: str) -> bool:

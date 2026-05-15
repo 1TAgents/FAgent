@@ -35,7 +35,7 @@
 | CLI send 命令 | 10 (CLI) | `fagent send "消息"` 通过后端 API 走完整链路，支持流式/非流式、模型选择、自动创建 session、本地消息存储 |
 | 冒烟测试 | 10 (Testing) | 8个端到端测试覆盖工具注册/ReAct Loop/Trace/Memory/Prompt/Session/CLI/Observability |
 | 旧 API 端点下线 | 2 (Runtime) | `/api/chat/send` 从 `/agent/chat/completion` 迁移到 `/agent/chat/router/completion` |
-| CLI 安全诊断 | 8 (Security) / 10 (Observability) | `fagent doctor security-scan` 扫描本机路径、API key、token、私钥等高风险内容，默认只扫 git 已跟踪文件且不输出敏感值 |
+| CLI 安全诊断 | 8 (Security) / 10 (Observability) | `fagent doctor security-scan` 扫描本机路径、API key、token、私钥等高风险内容；支持 staged 扫描并接入 pre-commit，且不输出敏感值 |
 
 ### 下一步
 

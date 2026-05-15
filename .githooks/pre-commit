@@ -35,3 +35,18 @@ check_ident() {
 
 check_ident GIT_AUTHOR_IDENT
 check_ident GIT_COMMITTER_IDENT
+
+python3 - <<'PY'
+from pathlib import Path
+from src.cli.security_scan import scan_staged
+
+report = scan_staged(Path.cwd())
+if report.ok:
+    raise SystemExit(0)
+
+print("pre-commit: staged security scan found potential leaks:")
+for finding in report.findings:
+    print(f"- {finding.severity} {finding.rule_id} at {finding.path}:{finding.line}")
+print("Run: python3 fagent_cli.py doctor security-scan --staged")
+raise SystemExit(1)
+PY
