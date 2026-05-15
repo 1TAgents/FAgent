@@ -93,6 +93,7 @@ class ReActAgentLoop:
         use_memory: bool = True,
         trace: Optional[ExecutionTrace] = None,
         cid: int = 0,
+        permissions: Optional[ToolPermissions] = None,
     ):
         self.llm = llm_service
         self.system_prompt = system_prompt
@@ -103,7 +104,7 @@ class ReActAgentLoop:
         self.use_memory = use_memory
         self.trace = trace
         self.cid = cid
-        self.permissions = ToolPermissions()  # 默认允许所有已注册工具
+        self.permissions = permissions or ToolPermissions()  # 默认允许所有已注册工具
 
     async def run(
         self,

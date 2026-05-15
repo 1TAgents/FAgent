@@ -9,8 +9,9 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from agents.react.loop import ReActAgentLoop, ReActResult, ReActTurn
 from agents.tools.registry import ToolRegistry
-from agents.tools.base import BaseTool
+from agents.tools.base import BaseTool, DangerLevel
 from agents.tools.result import ToolResult
+from agents.tools.permissions import ToolPermissions
 
 
 class MockLLM:
@@ -117,6 +118,59 @@ class TestReActAgentLoop:
         assert len(result.turns) == 2
         assert len(result.turns[0].tool_calls) == 1
         assert result.turns[0].tool_calls[0]["name"] == "get_quote"
+
+    @pytest.mark.asyncio
+    async def test_permissions_deny_tool_execution(self):
+        class MockWriteTool(BaseTool):
+            name = "write_state"
+            description = "修改内部状态"
+            category = "test"
+            danger_level = DangerLevel.WRITE
+
+            async def execute(self, **kw):
+                return ToolResult.ok(self.name, text="written")
+
+        class WriteLLM(MockLLM):
+            async def chat_completion(self, messages, temperature=0.7, model=None, tools=None, **kw):
+                self.call_count += 1
+                from types import SimpleNamespace
+
+                if self.call_count == 1:
+                    return SimpleNamespace(
+                        choices=[SimpleNamespace(
+                            message=SimpleNamespace(
+                                content=None,
+                                tool_calls=[SimpleNamespace(
+                                    id="tc_write",
+                                    function=SimpleNamespace(
+                                        name="write_state",
+                                        arguments="{}",
+                                    ),
+                                )],
+                            )
+                        )],
+                        model=model or "test",
+                        usage=SimpleNamespace(prompt_tokens=10, completion_tokens=5),
+                    )
+
+                return await super().chat_completion(messages, temperature, model, tools, **kw)
+
+        reg = ToolRegistry()
+        reg.register(MockWriteTool())
+        permissions = ToolPermissions(max_danger_level=DangerLevel.READ_ONLY)
+        loop = ReActAgentLoop(
+            WriteLLM(),
+            system_prompt="test",
+            registry=reg,
+            model="test",
+            permissions=permissions,
+        )
+
+        result = await loop.run("修改状态")
+
+        denied = result.turns[0].tool_results[0]
+        assert not denied.success
+        assert "超过允许的最大等级" in denied.error
 
     @pytest.mark.asyncio
     async def test_stream_output(self):
