@@ -187,6 +187,9 @@ def send(message: str, model: Optional[str], no_stream: bool,
 
     # 3. 发送消息
     if no_stream:
-        _run(_send_non_stream(backend, memory, cid, message, model, history_limit))
+        content = _run(_send_non_stream(backend, memory, cid, message, model, history_limit))
     else:
-        _run(_send_stream(backend, memory, cid, message, model, history_limit))
+        content = _run(_send_stream(backend, memory, cid, message, model, history_limit))
+
+    if not content:
+        sys.exit(1)
