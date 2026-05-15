@@ -110,6 +110,10 @@ class ReActRouter:
         skill_tools = get_skill_tools(skill_registry)
         for st in skill_tools:
             tool_registry.register(st)
+        allowed_tool_names = (
+            [tool.name for tool in tools]
+            + [tool.name for tool in skill_tools]
+        )
 
         # 构建系统提示词（注入技能索引 + 记忆召回）
         skill_index_text = skill_registry.get_index_for_route(route.value)
@@ -148,6 +152,7 @@ class ReActRouter:
             trace=trace,
             cid=cid,
             permissions=permissions,
+            allowed_tool_names=allowed_tool_names,
         )
 
         # 执行 ReAct 循环

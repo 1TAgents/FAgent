@@ -94,6 +94,7 @@ class ReActAgentLoop:
         trace: Optional[ExecutionTrace] = None,
         cid: int = 0,
         permissions: Optional[ToolPermissions] = None,
+        allowed_tool_names: Optional[Sequence[str]] = None,
     ):
         self.llm = llm_service
         self.system_prompt = system_prompt
@@ -105,6 +106,14 @@ class ReActAgentLoop:
         self.trace = trace
         self.cid = cid
         self.permissions = permissions or ToolPermissions()  # 默认允许所有已注册工具
+        self.allowed_tool_names = (
+            list(dict.fromkeys(allowed_tool_names))
+            if allowed_tool_names is not None
+            else None
+        )
+        self._allowed_tool_name_set = (
+            set(self.allowed_tool_names) if self.allowed_tool_names is not None else None
+        )
 
     async def run(
         self,
@@ -375,7 +384,15 @@ class ReActAgentLoop:
 
     def _build_tool_schemas_for_llm(self) -> List[dict]:
         """将内部工具 schema 转换为 LLM tool use 格式。"""
-        schemas = self.registry.get_all_schemas()
+        if self.allowed_tool_names is None:
+            schemas = self.registry.get_all_schemas()
+        else:
+            schemas = [
+                tool.schema
+                for name in self.allowed_tool_names
+                if (tool := self.registry.get(name)) is not None
+            ]
+
         result = []
         for s in schemas:
             result.append({
@@ -450,6 +467,12 @@ class ReActAgentLoop:
     async def _execute_single(self, tool_name: str, tool_args: dict) -> ToolResult:
         """执行单个工具，返回 ToolResult。"""
         exec_start = time.monotonic()
+
+        if (
+            self._allowed_tool_name_set is not None
+            and tool_name not in self._allowed_tool_name_set
+        ):
+            return ToolResult.fail(tool_name, error=f"工具 {tool_name} 不在当前工具集中")
 
         # 权限检查
         tool = self.registry.get(tool_name)

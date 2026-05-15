@@ -14,6 +14,7 @@ import time
 from pathlib import Path
 from typing import Optional
 from types import SimpleNamespace
+import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
@@ -96,8 +97,8 @@ class MockMarketTool(BaseTool):
     category = "market"
     danger_level = DangerLevel.READ_ONLY
 
-    async def execute(self, params: dict) -> ToolResult:
-        return ToolResult.ok("上证指数 3200 点，成交量温和。")
+    async def execute(self, **kwargs) -> ToolResult:
+        return ToolResult.ok(self.name, text="上证指数 3200 点，成交量温和。")
 
 
 def run_sync(test_fn):
@@ -136,6 +137,7 @@ def test_tool_registry_full_registration():
     print(f"  ✓ 工具注册全链路通过 ({len(names)} tools)")
 
 
+@pytest.mark.asyncio
 async def test_react_loop_single_turn():
     """验证 ReAct Loop 单轮执行。"""
     mock_llm = MockLLMService()
@@ -168,6 +170,7 @@ async def test_react_loop_single_turn():
     print(f"  ✓ ReAct Loop 单轮通过 (response_len={len(full_response)})")
 
 
+@pytest.mark.asyncio
 async def test_react_loop_with_trace():
     """验证 ReAct Loop 正确记录 ExecutionTrace。"""
     mock_llm = MockLLMService()

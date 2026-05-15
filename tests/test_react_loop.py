@@ -238,6 +238,39 @@ class TestReActAgentLoop:
         assert schemas[0]["type"] == "function"
         assert schemas[0]["function"]["name"] == "get_quote"
 
+    def test_build_tool_schemas_respects_allowed_tool_names(self, registry):
+        class HiddenTool(BaseTool):
+            name = "hidden_tool"
+            description = "不应暴露的工具"
+            category = "test"
+
+            async def execute(self, **kw):
+                return ToolResult.ok(self.name, text="hidden")
+
+        registry.register(HiddenTool())
+        loop = ReActAgentLoop(
+            MockLLM(),
+            system_prompt="test",
+            registry=registry,
+            allowed_tool_names=["get_quote"],
+        )
+
+        schemas = loop._build_tool_schemas_for_llm()
+
+        assert [schema["function"]["name"] for schema in schemas] == ["get_quote"]
+
+    @pytest.mark.asyncio
+    async def test_allowed_tool_names_deny_hidden_tool_execution(self, registry):
+        result = await ReActAgentLoop(
+            MockLLM(),
+            system_prompt="test",
+            registry=registry,
+            allowed_tool_names=["get_quote"],
+        )._execute_single("hidden_tool", {})
+
+        assert not result.success
+        assert "不在当前工具集中" in result.error
+
     def test_extract_tool_calls(self):
         llm = MockLLM()
         reg = ToolRegistry()
