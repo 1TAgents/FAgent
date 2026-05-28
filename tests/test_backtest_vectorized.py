@@ -3,7 +3,13 @@ import math
 import pandas as pd
 
 from agents.backtest.trading_cost import TradingCostCalculator
-from agents.backtest.vectorized_strategies import run_long_only_backtest, split_vectorized_params
+from agents.backtest.vectorized_strategies import (
+    VectorizedDonchianBreakout,
+    VectorizedRSI2,
+    VectorizedSMATrend,
+    run_long_only_backtest,
+    split_vectorized_params,
+)
 
 
 def _market_data(closes, signals):
@@ -160,3 +166,33 @@ def test_split_vectorized_params_rejects_invalid_execution_settings():
         assert "lot_size" in str(exc)
     else:
         raise AssertionError("expected invalid lot_size to fail")
+
+
+def test_donchian_breakout_uses_prior_channel_values():
+    data = _market_data([10, 11, 12, 13, 11, 10], [0] * 6)
+    strategy = VectorizedDonchianBreakout(entry_window=3, exit_window=2)
+
+    signals = strategy.generate_signals(data)
+
+    assert signals["entry_high"].iloc[3] == 12
+    assert signals["signal"].tolist() == [0, 0, 0, 1, -1, -1]
+
+
+def test_sma_trend_holds_above_long_average_and_exits_below():
+    data = _market_data([10, 11, 12, 13, 12, 11, 10], [0] * 7)
+    strategy = VectorizedSMATrend(ma_period=3)
+
+    signals = strategy.generate_signals(data)
+
+    assert signals["signal"].tolist() == [0, 0, 1, 1, -1, -1, -1]
+
+
+def test_rsi2_buys_short_term_pullback_in_uptrend():
+    closes = list(range(100, 310)) + [305, 303, 310]
+    data = _market_data(closes, [0] * len(closes))
+    strategy = VectorizedRSI2(period=2, trend_ma=20, buy_below=10, sell_above=65)
+
+    signals = strategy.generate_signals(data)
+
+    assert 1 in signals["signal"].tolist()
+    assert -1 in signals["signal"].tolist()

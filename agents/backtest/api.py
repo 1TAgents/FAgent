@@ -24,7 +24,8 @@ from .engine import BacktestEngine
 from .strategies import get_strategy_class
 from .data_loader import get_data_loader
 from .run_store import get_run_store
-from .vectorized_strategies import get_vectorized_strategy, split_vectorized_params
+from .strategy_catalog import STRATEGY_CATALOG
+from .vectorized_strategies import STRATEGY_MAP, get_vectorized_strategy, split_vectorized_params
 
 logger = logging.getLogger(__name__)
 
@@ -330,10 +331,16 @@ async def list_strategies() -> Dict[str, Any]:
     from .strategies import STRATEGY_REGISTRY
     
     strategies = {}
-    for name, cls in STRATEGY_REGISTRY.items():
+    for name, info in STRATEGY_CATALOG.items():
         strategies[name] = {
-            "name": cls.__name__,
-            "description": cls.__doc__.split('\n')[0] if cls.__doc__ else "",
+            "name": info["display_name"],
+            "description": info["description"],
+            "category": info.get("category"),
+            "horizon": info.get("horizon"),
+            "default_params": info.get("default_params", {}),
+            "param_schema": info.get("param_schema", {}),
+            "vectorized": name in STRATEGY_MAP,
+            "classic": name in STRATEGY_REGISTRY,
         }
     
     return {"strategies": strategies}

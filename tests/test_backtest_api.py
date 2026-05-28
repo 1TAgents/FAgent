@@ -56,3 +56,13 @@ def test_run_backtest_applies_vectorized_execution_params(monkeypatch):
     assert response.report.metrics.total_trades == 1
     assert response.report.metrics.benchmark_return == pytest.approx(16.6666666667)
     assert response.report.metrics.alpha is not None
+
+
+def test_list_strategies_includes_vectorized_classic_horizon_metadata():
+    response = asyncio.run(api.list_strategies())
+
+    strategies = response["strategies"]
+    assert strategies["rsi2"]["horizon"] == "短线"
+    assert strategies["donchian_breakout"]["vectorized"] is True
+    assert strategies["sma_trend"]["default_params"] == {"ma_period": 200}
+    assert strategies["dual_ma"]["classic"] is True

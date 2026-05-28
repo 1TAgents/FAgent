@@ -17,105 +17,9 @@ from typing import Any, Dict, Optional
 
 from ..base import BaseTool, DangerLevel
 from ..result import ToolResult
+from ...backtest.strategy_catalog import STRATEGY_CATALOG, resolve_strategy
 
 logger = logging.getLogger(__name__)
-
-# 策略元数据（与 subagents/strategy_subagent.py 中的 STRATEGY_CATALOG 对齐）
-STRATEGY_CATALOG: Dict[str, Dict[str, Any]] = {
-    "dual_ma": {
-        "display_name": "双均线策略",
-        "aliases": ["dual_ma", "双均线", "均线策略", "moving average", "ma"],
-        "category": "趋势跟踪",
-        "description": "用短期均线上穿/下穿长期均线生成买卖信号。",
-        "default_params": {"short_period": 5, "long_period": 20},
-        "param_schema": {
-            "short_period": "短期均线周期，常用 3/5/10/15",
-            "long_period": "长期均线周期，常用 20/30/50/80",
-        },
-        "entry": "短期均线上穿长期均线时买入。",
-        "exit": "短期均线下穿长期均线时卖出。",
-        "suitable": "更适合趋势清晰、波动连续的标的。",
-        "risks": "震荡市容易频繁假突破，参数优化必须做样本外验证。",
-    },
-    "rsi": {
-        "display_name": "RSI 策略",
-        "aliases": ["rsi", "rsi策略", "相对强弱指标"],
-        "category": "均值回归",
-        "description": "用 RSI 超买超卖区间生成反转交易信号。",
-        "default_params": {"period": 14, "oversold": 30, "overbought": 70},
-        "param_schema": {
-            "period": "RSI 计算周期，常用 6/14/21",
-            "oversold": "超卖阈值，低于该值考虑买入",
-            "overbought": "超买阈值，高于该值考虑卖出",
-        },
-        "entry": "RSI 低于超卖阈值时买入。",
-        "exit": "RSI 高于超买阈值时卖出。",
-        "suitable": "更适合震荡或均值回归特征明显的标的。",
-        "risks": "单边趋势中可能持续超买或超卖，容易过早反向交易。",
-    },
-    "bollinger": {
-        "display_name": "布林带策略",
-        "aliases": ["bollinger", "boll", "布林带", "布林带策略"],
-        "category": "波动率/均值回归",
-        "description": "用价格相对布林带上下轨的位置生成交易信号。",
-        "default_params": {"period": 20, "std_dev": 2.0},
-        "param_schema": {
-            "period": "均线和标准差计算周期，常用 10/20/30",
-            "std_dev": "标准差倍数，常用 1.5/2.0/2.5",
-        },
-        "entry": "价格跌破下轨时买入。",
-        "exit": "价格突破上轨时卖出。",
-        "suitable": "更适合有均值回归特征、波动区间较稳定的标的。",
-        "risks": "趋势行情中价格可能长期贴轨运行，逆势信号风险较高。",
-    },
-    "macd": {
-        "display_name": "MACD 策略",
-        "aliases": ["macd", "macd策略"],
-        "category": "趋势跟踪",
-        "description": "用 MACD 线和信号线交叉识别趋势动量变化。",
-        "default_params": {"fast": 12, "slow": 26, "signal": 9},
-        "param_schema": {
-            "fast": "快线 EMA 周期",
-            "slow": "慢线 EMA 周期",
-            "signal": "信号线 EMA 周期",
-        },
-        "entry": "MACD 线上穿信号线时买入。",
-        "exit": "MACD 线下穿信号线时卖出。",
-        "suitable": "更适合中短期趋势和动量延续场景。",
-        "risks": "滞后性较强，快速反转时可能回撤较大。",
-    },
-    "kdj": {
-        "display_name": "KDJ 策略",
-        "aliases": ["kdj", "kdj策略"],
-        "category": "超买超卖/动量",
-        "description": "用 KDJ 指标的 J 值极端位置识别短线买卖点。",
-        "default_params": {"n": 9, "m1": 3, "m2": 3},
-        "param_schema": {
-            "n": "RSV 计算周期",
-            "m1": "K 值平滑周期",
-            "m2": "D 值平滑周期",
-        },
-        "entry": "J 值低于 0 后回升时买入。",
-        "exit": "J 值高于 100 后回落时卖出。",
-        "suitable": "更适合短线交易和波动较大的标的。",
-        "risks": "信号频繁，交易成本高，需要配合止损。",
-    },
-    "momentum": {
-        "display_name": "动量策略",
-        "aliases": ["momentum", "动量", "动量策略"],
-        "category": "动量/趋势",
-        "description": "用过去一段时间的涨幅识别强势标的。",
-        "default_params": {"lookback": 20, "threshold": 0.05},
-        "param_schema": {
-            "lookback": "回看天数",
-            "threshold": "动量阈值，超过该值认为有趋势",
-        },
-        "entry": "过去 lookback 天涨幅超过 threshold 时买入。",
-        "exit": "涨幅回落至 threshold 以下时卖出。",
-        "suitable": "更适合有持续动量延续的标的。",
-        "risks": "追高风险，涨幅可能已接近尾声。",
-    },
-}
 
 SYMBOL_NAMES = {
     "600519": "贵州茅台",
@@ -126,14 +30,7 @@ SYMBOL_NAMES = {
 
 def _resolve_strategy(query: str) -> Optional[str]:
     """从用户查询中解析策略名称。"""
-    q = query.lower()
-    for name, info in STRATEGY_CATALOG.items():
-        if name in q:
-            return name
-        for alias in info["aliases"]:
-            if alias.lower() in q:
-                return name
-    return None
+    return resolve_strategy(query)
 
 
 # ==================== ListStrategiesTool ====================

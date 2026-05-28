@@ -278,6 +278,21 @@ def _buy_and_hold_return(data: pd.DataFrame) -> float:
     return float(prices.iloc[-1] / prices.iloc[0] - 1)
 
 
+def _relative_strength_index(close: pd.Series, period: int) -> pd.Series:
+    close = pd.to_numeric(close, errors="coerce")
+    delta = close.diff()
+    gain = delta.where(delta > 0, 0.0)
+    loss = -delta.where(delta < 0, 0.0)
+
+    avg_gain = gain.rolling(window=period).mean()
+    avg_loss = loss.rolling(window=period).mean()
+    rs = avg_gain / avg_loss.replace(0, np.nan)
+    rsi = 100 - (100 / (1 + rs))
+    rsi = rsi.where(avg_loss != 0, 100.0)
+    rsi = rsi.where(~((avg_gain == 0) & (avg_loss == 0)), 50.0)
+    return rsi
+
+
 class VectorizedDualMA:
     """
     双均线策略（向量化版本）
@@ -374,6 +389,35 @@ class VectorizedRSI:
     
     def backtest(self, data: pd.DataFrame, initial_capital: float = 100000.0, **execution_kwargs) -> Dict:
         """快速回测"""
+        return run_long_only_backtest(data, initial_capital, **execution_kwargs)
+
+
+class VectorizedRSI2:
+    """Connors RSI2 短线均值回归策略。"""
+
+    def __init__(
+        self,
+        period: int = 2,
+        trend_ma: int = 200,
+        buy_below: float = 10,
+        sell_above: float = 65,
+    ):
+        self.period = period
+        self.trend_ma = trend_ma
+        self.buy_below = buy_below
+        self.sell_above = sell_above
+
+    def generate_signals(self, data: pd.DataFrame) -> pd.DataFrame:
+        df = data.copy()
+        df["trend_ma"] = df["close"].rolling(window=self.trend_ma).mean()
+        df["rsi2"] = _relative_strength_index(df["close"], self.period)
+
+        df["signal"] = 0
+        df.loc[(df["close"] > df["trend_ma"]) & (df["rsi2"] <= self.buy_below), "signal"] = 1
+        df.loc[df["rsi2"] >= self.sell_above, "signal"] = -1
+        return df
+
+    def backtest(self, data: pd.DataFrame, initial_capital: float = 100000.0, **execution_kwargs) -> Dict:
         return run_long_only_backtest(data, initial_capital, **execution_kwargs)
 
 
@@ -568,14 +612,57 @@ class VectorizedMomentum:
         return run_long_only_backtest(data, initial_capital, **execution_kwargs)
 
 
+class VectorizedDonchianBreakout:
+    """Donchian/Turtle 中线突破策略。"""
+
+    def __init__(self, entry_window: int = 20, exit_window: int = 10):
+        self.entry_window = entry_window
+        self.exit_window = exit_window
+
+    def generate_signals(self, data: pd.DataFrame) -> pd.DataFrame:
+        df = data.copy()
+        df["entry_high"] = df["high"].rolling(window=self.entry_window).max().shift(1)
+        df["exit_low"] = df["low"].rolling(window=self.exit_window).min().shift(1)
+
+        df["signal"] = 0
+        df.loc[df["close"] > df["entry_high"], "signal"] = 1
+        df.loc[df["close"] < df["exit_low"], "signal"] = -1
+        return df
+
+    def backtest(self, data: pd.DataFrame, initial_capital: float = 100000.0, **execution_kwargs) -> Dict:
+        return run_long_only_backtest(data, initial_capital, **execution_kwargs)
+
+
+class VectorizedSMATrend:
+    """长期均线趋势过滤策略。"""
+
+    def __init__(self, ma_period: int = 200):
+        self.ma_period = ma_period
+
+    def generate_signals(self, data: pd.DataFrame) -> pd.DataFrame:
+        df = data.copy()
+        df["long_ma"] = df["close"].rolling(window=self.ma_period).mean()
+
+        df["signal"] = 0
+        df.loc[df["close"] > df["long_ma"], "signal"] = 1
+        df.loc[df["close"] < df["long_ma"], "signal"] = -1
+        return df
+
+    def backtest(self, data: pd.DataFrame, initial_capital: float = 100000.0, **execution_kwargs) -> Dict:
+        return run_long_only_backtest(data, initial_capital, **execution_kwargs)
+
+
 # 策略工厂
 STRATEGY_MAP = {
     'dual_ma': VectorizedDualMA,
     'rsi': VectorizedRSI,
+    'rsi2': VectorizedRSI2,
     'macd': VectorizedMACD,
     'bollinger': VectorizedBollinger,
     'kdj': VectorizedKDJ,
     'momentum': VectorizedMomentum,
+    'donchian_breakout': VectorizedDonchianBreakout,
+    'sma_trend': VectorizedSMATrend,
 }
 
 

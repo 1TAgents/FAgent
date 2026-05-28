@@ -16,40 +16,10 @@ from ..core.context import get_context
 from ..core.logging import log_chain_event, log_subagent
 from ..mcp.client import MCPClient, MCPError
 from ..router.models import TaskContext, TaskType
+from ..backtest.strategy_catalog import STRATEGY_CATALOG
 
 
-STRATEGY_ALIASES: Dict[str, Dict[str, Any]] = {
-    "dual_ma": {
-        "display_name": "双均线策略",
-        "aliases": ["dual_ma", "双均线", "双均线策略", "均线策略", "ma", "moving average"],
-        "default_params": {"short_period": 5, "long_period": 20},
-    },
-    "rsi": {
-        "display_name": "RSI 策略",
-        "aliases": ["rsi", "rsi策略", "相对强弱指标"],
-        "default_params": {"period": 14, "oversold": 30, "overbought": 70},
-    },
-    "bollinger": {
-        "display_name": "布林带策略",
-        "aliases": ["bollinger", "boll", "布林带", "布林带策略"],
-        "default_params": {"period": 20, "std_dev": 2.0},
-    },
-    "macd": {
-        "display_name": "MACD 策略",
-        "aliases": ["macd", "macd策略"],
-        "default_params": {"fast": 12, "slow": 26, "signal": 9},
-    },
-    "kdj": {
-        "display_name": "KDJ 策略",
-        "aliases": ["kdj", "kdj策略"],
-        "default_params": {"n": 9, "m1": 3, "m2": 3},
-    },
-    "momentum": {
-        "display_name": "动量策略",
-        "aliases": ["momentum", "动量", "动量策略"],
-        "default_params": {"lookback": 20, "threshold": 0.05},
-    },
-}
+STRATEGY_ALIASES: Dict[str, Dict[str, Any]] = STRATEGY_CATALOG
 
 
 SYMBOL_NAME_MAP = {
@@ -281,6 +251,13 @@ class BacktestSubAgent(BaseSubAgent):
                 "overbought": [65, 70, 80],
             }
 
+        if strategy_id == "rsi2":
+            return {
+                "buy_below": [5, 10],
+                "sell_above": [50, 65, 70],
+                "trend_ma": [120, 200],
+            }
+
         if strategy_id == "bollinger":
             return {
                 "period": [10, 20, 30],
@@ -292,6 +269,17 @@ class BacktestSubAgent(BaseSubAgent):
                 "fast": [8, 12],
                 "slow": [21, 26, 34],
                 "signal": [7, 9],
+            }
+
+        if strategy_id == "donchian_breakout":
+            return {
+                "entry_window": [20, 55],
+                "exit_window": [10, 20],
+            }
+
+        if strategy_id == "sma_trend":
+            return {
+                "ma_period": [120, 200, 250],
             }
 
         return {

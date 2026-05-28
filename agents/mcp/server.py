@@ -546,8 +546,18 @@ async def lifespan(app: FastAPI):
             "properties": {
                 "strategy_name": {
                     "type": "string",
-                    "description": "策略名称（dual_ma/rsi/bollinger）",
-                    "enum": ["dual_ma", "rsi", "bollinger"]
+                    "description": "策略名称",
+                    "enum": [
+                        "dual_ma",
+                        "rsi",
+                        "rsi2",
+                        "bollinger",
+                        "macd",
+                        "donchian_breakout",
+                        "kdj",
+                        "momentum",
+                        "sma_trend",
+                    ]
                 },
                 "symbol": {
                     "type": "string",
@@ -568,7 +578,7 @@ async def lifespan(app: FastAPI):
                 },
                 "params": {
                     "type": "object",
-                    "description": "策略参数（如 short_period, long_period 等）",
+                    "description": "策略参数和执行参数（如 short_period, long_period, lot_size 等）",
                     "default": {}
                 },
                 "metadata": {
@@ -584,12 +594,19 @@ async def lifespan(app: FastAPI):
     async def list_strategies_tool() -> dict:
         """列出策略工具包装器"""
         from agents.backtest.strategies import STRATEGY_REGISTRY
+        from agents.backtest.strategy_catalog import STRATEGY_CATALOG
+        from agents.backtest.vectorized_strategies import STRATEGY_MAP
         
         strategies = {}
-        for name, cls in STRATEGY_REGISTRY.items():
+        for name, info in STRATEGY_CATALOG.items():
             strategies[name] = {
-                "name": cls.__name__,
-                "description": cls.__doc__.split('\n')[0] if cls.__doc__ else "",
+                "name": info["display_name"],
+                "description": info["description"],
+                "category": info.get("category"),
+                "horizon": info.get("horizon"),
+                "default_params": info.get("default_params", {}),
+                "vectorized": name in STRATEGY_MAP,
+                "classic": name in STRATEGY_REGISTRY,
             }
         
         return {"strategies": strategies}
@@ -655,8 +672,18 @@ async def lifespan(app: FastAPI):
             "properties": {
                 "strategy_name": {
                     "type": "string",
-                    "description": "策略名称（dual_ma/rsi/macd/bollinger）",
-                    "enum": ["dual_ma", "rsi", "macd", "bollinger"]
+                    "description": "策略名称",
+                    "enum": [
+                        "dual_ma",
+                        "rsi",
+                        "rsi2",
+                        "bollinger",
+                        "macd",
+                        "donchian_breakout",
+                        "kdj",
+                        "momentum",
+                        "sma_trend",
+                    ]
                 },
                 "symbol": {
                     "type": "string",
