@@ -4,9 +4,11 @@ Provider Registry 测试 - Aliyun Token Plan
 import pytest
 import sys
 import os
+from types import SimpleNamespace
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
+from agents.services.llm import LLMService
 from agents.services.provider import (
     provider_registry,
     create_aliyun_token_plan_provider,
@@ -46,3 +48,27 @@ class TestAliyunTokenPlan:
         models = provider_registry.list_available_models(supports_tool_use=True)
         qwen36 = [m for m in models if m.short_id == "qwen3.6-plus"]
         assert len(qwen36) == 1
+
+
+class TestLLMServiceToolCapability:
+    def test_tools_omitted_when_model_does_not_support_tool_use(self, monkeypatch):
+        service = object.__new__(LLMService)
+        tools = [{"type": "function", "function": {"name": "get_quote"}}]
+
+        monkeypatch.setattr(
+            "agents.services.llm.provider_registry.get_model",
+            lambda model: SimpleNamespace(supports_tool_use=False),
+        )
+
+        assert service._tools_for_model("local-model", tools) is None
+
+    def test_tools_kept_for_unknown_model(self, monkeypatch):
+        service = object.__new__(LLMService)
+        tools = [{"type": "function", "function": {"name": "get_quote"}}]
+
+        monkeypatch.setattr(
+            "agents.services.llm.provider_registry.get_model",
+            lambda model: None,
+        )
+
+        assert service._tools_for_model("custom-openai-compatible", tools) is tools

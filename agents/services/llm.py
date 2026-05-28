@@ -111,6 +111,22 @@ class LLMService:
             params["extra_body"] = {"reasoning": kwargs["reasoning"]}
         return params
 
+    def _tools_for_model(
+        self,
+        resolved_model: str,
+        tools: Optional[List[dict]],
+    ) -> Optional[List[dict]]:
+        """Return tools only when the model is known to support tool use."""
+        if not tools:
+            return None
+
+        model_info = provider_registry.get_model(resolved_model)
+        if model_info and not model_info.supports_tool_use:
+            logger.warning(f"模型不支持工具调用，已忽略 tools | model={resolved_model}")
+            return None
+
+        return tools
+
     @retry(
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=1, min=1, max=10),
@@ -140,8 +156,9 @@ class LLMService:
             )
 
         params = self._build_params(resolved_model, messages, temperature, max_tokens, False, **kwargs)
-        if tools:
-            params["tools"] = tools
+        tools_for_model = self._tools_for_model(resolved_model, tools)
+        if tools_for_model:
+            params["tools"] = tools_for_model
 
         logger.debug(f"LLM 请求 | model={resolved_model} | messages={len(messages)} | temp={temperature}")
 
