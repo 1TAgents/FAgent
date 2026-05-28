@@ -46,7 +46,7 @@ class TestRunner:
         self.cases_file = cases_file
         self.test_data = self._load_cases()
         self.results: List[TestResult] = []
-    
+
     def _load_cases(self) -> dict:
         """加载测试用例"""
         with open(self.cases_file, "r", encoding="utf-8") as f:
@@ -425,6 +425,11 @@ class TestRunner:
                     print(f"    - [{r.case_id}] {r.name}: {r.message}")
 
 
+TestStatus.__test__ = False
+TestResult.__test__ = False
+TestRunner.__test__ = False
+
+
 def main():
     parser = argparse.ArgumentParser(description="FAgent 测试运行器")
     parser.add_argument("--suite", "-s", help="运行指定套件")
@@ -473,4 +478,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

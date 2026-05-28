@@ -46,6 +46,9 @@ class TestScenario:
     pass_threshold: float = 0.5  # 通过阈值（0.5=3 次对 2 次）
 
 
+TestScenario.__test__ = False
+
+
 class GoalValidators:
     """Goal 验证器集合"""
     

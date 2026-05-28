@@ -73,6 +73,9 @@ class TestReport:
     summary: Dict[str, Any]
 
 
+TestReport.__test__ = False
+
+
 # ==================== 测试场景定义 ====================
 
 class RoadshowScenarios:
