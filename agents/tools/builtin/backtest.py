@@ -307,6 +307,10 @@ class OptimizeBacktestTool(BaseTool):
                     "description": "初始资金",
                     "default": 100000,
                 },
+                "fixed_params": {
+                    "type": "object",
+                    "description": "固定策略/执行参数，不参与搜索，如 {\"lot_size\": 1, \"slippage\": 0}",
+                },
             },
             "required": ["strategy_name", "symbol", "param_grid"],
         }
@@ -319,6 +323,7 @@ class OptimizeBacktestTool(BaseTool):
         start_date: Optional[str] = None,
         end_date: Optional[str] = None,
         initial_capital: float = 100000,
+        fixed_params: Optional[dict] = None,
         **kw,
     ) -> ToolResult:
         from datetime import datetime, timedelta
@@ -350,6 +355,7 @@ class OptimizeBacktestTool(BaseTool):
                         "end_date": end_date,
                         "param_grid": param_grid,
                         "initial_capital": initial_capital,
+                        "fixed_params": fixed_params or {},
                     },
                 )
                 resp.raise_for_status()

@@ -2,6 +2,8 @@ import asyncio
 
 import pandas as pd
 import pytest
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
 
 from agents.backtest import api
 from agents.backtest.models import BacktestRequest
@@ -66,3 +68,28 @@ def test_list_strategies_includes_vectorized_classic_horizon_metadata():
     assert strategies["donchian_breakout"]["vectorized"] is True
     assert strategies["sma_trend"]["default_params"] == {"ma_period": 200}
     assert strategies["dual_ma"]["classic"] is True
+
+
+def test_grid_search_accepts_json_body_and_fixed_params(monkeypatch):
+    monkeypatch.setattr(api, "get_data_loader", lambda: _FakeDataLoader())
+    app = FastAPI()
+    app.include_router(api.router)
+    client = TestClient(app)
+
+    response = client.post(
+        "/backtest/grid_search",
+        json={
+            "strategy_name": "momentum",
+            "symbol": "600519",
+            "start_date": "2024-01-01",
+            "end_date": "2024-01-03",
+            "param_grid": {"lookback": [1], "threshold": [0]},
+            "fixed_params": {"lot_size": 1, "slippage": 0, "max_position": 1},
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["success"] is True
+    assert payload["total_combinations"] == 1
+    assert payload["best_params"]["lot_size"] == 1

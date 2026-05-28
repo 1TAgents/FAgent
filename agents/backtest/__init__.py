@@ -4,7 +4,7 @@ Backtest Module - 回测模块
 from .models import (
     StrategyConfig, TradingSignal, SignalType, Order, OrderSide, OrderStatus,
     Trade, Position, Portfolio, BacktestReport, PerformanceMetrics,
-    BacktestRequest, BacktestResponse
+    BacktestRequest, BacktestGridSearchRequest, BacktestResponse
 )
 from .engine import BacktestEngine, BaseStrategy
 from .strategies import (
@@ -24,7 +24,7 @@ __all__ = [
     # 模型
     'StrategyConfig', 'TradingSignal', 'SignalType', 'Order', 'OrderSide', 'OrderStatus',
     'Trade', 'Position', 'Portfolio', 'BacktestReport', 'PerformanceMetrics',
-    'BacktestRequest', 'BacktestResponse',
+    'BacktestRequest', 'BacktestGridSearchRequest', 'BacktestResponse',
     
     # 引擎
     'BacktestEngine', 'BaseStrategy',

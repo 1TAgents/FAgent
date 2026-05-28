@@ -217,6 +217,7 @@ class MCPClient:
         end_date: str,
         param_grid: Dict[str, Any],
         initial_capital: float = 100000.0,
+        fixed_params: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """执行参数网格搜索。"""
         data = await self.call(
@@ -227,6 +228,7 @@ class MCPClient:
             end_date=end_date,
             param_grid=param_grid,
             initial_capital=initial_capital,
+            fixed_params=fixed_params or {},
         )
         if not data.get("success"):
             raise MCPError(data.get("error", "参数优化失败"))

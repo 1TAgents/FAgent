@@ -18,7 +18,11 @@ import time
 import uuid
 
 from .models import (
-    BacktestRequest, BacktestResponse, BacktestReport, StrategyConfig
+    BacktestGridSearchRequest,
+    BacktestRequest,
+    BacktestResponse,
+    BacktestReport,
+    StrategyConfig,
 )
 from .engine import BacktestEngine
 from .strategies import get_strategy_class
@@ -153,13 +157,27 @@ async def run_backtest(request: BacktestRequest) -> BacktestResponse:
 
 
 @router.post("/grid_search")
-async def grid_search(
+async def grid_search(request: BacktestGridSearchRequest) -> Dict[str, Any]:
+    """参数网格搜索 HTTP 接口。"""
+    return await execute_grid_search(
+        strategy_name=request.strategy_name,
+        symbol=request.symbol,
+        start_date=request.start_date,
+        end_date=request.end_date,
+        param_grid=request.param_grid,
+        initial_capital=request.initial_capital,
+        fixed_params=request.fixed_params,
+    )
+
+
+async def execute_grid_search(
     strategy_name: str,
     symbol: str,
     start_date: str,
     end_date: str,
     param_grid: Dict[str, List[Any]],
-    initial_capital: float = 100000.0
+    initial_capital: float = 100000.0,
+    fixed_params: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """
     参数网格搜索
@@ -171,6 +189,7 @@ async def grid_search(
         end_date: 结束日期
         param_grid: 参数网格（如 {"short_period": [5, 10, 20], "long_period": [20, 50, 100]}）
         initial_capital: 初始资金
+        fixed_params: 固定策略/执行参数，不参与组合搜索
         
     Returns:
         最优参数和绩效
@@ -178,7 +197,16 @@ async def grid_search(
     start_time = time.time()
     
     try:
-        logger.info(f"开始网格搜索 | strategy={strategy_name}, combinations={np.prod([len(v) for v in param_grid.values()])}")
+        normalized_grid = {
+            str(key): value if isinstance(value, list) else [value]
+            for key, value in param_grid.items()
+        }
+        fixed_params = fixed_params or {}
+        combinations = int(np.prod([len(v) for v in normalized_grid.values()])) if normalized_grid else 0
+        if combinations == 0:
+            return {"success": False, "error": "param_grid 不能为空"}
+
+        logger.info(f"开始网格搜索 | strategy={strategy_name}, combinations={combinations}")
         
         # 1. 加载数据
         data_loader = get_data_loader()
@@ -196,11 +224,11 @@ async def grid_search(
         
         # 生成参数组合
         from itertools import product
-        param_names = list(param_grid.keys())
-        param_values = list(param_grid.values())
+        param_names = list(normalized_grid.keys())
+        param_values = list(normalized_grid.values())
         
         for values in product(*param_values):
-            params = dict(zip(param_names, values))
+            params = {**fixed_params, **dict(zip(param_names, values))}
             
             try:
                 strategy_params, execution_params = split_vectorized_params(params)

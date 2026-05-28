@@ -215,6 +215,17 @@ class BacktestRequest(BaseModel):
     metadata: Dict[str, Any] = Field(default_factory=dict, description="附加元数据（如 query/rid/cid）")
 
 
+class BacktestGridSearchRequest(BaseModel):
+    """参数网格搜索请求"""
+    strategy_name: str = Field(..., description="策略名称")
+    symbol: str = Field(..., description="回测标的")
+    start_date: str = Field(..., description="开始日期（YYYY-MM-DD）")
+    end_date: str = Field(..., description="结束日期（YYYY-MM-DD）")
+    param_grid: Dict[str, List[Any]] = Field(..., description="参数网格")
+    initial_capital: float = Field(100000.0, description="初始资金")
+    fixed_params: Dict[str, Any] = Field(default_factory=dict, description="固定策略/执行参数")
+
+
 class BacktestResponse(BaseModel):
     """回测响应"""
     success: bool = Field(..., description="是否成功")

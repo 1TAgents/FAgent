@@ -118,6 +118,11 @@ class BacktestSubAgent(BaseSubAgent):
     async def _run_optimization(self, context: TaskContext) -> str:
         spec = self._normalize_backtest_spec(context)
         param_grid = self._resolve_param_grid(spec["strategy_id"], context.params or {}, context.query)
+        fixed_params = {
+            key: value
+            for key, value in spec["params"].items()
+            if key not in param_grid
+        }
 
         tool_name = "mcp.backtest_grid_search"
         tool_params = {
@@ -127,6 +132,7 @@ class BacktestSubAgent(BaseSubAgent):
             "end_date": spec["end_date"],
             "param_grid": param_grid,
             "initial_capital": spec["initial_capital"],
+            "fixed_params": fixed_params,
         }
         log_subagent.tool_call(tool_name, tool_params)
 

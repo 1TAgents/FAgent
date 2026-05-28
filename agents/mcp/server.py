@@ -629,18 +629,20 @@ async def lifespan(app: FastAPI):
         start_date: str,
         end_date: str,
         param_grid: dict,
-        initial_capital: float = 100000.0
+        initial_capital: float = 100000.0,
+        fixed_params: dict = None,
     ) -> dict:
         """网格搜索工具包装器"""
-        from agents.backtest.api import grid_search
+        from agents.backtest.api import execute_grid_search
         
-        response = await grid_search(
+        response = await execute_grid_search(
             strategy_name=strategy_name,
             symbol=symbol,
             start_date=start_date,
             end_date=end_date,
             param_grid=param_grid,
-            initial_capital=initial_capital
+            initial_capital=initial_capital,
+            fixed_params=fixed_params or {},
         )
         
         if response.get('success'):
@@ -705,6 +707,11 @@ async def lifespan(app: FastAPI):
                     "type": "number",
                     "description": "初始资金",
                     "default": 100000.0
+                },
+                "fixed_params": {
+                    "type": "object",
+                    "description": "固定策略/执行参数，不参与网格搜索，如 {\"lot_size\": 1}",
+                    "default": {}
                 }
             },
             "required": ["strategy_name", "symbol", "start_date", "end_date", "param_grid"]
