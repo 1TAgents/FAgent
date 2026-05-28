@@ -41,7 +41,7 @@ class TestContextCompaction:
 
     def test_compaction_when_over_budget(self):
         msgs = make_messages(20)
-        result, summary = self.compactor.compact(msgs, max_tokens=500, keep_recent=4)
+        result, summary = self.compactor.compact(msgs, max_tokens=300, keep_recent=4)
         assert summary is not None
         assert "用户问" in summary or "AI说" in summary
         # 应包含摘要消息 + 最近消息
@@ -79,7 +79,7 @@ class TestContextCompaction:
 
     def test_summary_system_message_format(self):
         msgs = make_messages(15)
-        result, summary = self.compactor.compact(msgs, max_tokens=300, keep_recent=4)
+        result, summary = self.compactor.compact(msgs, max_tokens=200, keep_recent=4)
         # 摘要应作为 system 消息注入
         assert result[0]["role"] == "system"
         assert "历史对话摘要" in result[0]["content"]

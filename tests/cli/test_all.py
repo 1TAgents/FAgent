@@ -72,10 +72,9 @@ def test_all_commands():
     print(f"测试完成：{passed} 通过，{failed} 失败")
     
     if failed > 0:
-        sys.exit(1)
+        raise AssertionError(f"{failed} CLI commands failed")
     else:
         print("✓ 所有 CLI 命令测试通过!")
-        sys.exit(0)
 
 
 if __name__ == '__main__':

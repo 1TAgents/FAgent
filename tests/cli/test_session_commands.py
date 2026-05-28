@@ -27,7 +27,6 @@ def test_session_new():
     assert code == 0, f"创建失败：{stderr}"
     assert '创建新会话成功' in stdout
     print("✓ session new 测试通过")
-    return stdout  # 返回输出用于提取 CID
 
 
 def test_session_list():

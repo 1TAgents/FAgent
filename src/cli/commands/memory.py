@@ -278,7 +278,7 @@ def memory_search(query, limit):
         results = results[:limit]
 
         if not results:
-            console.print(f"[yellow]未找到匹配 '{query}' 的消息[/yellow]")
+            console.print(f"[yellow]搜索未找到匹配 '{query}' 的消息[/yellow]")
             return
 
         table = Table(show_header=True, header_style="bold magenta")
