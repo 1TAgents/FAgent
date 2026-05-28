@@ -1,6 +1,7 @@
 import asyncio
 
 import pandas as pd
+import pytest
 
 from agents.backtest import api
 from agents.backtest.models import BacktestRequest
@@ -53,3 +54,5 @@ def test_run_backtest_applies_vectorized_execution_params(monkeypatch):
     assert response.engine == "vectorized"
     assert response.report is not None
     assert response.report.metrics.total_trades == 1
+    assert response.report.metrics.benchmark_return == pytest.approx(16.6666666667)
+    assert response.report.metrics.alpha is not None

@@ -263,12 +263,20 @@ def _create_report_from_dict(
 
     max_drawdown_pct = result.get("max_drawdown", 0) * 100
     annual_return_pct = result.get("annual_return", result.get("total_returns", 0)) * 100
+    benchmark_return_pct = result.get("benchmark_return")
+    if benchmark_return_pct is not None:
+        benchmark_return_pct *= 100
+    alpha_pct = result.get("alpha")
+    if alpha_pct is not None:
+        alpha_pct *= 100
     winning_trades = int(result.get("winning_trades", 0))
     losing_trades = int(result.get("losing_trades", 0))
     
     metrics = PerformanceMetrics(
         total_return=result['total_returns'] * 100,
         annual_return=annual_return_pct,
+        benchmark_return=benchmark_return_pct,
+        alpha=alpha_pct,
         volatility=result.get("volatility", 0) * 100,
         sharpe_ratio=result['sharpe_ratio'],
         max_drawdown=max_drawdown_pct,

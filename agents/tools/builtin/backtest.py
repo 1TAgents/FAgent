@@ -339,12 +339,18 @@ class RunBacktestTool(BaseTool):
                 f"|------|------|",
                 f"| 总收益率 | {metrics.get('total_return', 0):.2f}% |",
                 f"| 年化收益 | {metrics.get('annual_return', 0):.2f}% |",
+            ]
+            if metrics.get("benchmark_return") is not None:
+                lines.append(f"| 买入持有基准 | {metrics.get('benchmark_return', 0):.2f}% |")
+            if metrics.get("alpha") is not None:
+                lines.append(f"| Alpha | {metrics.get('alpha', 0):.2f}% |")
+            lines.extend([
                 f"| 夏普比率 | {metrics.get('sharpe_ratio', 0):.2f} |",
                 f"| 最大回撤 | {metrics.get('max_drawdown', 0):.2f}% |",
                 f"| 胜率 | {metrics.get('win_rate', 0):.2f}% |",
                 f"| 交易次数 | {metrics.get('total_trades', 0)} |",
                 f"| 盈亏比 | {metrics.get('profit_factor', 0):.2f} |",
-            ]
+            ])
             if report_id:
                 lines.append(f"")
                 lines.append(f"报告 ID: `{report_id}`")

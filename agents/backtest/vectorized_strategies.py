@@ -190,6 +190,7 @@ def run_long_only_backtest(
     daily_returns = equity_values.pct_change().fillna(0.0)
     final_capital = float(equity_values.iloc[-1]) if not equity_values.empty else initial_capital
     total_returns = final_capital / initial_capital - 1 if initial_capital else 0.0
+    benchmark_return = _buy_and_hold_return(df)
     trading_days = len(equity_values)
     annual_return = (1 + total_returns) ** (252 / trading_days) - 1 if trading_days and total_returns > -1 else -1.0
     volatility = float(daily_returns.std() * np.sqrt(252)) if len(daily_returns) > 1 else 0.0
@@ -208,6 +209,8 @@ def run_long_only_backtest(
     return {
         "total_returns": float(total_returns),
         "annual_return": float(annual_return),
+        "benchmark_return": benchmark_return,
+        "alpha": float(total_returns - benchmark_return),
         "volatility": volatility,
         "sharpe_ratio": sharpe,
         "max_drawdown": max_drawdown,
@@ -235,6 +238,8 @@ def _empty_backtest_result(initial_capital: float) -> Dict:
     return {
         "total_returns": 0.0,
         "annual_return": 0.0,
+        "benchmark_return": 0.0,
+        "alpha": 0.0,
         "volatility": 0.0,
         "sharpe_ratio": 0.0,
         "max_drawdown": 0.0,
@@ -262,6 +267,15 @@ def _format_date(value) -> str:
     if hasattr(value, "strftime"):
         return value.strftime("%Y-%m-%d")
     return str(value)[:10]
+
+
+def _buy_and_hold_return(data: pd.DataFrame) -> float:
+    prices = pd.to_numeric(data.get("close", pd.Series(dtype=float)), errors="coerce")
+    prices = prices.replace([np.inf, -np.inf], np.nan).dropna()
+    prices = prices[prices > 0]
+    if len(prices) < 2:
+        return 0.0
+    return float(prices.iloc[-1] / prices.iloc[0] - 1)
 
 
 class VectorizedDualMA:

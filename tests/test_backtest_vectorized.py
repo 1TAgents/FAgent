@@ -45,6 +45,8 @@ def test_no_signal_keeps_capital_flat():
     assert result["positions"] == [0, 0, 0, 0]
     assert result["equity_curve"] == [100000, 100000, 100000, 100000]
     assert result["total_returns"] == 0
+    assert math.isclose(result["benchmark_return"], 0.3)
+    assert math.isclose(result["alpha"], -0.3)
 
 
 def test_buy_signal_creates_persistent_position_until_exit():
@@ -62,6 +64,8 @@ def test_buy_signal_creates_persistent_position_until_exit():
     assert result["positions"] == [10000, 10000, 10000]
     assert result["equity_curve"] == [100000, 110000, 120000]
     assert math.isclose(result["total_returns"], 0.2)
+    assert math.isclose(result["benchmark_return"], 0.2)
+    assert math.isclose(result["alpha"], 0)
     assert result["annual_return"] > result["total_returns"]
 
 
