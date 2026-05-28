@@ -36,10 +36,11 @@ class MemoryManager:
         return cls._instance
     
     def __init__(self, data_dir: str = "fagent_memory"):
-        if self._initialized:
+        requested_dir = Path(data_dir)
+        if self._initialized and requested_dir == self.data_dir:
             return
 
-        self.data_dir = Path(data_dir)
+        self.data_dir = requested_dir
         self.data_dir.mkdir(parents=True, exist_ok=True)
 
         # 初始化存储层

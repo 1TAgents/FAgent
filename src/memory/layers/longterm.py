@@ -26,7 +26,8 @@ class LongTermMemory:
     def __init__(self, data_dir: str):
         self.data_dir = Path(data_dir)
         self.data_dir.mkdir(parents=True, exist_ok=True)
-        
+        (self.data_dir / "longterm").mkdir(parents=True, exist_ok=True)
+
         # SQLite 数据库
         self.profile_db = self.data_dir / "longterm" / "profile.db"
         self.trades_db = self.data_dir / "longterm" / "trades.db"

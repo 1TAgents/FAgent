@@ -25,6 +25,7 @@ class Task:
     created_at: str
     expires_at: str
     result: Optional[Dict] = None
+    updated_at: Optional[str] = None
 
 
 class WorkingMemory:
@@ -75,6 +76,8 @@ class WorkingMemory:
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         
+        updated_at = task.updated_at or task.created_at
+
         cursor.execute('''
             INSERT INTO tasks VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ''', (
@@ -83,7 +86,7 @@ class WorkingMemory:
             json.dumps(task.decision_chain), json.dumps(task.todo_queue),
             task.created_at, task.expires_at,
             json.dumps(task.result) if task.result else None,
-            task.created_at
+            updated_at
         ))
         
         conn.commit()
@@ -135,6 +138,36 @@ class WorkingMemory:
             task_id
         ))
         
+        conn.commit()
+        conn.close()
+
+    def update_task(self, task: Task) -> None:
+        """更新任务上下文、决策链、待办队列和结果。"""
+        updated_at = datetime.now().isoformat()
+        task.updated_at = updated_at
+
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+
+        cursor.execute('''
+            UPDATE tasks
+            SET task_type = ?, title = ?, context = ?, status = ?,
+                decision_chain = ?, todo_queue = ?, expires_at = ?,
+                result = ?, updated_at = ?
+            WHERE task_id = ?
+        ''', (
+            task.task_type,
+            task.title,
+            json.dumps(task.context),
+            task.status,
+            json.dumps(task.decision_chain),
+            json.dumps(task.todo_queue),
+            task.expires_at,
+            json.dumps(task.result) if task.result else None,
+            updated_at,
+            task.task_id,
+        ))
+
         conn.commit()
         conn.close()
     
