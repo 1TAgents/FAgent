@@ -7,9 +7,38 @@
 """
 import pandas as pd
 import numpy as np
-from typing import Dict, Optional
+from typing import Any, Dict, Optional
 
 from .trading_cost import TradingCostCalculator
+
+
+EXECUTION_PARAM_CASTS = {
+    "max_position": float,
+    "lot_size": int,
+    "slippage": float,
+}
+
+
+def split_vectorized_params(params: Optional[Dict[str, Any]]) -> tuple[Dict[str, Any], Dict[str, Any]]:
+    """拆分策略参数和回测执行参数。"""
+    strategy_params = {}
+    execution_params = {}
+
+    for key, value in (params or {}).items():
+        if key in EXECUTION_PARAM_CASTS:
+            if value is not None:
+                cast_value = EXECUTION_PARAM_CASTS[key](value)
+                if key == "lot_size" and cast_value < 1:
+                    raise ValueError("lot_size 必须大于等于 1")
+                if key == "max_position" and not 0 < cast_value <= 1:
+                    raise ValueError("max_position 必须在 (0, 1] 区间内")
+                if key == "slippage" and cast_value < 0:
+                    raise ValueError("slippage 不能为负数")
+                execution_params[key] = cast_value
+        else:
+            strategy_params[key] = value
+
+    return strategy_params, execution_params
 
 
 def run_long_only_backtest(
@@ -283,7 +312,7 @@ class VectorizedDualMA:
         
         return df
     
-    def backtest(self, data: pd.DataFrame, initial_capital: float = 100000.0) -> Dict:
+    def backtest(self, data: pd.DataFrame, initial_capital: float = 100000.0, **execution_kwargs) -> Dict:
         """
         快速回测（向量化）
         
@@ -294,7 +323,7 @@ class VectorizedDualMA:
         Returns:
             绩效字典
         """
-        return run_long_only_backtest(data, initial_capital)
+        return run_long_only_backtest(data, initial_capital, **execution_kwargs)
 
 
 class VectorizedRSI:
@@ -329,9 +358,9 @@ class VectorizedRSI:
         
         return df
     
-    def backtest(self, data: pd.DataFrame, initial_capital: float = 100000.0) -> Dict:
+    def backtest(self, data: pd.DataFrame, initial_capital: float = 100000.0, **execution_kwargs) -> Dict:
         """快速回测"""
-        return run_long_only_backtest(data, initial_capital)
+        return run_long_only_backtest(data, initial_capital, **execution_kwargs)
 
 
 class VectorizedMACD:
@@ -380,9 +409,9 @@ class VectorizedMACD:
         
         return df
     
-    def backtest(self, data: pd.DataFrame, initial_capital: float = 100000.0) -> Dict:
+    def backtest(self, data: pd.DataFrame, initial_capital: float = 100000.0, **execution_kwargs) -> Dict:
         """快速回测"""
-        return run_long_only_backtest(data, initial_capital)
+        return run_long_only_backtest(data, initial_capital, **execution_kwargs)
 
 
 class VectorizedBollinger:
@@ -410,9 +439,9 @@ class VectorizedBollinger:
         
         return df
     
-    def backtest(self, data: pd.DataFrame, initial_capital: float = 100000.0) -> Dict:
+    def backtest(self, data: pd.DataFrame, initial_capital: float = 100000.0, **execution_kwargs) -> Dict:
         """快速回测"""
-        return run_long_only_backtest(data, initial_capital)
+        return run_long_only_backtest(data, initial_capital, **execution_kwargs)
 
 
 class VectorizedKDJ:
@@ -479,9 +508,9 @@ class VectorizedKDJ:
         
         return df
     
-    def backtest(self, data: pd.DataFrame, initial_capital: float = 100000.0) -> Dict:
+    def backtest(self, data: pd.DataFrame, initial_capital: float = 100000.0, **execution_kwargs) -> Dict:
         """快速回测"""
-        return run_long_only_backtest(data, initial_capital)
+        return run_long_only_backtest(data, initial_capital, **execution_kwargs)
 
 
 class VectorizedMomentum:
@@ -520,9 +549,9 @@ class VectorizedMomentum:
         
         return df
     
-    def backtest(self, data: pd.DataFrame, initial_capital: float = 100000.0) -> Dict:
+    def backtest(self, data: pd.DataFrame, initial_capital: float = 100000.0, **execution_kwargs) -> Dict:
         """快速回测"""
-        return run_long_only_backtest(data, initial_capital)
+        return run_long_only_backtest(data, initial_capital, **execution_kwargs)
 
 
 # 策略工厂

@@ -16,7 +16,7 @@ import numpy as np
 from .validators import BacktestValidator, HoldoutValidator, WalkForwardValidator, ExpandingWindowValidator
 from .engine import BacktestEngine
 from .models import StrategyConfig, BacktestReport
-from .vectorized_strategies import get_vectorized_strategy
+from .vectorized_strategies import get_vectorized_strategy, split_vectorized_params
 
 logger = logging.getLogger(__name__)
 
@@ -240,20 +240,16 @@ class ValidatorEngine:
             绩效指标字典
         """
         try:
+            strategy_params, execution_params = split_vectorized_params(params)
+
             # 获取策略
-            strategy = get_vectorized_strategy(strategy_name)
-            
-            # 设置参数
-            if params:
-                for key, value in params.items():
-                    if hasattr(strategy, key):
-                        setattr(strategy, key, value)
+            strategy = get_vectorized_strategy(strategy_name, **strategy_params)
             
             # 生成信号
             signals = strategy.generate_signals(data)
             
             # 执行回测
-            result = strategy.backtest(signals, self.initial_capital)
+            result = strategy.backtest(signals, self.initial_capital, **execution_params)
             
             return {
                 "total_returns": result.get("total_returns", 0),

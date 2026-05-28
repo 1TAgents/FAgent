@@ -263,7 +263,7 @@ class RunBacktestTool(BaseTool):
                 },
                 "params": {
                     "type": "object",
-                    "description": "策略参数覆盖（可选），如 {\"short_period\": 10, \"long_period\": 30}",
+                    "description": "策略参数和执行参数覆盖（可选），如 {\"short_period\": 10, \"long_period\": 30, \"lot_size\": 1, \"max_position\": 0.95, \"slippage\": 0.001}",
                 },
             },
             "required": ["strategy_name", "symbol"],
@@ -397,7 +397,7 @@ class OptimizeBacktestTool(BaseTool):
                 },
                 "param_grid": {
                     "type": "object",
-                    "description": "参数搜索网格，如 {\"short_period\": [5, 10, 20], \"long_period\": [20, 50, 100]}",
+                    "description": "参数搜索网格，如 {\"short_period\": [5, 10, 20], \"long_period\": [20, 50, 100]}；可固定或搜索执行参数 lot_size/max_position/slippage",
                 },
                 "initial_capital": {
                     "type": "number",

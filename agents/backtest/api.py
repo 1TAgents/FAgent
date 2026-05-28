@@ -24,7 +24,7 @@ from .engine import BacktestEngine
 from .strategies import get_strategy_class
 from .data_loader import get_data_loader
 from .run_store import get_run_store
-from .vectorized_strategies import get_vectorized_strategy
+from .vectorized_strategies import get_vectorized_strategy, split_vectorized_params
 
 logger = logging.getLogger(__name__)
 
@@ -68,16 +68,21 @@ async def run_backtest(request: BacktestRequest) -> BacktestResponse:
         
         # 2. 尝试向量化回测（更快）
         try:
+            strategy_params, execution_params = split_vectorized_params(request.params)
             strategy = get_vectorized_strategy(
                 request.strategy_name,
-                **request.params
+                **strategy_params,
             )
             
             # 生成信号
             data_with_signals = strategy.generate_signals(data)
             
             # 快速回测
-            result = strategy.backtest(data_with_signals, request.initial_capital)
+            result = strategy.backtest(
+                data_with_signals,
+                request.initial_capital,
+                **execution_params,
+            )
             
             elapsed = time.time() - start_time
             logger.info(f"向量化回测完成 | time={elapsed:.3f}s, 总收益={result['total_returns']:.2%}")
@@ -197,9 +202,14 @@ async def grid_search(
             params = dict(zip(param_names, values))
             
             try:
-                strategy = get_vectorized_strategy(strategy_name, **params)
+                strategy_params, execution_params = split_vectorized_params(params)
+                strategy = get_vectorized_strategy(strategy_name, **strategy_params)
                 data_with_signals = strategy.generate_signals(data)
-                result = strategy.backtest(data_with_signals, initial_capital)
+                result = strategy.backtest(
+                    data_with_signals,
+                    initial_capital,
+                    **execution_params,
+                )
                 
                 # 记录结果
                 if result['sharpe_ratio'] > best_sharpe:

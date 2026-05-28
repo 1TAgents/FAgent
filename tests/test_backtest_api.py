@@ -1,0 +1,55 @@
+import asyncio
+
+import pandas as pd
+
+from agents.backtest import api
+from agents.backtest.models import BacktestRequest
+
+
+class _FakeDataLoader:
+    def load_klines(self, *args, **kwargs):
+        dates = pd.date_range("2024-01-01", periods=3, freq="D")
+        return pd.DataFrame(
+            {
+                "symbol": ["SH600519"] * 3,
+                "open": [12000, 13000, 14000],
+                "high": [12000, 13000, 14000],
+                "low": [12000, 13000, 14000],
+                "close": [12000, 13000, 14000],
+                "volume": [100000] * 3,
+            },
+            index=dates,
+        )
+
+
+class _FakeRunStore:
+    def persist_run(self, request, report, engine):
+        return "test-report", "data/backtests/test-report"
+
+
+def test_run_backtest_applies_vectorized_execution_params(monkeypatch):
+    monkeypatch.setattr(api, "get_data_loader", lambda: _FakeDataLoader())
+    monkeypatch.setattr(api, "get_run_store", lambda: _FakeRunStore())
+
+    response = asyncio.run(
+        api.run_backtest(
+            BacktestRequest(
+                strategy_name="momentum",
+                symbol="600519",
+                start_date="2024-01-01",
+                end_date="2024-01-03",
+                params={
+                    "lookback": 1,
+                    "threshold": 0,
+                    "lot_size": 1,
+                    "slippage": 0,
+                    "max_position": 1,
+                },
+            )
+        )
+    )
+
+    assert response.success is True
+    assert response.engine == "vectorized"
+    assert response.report is not None
+    assert response.report.metrics.total_trades == 1

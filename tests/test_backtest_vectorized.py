@@ -3,7 +3,7 @@ import math
 import pandas as pd
 
 from agents.backtest.trading_cost import TradingCostCalculator
-from agents.backtest.vectorized_strategies import run_long_only_backtest
+from agents.backtest.vectorized_strategies import run_long_only_backtest, split_vectorized_params
 
 
 def _market_data(closes, signals):
@@ -103,3 +103,56 @@ def test_cost_and_slippage_reduce_final_equity():
     assert no_cost["final_capital"] == 100000
     assert with_cost["final_capital"] < no_cost["final_capital"]
     assert with_cost["total_cost"] > 0
+
+
+def test_lot_size_can_handle_high_adjusted_prices():
+    data = _market_data([12000, 13000, 14000], [1, 0, -1])
+
+    default_lot = run_long_only_backtest(
+        data,
+        initial_capital=100000,
+        max_position=1,
+        slippage=0,
+        cost_calculator=_zero_cost(),
+    )
+    one_share_lot = run_long_only_backtest(
+        data,
+        initial_capital=100000,
+        max_position=1,
+        lot_size=1,
+        slippage=0,
+        cost_calculator=_zero_cost(),
+    )
+
+    assert default_lot["trades"] == 0
+    assert one_share_lot["trades"] == 2
+    assert one_share_lot["positions"] == [8, 8, 0]
+    assert one_share_lot["final_capital"] == 116000
+
+
+def test_split_vectorized_params_separates_execution_settings():
+    strategy_params, execution_params = split_vectorized_params(
+        {
+            "short_period": 5,
+            "long_period": 20,
+            "lot_size": "1",
+            "max_position": "0.8",
+            "slippage": "0.002",
+        }
+    )
+
+    assert strategy_params == {"short_period": 5, "long_period": 20}
+    assert execution_params == {
+        "lot_size": 1,
+        "max_position": 0.8,
+        "slippage": 0.002,
+    }
+
+
+def test_split_vectorized_params_rejects_invalid_execution_settings():
+    try:
+        split_vectorized_params({"lot_size": 0})
+    except ValueError as exc:
+        assert "lot_size" in str(exc)
+    else:
+        raise AssertionError("expected invalid lot_size to fail")
