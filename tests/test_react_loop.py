@@ -302,6 +302,36 @@ class TestReActAgentLoop:
         assert not result.success
         assert "不在当前工具集中" in result.error
 
+    @pytest.mark.asyncio
+    async def test_execute_single_uses_tool_timeout_seconds(self, monkeypatch):
+        class LongRunningTool(BaseTool):
+            name = "long_running"
+            description = "长耗时工具"
+            category = "test"
+            timeout_seconds = 120
+
+            async def execute(self, **kw):
+                return ToolResult.ok(self.name, text="ok")
+
+        observed_timeouts = []
+
+        async def recording_wait_for(awaitable, timeout=None):
+            observed_timeouts.append(timeout)
+            return await awaitable
+
+        monkeypatch.setattr("agents.react.loop.asyncio.wait_for", recording_wait_for)
+
+        reg = ToolRegistry()
+        reg.register(LongRunningTool())
+        result = await ReActAgentLoop(
+            MockLLM(),
+            system_prompt="test",
+            registry=reg,
+        )._execute_single("long_running", {})
+
+        assert result.success
+        assert observed_timeouts[0] == 120
+
     def test_tool_call_signature_ignores_provider_call_id(self):
         loop = ReActAgentLoop(MockLLM(), system_prompt="test", registry=ToolRegistry())
 

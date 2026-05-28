@@ -518,7 +518,9 @@ class ReActAgentLoop:
 
         # 权限检查
         tool = self.registry.get(tool_name)
+        timeout_seconds = 30
         if tool:
+            timeout_seconds = tool.timeout_seconds
             if not self.permissions.is_allowed(tool_name, tool.danger_level):
                 reason = self.permissions.deny_reason(tool_name, tool.danger_level)
                 logger.warning(f"工具权限拒绝: {tool_name} - {reason}")
@@ -527,10 +529,10 @@ class ReActAgentLoop:
         try:
             result = await asyncio.wait_for(
                 self.registry.execute(tool_name, **tool_args),
-                timeout=30,
+                timeout=timeout_seconds,
             )
         except asyncio.TimeoutError:
-            result = ToolResult.fail(tool_name, error="工具执行超时 (30s)")
+            result = ToolResult.fail(tool_name, error=f"工具执行超时 ({timeout_seconds}s)")
         except Exception as e:
             result = ToolResult.fail(tool_name, error=str(e))
         result.duration_ms = (time.monotonic() - exec_start) * 1000
