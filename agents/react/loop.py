@@ -289,15 +289,8 @@ class ReActAgentLoop:
                 ))
                 # 继续循环
             else:
-                # 流式输出最终回复
-                response_text = ""
-                async for chunk in self.llm.chat_completion_stream(
-                    messages=messages,
-                    temperature=0.7,
-                    model=self.model,
-                ):
-                    response_text += chunk
-                    yield chunk
+                response_text = assistant_content or "抱歉，我没有得到有效的回复。"
+                yield response_text
 
                 turns.append(TurnTrace(
                     turn_id=turn_id, model=self.model or "", latency_ms=latency,

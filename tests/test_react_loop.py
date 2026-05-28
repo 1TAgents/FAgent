@@ -25,6 +25,7 @@ class MockLLM:
         """
         self.behavior = behavior
         self.call_count = 0
+        self.stream_count = 0
 
     async def chat_completion(self, messages, temperature=0.7, model=None, tools=None, **kw):
         self.call_count += 1
@@ -62,6 +63,7 @@ class MockLLM:
             )
 
     async def chat_completion_stream(self, messages, temperature=0.7, model=None, **kw):
+        self.stream_count += 1
         for char in "贵州茅台当前股价为 1850.00 元。":
             yield char
 
@@ -209,6 +211,8 @@ class TestReActAgentLoop:
             chunks.append(chunk)
         assert len(chunks) > 0
         assert "1850" in "".join(chunks)
+        assert llm.call_count == 1
+        assert llm.stream_count == 0
 
     @pytest.mark.asyncio
     async def test_stuck_detection(self, registry):
