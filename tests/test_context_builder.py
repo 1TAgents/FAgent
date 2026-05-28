@@ -139,6 +139,21 @@ def test_build_with_tools_includes_tool_schemas():
     assert "stock code" in messages[1]["content"]
 
 
+def test_build_with_tools_handles_budget_warning_paths():
+    builder = ContextBuilderWithBudget()
+    budget = ContextBudget(max_total=20, history=10, system=1, tools=10, reserve=5)
+
+    messages, meta = builder.build_with_tools(
+        system_prompt="you are a helper with a long system prompt",
+        history=None,
+        user_message="what is 600519?",
+        budget=budget,
+    )
+
+    assert messages[0]["role"] == "system"
+    assert meta["over_budget"] is True
+
+
 def test_context_budget_defaults():
     budget = ContextBudget()
     assert budget.max_total == 32000

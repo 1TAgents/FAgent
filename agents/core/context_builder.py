@@ -9,6 +9,7 @@ builder returns a fresh OpenAI-compatible message list.
 """
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Sequence
 
@@ -16,6 +17,7 @@ from .token_counter import count_messages_tokens, trim_messages_to_budget
 
 
 Message = Dict[str, Any]
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
