@@ -152,6 +152,9 @@ SCRATCH.md
 # 项目特定
 # ============================================
 
+# 本地运行态记忆
+fagent_memory/
+
 # Android 构建产物
 android/.gradle/
 android/build/
