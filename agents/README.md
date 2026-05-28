@@ -63,6 +63,7 @@ uvicorn agents.api.main:app --reload --host 0.0.0.0 --port 8001
 - `OPENROUTER_BASE_URL`：默认 `https://openrouter.ai/api/v1`
 - `LLM_MODEL`：默认模型
 - `RQDATAC_CONF`：可选，用于部分 RQData 数据脚本/能力
+- `BACKTEST_QUANTMIND_DATA_DIR`：可选，指向 QuantMInd 根目录或 `feature_snapshots` 目录，用于回测本地 parquet 数据源
 
 ## 路由模式
 
@@ -139,5 +140,6 @@ uvicorn agents.api.main:app --reload --host 0.0.0.0 --port 8001
 ## 数据说明
 
 - 行情能力默认走 `agents/common/market/` 下的服务和缓存
+- 回测数据加载顺序为本地数据库、QuantMInd parquet 快照、RQData、AKShare；本机默认会自动发现 `~/Learning/quant_repos/data/QuantMInd/feature_snapshots`
 - 独立的数据预热能力请看 [data_sync/README.md](data_sync/README.md)
 - 如果需要更细的接口示例，优先查看 `/docs` 自动生成文档
