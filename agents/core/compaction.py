@@ -55,6 +55,7 @@ class ContextCompaction:
 
         # 分离：待压缩的老消息 + 需保留的新消息
         cutoff = max(0, len(messages) - keep_recent)
+        cutoff = self._adjust_cutoff_for_tool_pairs(messages, cutoff)
         old_messages = messages[:cutoff]
         recent_messages = messages[cutoff:]
 
@@ -129,6 +130,46 @@ class ContextCompaction:
             return ""
 
         return "\n".join(facts)
+
+    def _adjust_cutoff_for_tool_pairs(self, messages: List[dict], cutoff: int) -> int:
+        """Move cutoff left when it would orphan tool result messages."""
+        if cutoff <= 0 or cutoff >= len(messages):
+            return cutoff
+        if messages[cutoff].get("role") != "tool":
+            return cutoff
+
+        tool_call_ids = set()
+        for msg in messages[cutoff:]:
+            if msg.get("role") != "tool":
+                break
+            tool_call_id = msg.get("tool_call_id")
+            if tool_call_id:
+                tool_call_ids.add(tool_call_id)
+
+        if not tool_call_ids:
+            return cutoff
+
+        for idx in range(cutoff - 1, -1, -1):
+            msg = messages[idx]
+            if msg.get("role") != "assistant":
+                continue
+            assistant_call_ids = self._extract_tool_call_ids(msg)
+            if assistant_call_ids & tool_call_ids:
+                return idx
+
+        return cutoff
+
+    @staticmethod
+    def _extract_tool_call_ids(message: dict) -> set[str]:
+        ids = set()
+        for tool_call in message.get("tool_calls") or []:
+            if isinstance(tool_call, dict):
+                tool_call_id = tool_call.get("id") or tool_call.get("tool_call_id")
+            else:
+                tool_call_id = getattr(tool_call, "id", None)
+            if tool_call_id:
+                ids.add(tool_call_id)
+        return ids
 
     async def llm_summarize(self, messages: List[dict]) -> str:
         """使用 LLM 生成摘要（可选增强路径）。

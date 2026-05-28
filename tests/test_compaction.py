@@ -53,6 +53,38 @@ class TestContextCompaction:
         # 最后 4 条消息应原样保留
         assert result[-4:] == msgs[-4:]
 
+    def test_preserves_tool_call_pair_when_recent_window_starts_with_tool_result(self):
+        msgs = [
+            {"role": "user", "content": "旧问题 " + ("很长 " * 200)},
+            {"role": "assistant", "content": "旧回答 " + ("很长 " * 200)},
+            {"role": "user", "content": "查 600519"},
+            {
+                "role": "assistant",
+                "content": None,
+                "tool_calls": [
+                    {
+                        "id": "call_quote",
+                        "type": "function",
+                        "function": {
+                            "name": "get_quote",
+                            "arguments": "{\"symbol\": \"600519\"}",
+                        },
+                    }
+                ],
+            },
+            {
+                "role": "tool",
+                "tool_call_id": "call_quote",
+                "content": "600519 当前价格 1800 元",
+            },
+            {"role": "assistant", "content": "600519 当前价格 1800 元"},
+        ]
+
+        result, summary = self.compactor.compact(msgs, max_tokens=120, keep_recent=2)
+
+        assert summary is not None
+        assert result[-3:] == msgs[-3:]
+
     def test_empty_messages(self):
         result, summary = self.compactor.compact([], max_tokens=500)
         assert result == []
