@@ -286,6 +286,7 @@ class ReActAgentLoop:
                 turns.append(TurnTrace(
                     turn_id=turn_id, model=self.model or "", latency_ms=latency,
                     tool_calls=[tc.get("name", "") for tc in tool_calls],
+                    tool_results=[tr.to_dict() for tr in tool_results],
                 ))
                 # 继续循环
             else:
@@ -556,6 +557,7 @@ class ReActAgentLoop:
                 output_tokens=rt.output_tokens,
                 latency_ms=rt.latency_ms,
                 tool_calls=[tc.get("name", "") for tc in rt.tool_calls],
+                tool_results=[tr.to_dict() for tr in rt.tool_results],
             )
             self.trace.turns.append(tt)
 

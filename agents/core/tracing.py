@@ -37,6 +37,7 @@ class TurnTrace:
     output_tokens: int = 0
     latency_ms: float = 0.0
     tool_calls: List[dict] = field(default_factory=list)
+    tool_results: List[dict] = field(default_factory=list)
     error: Optional[str] = None
 
     def to_dict(self) -> dict:
@@ -47,6 +48,7 @@ class TurnTrace:
             "output_tokens": self.output_tokens,
             "latency_ms": round(self.latency_ms, 2),
             "tool_calls": self.tool_calls,
+            "tool_results": self.tool_results,
         }
         if self.error:
             d["error"] = self.error

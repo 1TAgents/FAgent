@@ -12,6 +12,7 @@ from agents.tools.registry import ToolRegistry
 from agents.tools.base import BaseTool, DangerLevel
 from agents.tools.result import ToolResult
 from agents.tools.permissions import ToolPermissions
+from agents.core.tracing import ExecutionTrace
 
 
 class MockLLM:
@@ -120,6 +121,23 @@ class TestReActAgentLoop:
         assert len(result.turns) == 2
         assert len(result.turns[0].tool_calls) == 1
         assert result.turns[0].tool_calls[0]["name"] == "get_quote"
+
+    @pytest.mark.asyncio
+    async def test_trace_records_tool_results(self, registry, monkeypatch):
+        monkeypatch.setattr("agents.react.loop.trace_store.save", lambda trace: None)
+        trace = ExecutionTrace(trace_id="trace_tool_results", cid=1)
+        loop = ReActAgentLoop(
+            MockLLM(behavior="two_turn"),
+            system_prompt="test",
+            registry=registry,
+            model="test",
+            trace=trace,
+        )
+
+        await loop.run("茅台股价多少？")
+
+        assert trace.turns[0].tool_results[0]["tool_name"] == "get_quote"
+        assert trace.turns[0].tool_results[0]["success"] is True
 
     @pytest.mark.asyncio
     async def test_tool_call_messages_are_openai_compatible_between_turns(self, registry):
