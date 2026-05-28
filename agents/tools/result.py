@@ -44,7 +44,12 @@ class ToolResult:
             max_chars: 最大字符数，超出部分会被截断并附加提示。
         """
         if self.success:
-            content = self.text or str(self.data) if self.data else "执行成功，无返回数据"
+            if self.text:
+                content = self.text
+            elif self.data:
+                content = str(self.data)
+            else:
+                content = "执行成功，无返回数据"
         else:
             content = f"工具执行失败: {self.error}"
 

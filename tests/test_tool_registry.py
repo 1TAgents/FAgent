@@ -45,6 +45,10 @@ class TestToolResult:
         r = ToolResult.ok("test", data={"a": 1}, text="result here")
         assert r.to_llm_content() == "result here"
 
+    def test_to_llm_content_success_text_without_data(self):
+        r = ToolResult.ok("test", text="only text")
+        assert r.to_llm_content() == "only text"
+
     def test_to_llm_content_fallback_data(self):
         r = ToolResult.ok("test", data={"a": 1})
         assert r.to_llm_content() == "{'a': 1}"
