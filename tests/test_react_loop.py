@@ -120,6 +120,33 @@ class TestReActAgentLoop:
         assert result.turns[0].tool_calls[0]["name"] == "get_quote"
 
     @pytest.mark.asyncio
+    async def test_tool_call_messages_are_openai_compatible_between_turns(self, registry):
+        """Internal tool calls should be serialized before sending back to the LLM."""
+        class InspectingLLM(MockLLM):
+            def __init__(self):
+                super().__init__(behavior="two_turn")
+                self.second_call_messages = None
+
+            async def chat_completion(self, messages, temperature=0.7, model=None, tools=None, **kw):
+                if self.call_count == 1:
+                    self.second_call_messages = [dict(m) for m in messages]
+                return await super().chat_completion(messages, temperature, model, tools, **kw)
+
+        llm = InspectingLLM()
+        loop = ReActAgentLoop(llm, system_prompt="test", registry=registry, model="test")
+        await loop.run("茅台股价多少？")
+
+        assistant_tool_msg = next(
+            m for m in llm.second_call_messages
+            if m.get("role") == "assistant" and m.get("tool_calls")
+        )
+        tool_call = assistant_tool_msg["tool_calls"][0]
+        assert tool_call["type"] == "function"
+        assert tool_call["function"]["name"] == "get_quote"
+        assert tool_call["function"]["arguments"] == '{"symbol": "600519"}'
+        assert "arguments" not in tool_call
+
+    @pytest.mark.asyncio
     async def test_permissions_deny_tool_execution(self):
         class MockWriteTool(BaseTool):
             name = "write_state"
@@ -270,6 +297,16 @@ class TestReActAgentLoop:
 
         assert not result.success
         assert "不在当前工具集中" in result.error
+
+    def test_tool_call_signature_ignores_provider_call_id(self):
+        loop = ReActAgentLoop(MockLLM(), system_prompt="test", registry=ToolRegistry())
+
+        first = [{"id": "call_a", "name": "get_quote", "arguments": {"symbol": "600519"}}]
+        second = [{"id": "call_b", "name": "get_quote", "arguments": {"symbol": "600519"}}]
+        different_args = [{"id": "call_c", "name": "get_quote", "arguments": {"symbol": "000001"}}]
+
+        assert loop._tool_call_signature(first) == loop._tool_call_signature(second)
+        assert loop._tool_call_signature(first) != loop._tool_call_signature(different_args)
 
     def test_extract_tool_calls(self):
         llm = MockLLM()

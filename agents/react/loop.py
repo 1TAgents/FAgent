@@ -162,7 +162,7 @@ class ReActAgentLoop:
             if tool_calls:
                 turn.tool_calls = tool_calls
                 # 检查是否卡住（重复调用相同工具相同参数）
-                sig = json.dumps(sorted(str(tc) for tc in tool_calls), sort_keys=True)
+                sig = self._tool_call_signature(tool_calls)
                 if sig == last_tool_signature:
                     stuck_counter += 1
                     if stuck_counter >= 3:
@@ -176,12 +176,7 @@ class ReActAgentLoop:
                     stuck_counter = 0
                     last_tool_signature = sig
 
-                # 追加 assistant 消息
-                messages.append({
-                    "role": "assistant",
-                    "content": assistant_content or None,
-                    "tool_calls": tool_calls,
-                })
+                self._append_assistant_tool_message(messages, assistant_content, tool_calls)
 
                 # 3. 并行执行工具
                 tool_results = await self._execute_tools_parallel(tool_calls)
@@ -253,14 +248,10 @@ class ReActAgentLoop:
 
             if tool_calls:
                 # 追加 assistant 消息
-                messages.append({
-                    "role": "assistant",
-                    "content": assistant_content or None,
-                    "tool_calls": tool_calls,
-                })
+                self._append_assistant_tool_message(messages, assistant_content, tool_calls)
 
                 # 检查循环
-                sig = json.dumps(sorted(str(tc) for tc in tool_calls), sort_keys=True)
+                sig = self._tool_call_signature(tool_calls)
                 if sig == last_tool_signature:
                     stuck_counter += 1
                     if stuck_counter >= 3:
@@ -434,6 +425,64 @@ class ReActAgentLoop:
         if message and hasattr(message, "content"):
             return message.content
         return None
+
+    def _append_assistant_tool_message(
+        self,
+        messages: List[dict],
+        assistant_content: Optional[str],
+        tool_calls: List[dict],
+    ) -> None:
+        """Append assistant tool calls using the provider-facing schema."""
+        messages.append({
+            "role": "assistant",
+            "content": assistant_content or None,
+            "tool_calls": self._to_llm_tool_calls(tool_calls),
+        })
+
+    @staticmethod
+    def _to_llm_tool_calls(tool_calls: List[dict]) -> List[dict]:
+        """Convert internal tool-call records to OpenAI-compatible messages."""
+        llm_tool_calls: List[dict] = []
+        for index, tc in enumerate(tool_calls):
+            arguments = tc.get("arguments") or {}
+            if not isinstance(arguments, str):
+                arguments = json.dumps(arguments, ensure_ascii=False, sort_keys=True)
+            llm_tool_calls.append({
+                "id": tc.get("id") or f"call_{index}",
+                "type": "function",
+                "function": {
+                    "name": tc.get("name", ""),
+                    "arguments": arguments,
+                },
+            })
+        return llm_tool_calls
+
+    @staticmethod
+    def _tool_call_signature(tool_calls: List[dict]) -> str:
+        """Return a stable signature for loop detection.
+
+        Provider-generated tool call ids change between turns, so the signature
+        only includes the semantic action: tool name and normalized arguments.
+        """
+        parts = []
+        for tc in tool_calls:
+            arguments = tc.get("arguments") or {}
+            if isinstance(arguments, str):
+                try:
+                    arguments = json.loads(arguments)
+                except json.JSONDecodeError:
+                    pass
+            parts.append({
+                "name": str(tc.get("name", "")),
+                "arguments": arguments,
+            })
+        return json.dumps(
+            sorted(
+                json.dumps(part, ensure_ascii=False, sort_keys=True, default=str)
+                for part in parts
+            ),
+            ensure_ascii=False,
+        )
 
     async def _execute_tools_parallel(
         self,
