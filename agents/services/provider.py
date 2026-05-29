@@ -195,20 +195,31 @@ class ProviderRegistry:
 
 def create_deepseek_provider() -> Provider:
     """创建 DeepSeek 提供商（直连 API，备用模型）。"""
+    import os
     return Provider(
         name="deepseek",
-        base_url="https://api.deepseek.com",
+        base_url=os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com"),
         api_key_env="DEEPSEEK_API_KEY",
         models=[
             ModelInfo(
-                model_id="deepseek-chat",
+                model_id="deepseek-v4-pro",
                 display_name="DeepSeek V4 Pro (直连)",
                 provider="deepseek",
                 context_window=128000,
                 max_output_tokens=8192,
                 supports_tool_use=True,
                 priority=1,
-                description="备用模型：通用能力强",
+                description="DeepSeek V4 Pro：直连 API 默认模型",
+            ),
+            ModelInfo(
+                model_id="deepseek-chat",
+                display_name="DeepSeek Chat (直连)",
+                provider="deepseek",
+                context_window=128000,
+                max_output_tokens=8192,
+                supports_tool_use=True,
+                priority=2,
+                description="DeepSeek 通用聊天模型",
             ),
         ],
     )
