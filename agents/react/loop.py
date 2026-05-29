@@ -152,6 +152,7 @@ class ReActAgentLoop:
             # 2. 解析 LLM 响应
             tool_calls = self._extract_tool_calls(response)
             assistant_content = self._extract_assistant_content(response)
+            assistant_reasoning_content = self._extract_assistant_reasoning_content(response)
 
             # 2b. 累加 token 使用量
             if hasattr(response, "usage") and response.usage:
@@ -176,7 +177,12 @@ class ReActAgentLoop:
                     stuck_counter = 0
                     last_tool_signature = sig
 
-                self._append_assistant_tool_message(messages, assistant_content, tool_calls)
+                self._append_assistant_tool_message(
+                    messages,
+                    assistant_content,
+                    tool_calls,
+                    assistant_reasoning_content,
+                )
 
                 # 3. 并行执行工具
                 tool_results = await self._execute_tools_parallel(tool_calls)
@@ -229,26 +235,53 @@ class ReActAgentLoop:
         last_tool_signature = ""
         total_tokens = 0
         turns: List[TurnTrace] = []
-        finished = False
-
         for turn_id in range(1, self.max_turns + 1):
             if session_state.is_cancelled(self.cid):
                 yield "请求已被取消。"
                 self._save_trace_from_stream(turns, total_tokens, user_message, error="cancelled")
                 return
             turn_start = time.monotonic()
-            response = await self._call_llm(messages)
-            latency = (time.monotonic() - turn_start) * 1000
-            tool_calls = self._extract_tool_calls(response)
-            assistant_content = self._extract_assistant_content(response)
+            assistant_content_parts: List[str] = []
+            assistant_reasoning_content: Optional[str] = None
+            tool_call_parts: Dict[int, dict] = {}
+            tool_calls: List[dict] = []
 
-            # 累加 token
-            if hasattr(response, "usage") and response.usage:
-                total_tokens += (response.usage.prompt_tokens or 0) + (response.usage.completion_tokens or 0)
+            async for event in self._iter_llm_stream_events(messages):
+                event_type = event.get("type")
+                if event_type == "content_delta":
+                    content_delta = event.get("content") or ""
+                    if not content_delta:
+                        continue
+                    assistant_content_parts.append(content_delta)
+                    if not tool_call_parts and not tool_calls:
+                        yield content_delta
+                elif event_type == "tool_call_delta":
+                    self._merge_tool_call_delta(tool_call_parts, event)
+                elif event_type == "tool_calls":
+                    tool_calls = event.get("tool_calls") or []
+                    assistant_reasoning_content = event.get("reasoning_content")
+                    if event.get("content"):
+                        assistant_content_parts = [event["content"]]
+                elif event_type == "usage":
+                    usage = event.get("usage") or {}
+                    total_tokens += (
+                        usage.get("prompt_tokens", 0)
+                        + usage.get("completion_tokens", 0)
+                    )
+
+            latency = (time.monotonic() - turn_start) * 1000
+            if not tool_calls:
+                tool_calls = self._finalize_stream_tool_calls(tool_call_parts)
+            assistant_content = "".join(assistant_content_parts)
 
             if tool_calls:
                 # 追加 assistant 消息
-                self._append_assistant_tool_message(messages, assistant_content, tool_calls)
+                self._append_assistant_tool_message(
+                    messages,
+                    assistant_content,
+                    tool_calls,
+                    assistant_reasoning_content,
+                )
 
                 # 检查循环
                 sig = self._tool_call_signature(tool_calls)
@@ -291,7 +324,8 @@ class ReActAgentLoop:
                 # 继续循环
             else:
                 response_text = assistant_content or "抱歉，我没有得到有效的回复。"
-                yield response_text
+                if not assistant_content:
+                    yield response_text
 
                 turns.append(TurnTrace(
                     turn_id=turn_id, model=self.model or "", latency_ms=latency,
@@ -347,8 +381,8 @@ class ReActAgentLoop:
         messages.append({"role": "user", "content": user_message})
         return messages
 
-    async def _call_llm(self, messages: List[dict]) -> Any:
-        """调用 LLM，带工具配置。"""
+    def _prepare_llm_params(self, messages: List[dict]) -> dict:
+        """Build LLM params and compact context when needed."""
         # 上下文压缩：如果消息过多，压缩旧对话
         non_system = [m for m in messages if m["role"] != "system"]
         if len(non_system) > 12:
@@ -365,7 +399,113 @@ class ReActAgentLoop:
         if tool_schemas:
             params["tools"] = tool_schemas
 
-        return await self.llm.chat_completion(**params)
+        return params
+
+    async def _call_llm(self, messages: List[dict]) -> Any:
+        """调用 LLM，带工具配置。"""
+        return await self.llm.chat_completion(**self._prepare_llm_params(messages))
+
+    async def _iter_llm_stream_events(self, messages: List[dict]) -> AsyncIterator[dict]:
+        """Yield normalized stream events, with non-stream fallback for tests/providers."""
+        params = self._prepare_llm_params(messages)
+
+        if params.get("tools"):
+            response = await self.llm.chat_completion(**params)
+            tool_calls = self._extract_tool_calls(response)
+            assistant_content = self._extract_assistant_content(response)
+            if tool_calls:
+                yield {
+                    "type": "tool_calls",
+                    "tool_calls": tool_calls,
+                    "content": assistant_content,
+                    "reasoning_content": self._extract_assistant_reasoning_content(response),
+                }
+            else:
+                async for event in self._iter_text_delta_events(assistant_content or ""):
+                    yield event
+            yield {"type": "done"}
+            return
+
+        if hasattr(self.llm, "chat_completion_stream_events"):
+            async for event in self.llm.chat_completion_stream_events(**params):
+                yield event
+            return
+
+        response = await self.llm.chat_completion(**params)
+        tool_calls = self._extract_tool_calls(response)
+        assistant_content = self._extract_assistant_content(response)
+        if tool_calls:
+            yield {
+                "type": "tool_calls",
+                "tool_calls": tool_calls,
+                "content": assistant_content,
+                "reasoning_content": self._extract_assistant_reasoning_content(response),
+            }
+        else:
+            yield {
+                "type": "content_delta",
+                "content": assistant_content or "",
+            }
+        yield {"type": "done"}
+
+    @staticmethod
+    def _split_text_for_stream(text: str, chunk_size: int = 8) -> List[str]:
+        """Split fallback final text into small chunks for SSE rendering."""
+        if not text:
+            return []
+        return [text[i:i + chunk_size] for i in range(0, len(text), chunk_size)]
+
+    async def _iter_text_delta_events(self, text: str) -> AsyncIterator[dict]:
+        """Emit text as small content_delta events for non-stream providers/tool turns."""
+        for chunk in self._split_text_for_stream(text):
+            yield {"type": "content_delta", "content": chunk}
+            await asyncio.sleep(0.015)
+
+    @staticmethod
+    def _merge_tool_call_delta(tool_call_parts: Dict[int, dict], event: dict) -> None:
+        """Merge one streamed OpenAI-compatible tool-call delta."""
+        index = int(event.get("index") or 0)
+        part = tool_call_parts.setdefault(
+            index,
+            {"id": "", "name": "", "arguments": ""},
+        )
+
+        if event.get("id"):
+            part["id"] = event["id"]
+        if event.get("name"):
+            part["name"] += event["name"]
+        if event.get("arguments_delta"):
+            part["arguments"] += event["arguments_delta"]
+
+    @staticmethod
+    def _finalize_stream_tool_calls(tool_call_parts: Dict[int, dict]) -> List[dict]:
+        """Convert streamed tool-call deltas into internal tool-call records."""
+        tool_calls: List[dict] = []
+        for index in sorted(tool_call_parts):
+            part = tool_call_parts[index]
+            name = str(part.get("name") or "")
+            if not name:
+                continue
+
+            raw_arguments = part.get("arguments") or ""
+            if isinstance(raw_arguments, dict):
+                arguments = raw_arguments
+            else:
+                try:
+                    arguments = json.loads(raw_arguments) if raw_arguments else {}
+                except json.JSONDecodeError:
+                    logger.warning(
+                        "Failed to parse streamed tool call arguments | "
+                        f"name={name} | raw={raw_arguments[:200]}"
+                    )
+                    arguments = {}
+
+            tool_calls.append({
+                "id": part.get("id") or f"call_{index}",
+                "name": name,
+                "arguments": arguments,
+            })
+        return tool_calls
 
     def _build_tool_schemas_for_llm(self) -> List[dict]:
         """将内部工具 schema 转换为 LLM tool use 格式。"""
@@ -420,18 +560,45 @@ class ReActAgentLoop:
             return message.content
         return None
 
+    def _extract_assistant_reasoning_content(self, response) -> Optional[str]:
+        """提取 provider-specific reasoning content for tool-call replay."""
+        message = response.choices[0].message if response.choices else None
+        if not message:
+            return None
+
+        reasoning_content = getattr(message, "reasoning_content", None)
+        if reasoning_content:
+            return reasoning_content
+
+        model_extra = getattr(message, "model_extra", None)
+        if isinstance(model_extra, dict):
+            value = model_extra.get("reasoning_content")
+            if isinstance(value, str) and value:
+                return value
+
+        if isinstance(message, dict):
+            value = message.get("reasoning_content")
+            if isinstance(value, str) and value:
+                return value
+
+        return None
+
     def _append_assistant_tool_message(
         self,
         messages: List[dict],
         assistant_content: Optional[str],
         tool_calls: List[dict],
+        reasoning_content: Optional[str] = None,
     ) -> None:
         """Append assistant tool calls using the provider-facing schema."""
-        messages.append({
+        assistant_message = {
             "role": "assistant",
             "content": assistant_content or None,
             "tool_calls": self._to_llm_tool_calls(tool_calls),
-        })
+        }
+        if reasoning_content:
+            assistant_message["reasoning_content"] = reasoning_content
+        messages.append(assistant_message)
 
     @staticmethod
     def _to_llm_tool_calls(tool_calls: List[dict]) -> List[dict]:

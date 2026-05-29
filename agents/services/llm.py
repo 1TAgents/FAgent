@@ -11,7 +11,7 @@ LLM Service - 封装 OpenAI SDK 调用（异步 + 重试）
 """
 import os
 import logging
-from typing import Optional, AsyncIterator, List, Dict
+from typing import Any, Optional, AsyncIterator, List, Dict
 from openai import AsyncOpenAI
 from openai import APIError, AuthenticationError, RateLimitError, OpenAIError
 from tenacity import (
@@ -219,6 +219,84 @@ class LLMService:
             async for chunk in stream:
                 if chunk.choices and chunk.choices[0].delta.content:
                     yield chunk.choices[0].delta.content
+        except AuthenticationError:
+            logger.error(f"LLM 认证失败 | model={resolved_model}")
+            raise
+        except RateLimitError:
+            logger.error(f"LLM 限流 | model={resolved_model}")
+            raise
+        except APIError as e:
+            logger.error(f"LLM API 错误 | model={resolved_model} | error={e}")
+            raise
+
+    async def chat_completion_stream_events(
+        self,
+        messages: List[Dict],
+        temperature: float = 0.7,
+        max_tokens: Optional[int] = None,
+        model: Optional[str] = None,
+        tools: Optional[List[dict]] = None,
+        **kwargs,
+    ) -> AsyncIterator[Dict[str, Any]]:
+        """Stream OpenAI-compatible content and tool-call deltas.
+
+        This lower-level stream is used by the ReAct loop so it can forward
+        final answer text immediately while still detecting tool calls.
+        """
+        client, resolved_model = self._get_client_for_model(model)
+
+        if self.mock_mode or client is None:
+            logger.info(f"Mock LLM 事件流调用 | model={resolved_model}")
+            last_msg = messages[-1]["content"] if messages else "未知"
+            response_text = (
+                f"【Mock 回复】我收到了你的消息：\"{last_msg}\"\n\n"
+                f"后端服务链路正常，但未配置有效的 API Key。"
+            )
+            for char in response_text:
+                yield {"type": "content_delta", "content": char}
+            yield {"type": "done", "model": resolved_model}
+            return
+
+        params = self._build_params(resolved_model, messages, temperature, max_tokens, True, **kwargs)
+        tools_for_model = self._tools_for_model(resolved_model, tools)
+        if tools_for_model:
+            params["tools"] = tools_for_model
+
+        logger.debug(f"LLM 事件流请求 | model={resolved_model} | messages={len(messages)}")
+
+        try:
+            stream = await client.chat.completions.create(**params)
+            async for chunk in stream:
+                for choice in getattr(chunk, "choices", []) or []:
+                    delta = getattr(choice, "delta", None)
+                    if not delta:
+                        continue
+
+                    content = getattr(delta, "content", None)
+                    if content:
+                        yield {"type": "content_delta", "content": content}
+
+                    tool_calls = getattr(delta, "tool_calls", None)
+                    if tool_calls:
+                        for tool_call in tool_calls:
+                            function = getattr(tool_call, "function", None)
+                            event: Dict[str, Any] = {
+                                "type": "tool_call_delta",
+                                "index": getattr(tool_call, "index", 0) or 0,
+                            }
+                            tool_call_id = getattr(tool_call, "id", None)
+                            if tool_call_id:
+                                event["id"] = tool_call_id
+                            if function:
+                                name = getattr(function, "name", None)
+                                if name:
+                                    event["name"] = name
+                                arguments = getattr(function, "arguments", None)
+                                if arguments:
+                                    event["arguments_delta"] = arguments
+                            yield event
+
+            yield {"type": "done", "model": resolved_model}
         except AuthenticationError:
             logger.error(f"LLM 认证失败 | model={resolved_model}")
             raise

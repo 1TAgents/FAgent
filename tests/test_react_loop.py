@@ -38,6 +38,7 @@ class MockLLM:
                 choices=[SimpleNamespace(
                     message=SimpleNamespace(
                         content=None,
+                        reasoning_content="需要调用行情工具。",
                         tool_calls=[SimpleNamespace(
                             id="tc_001",
                             function=SimpleNamespace(
@@ -67,6 +68,23 @@ class MockLLM:
         self.stream_count += 1
         for char in "贵州茅台当前股价为 1850.00 元。":
             yield char
+
+    async def chat_completion_stream_events(self, messages, temperature=0.7, model=None, tools=None, **kw):
+        self.stream_count += 1
+        if self.behavior == "two_turn" and self.stream_count == 1:
+            yield {
+                "type": "tool_call_delta",
+                "index": 0,
+                "id": "tc_001",
+                "name": "get_quote",
+                "arguments_delta": '{"symbol": "600519"}',
+            }
+            yield {"type": "done"}
+            return
+
+        for char in "贵州茅台当前股价为 1850.00 元。":
+            yield {"type": "content_delta", "content": char}
+        yield {"type": "done"}
 
 
 @pytest.fixture
@@ -165,6 +183,7 @@ class TestReActAgentLoop:
         assert tool_call["function"]["name"] == "get_quote"
         assert tool_call["function"]["arguments"] == '{"symbol": "600519"}'
         assert "arguments" not in tool_call
+        assert assistant_tool_msg["reasoning_content"] == "需要调用行情工具。"
 
     @pytest.mark.asyncio
     async def test_permissions_deny_tool_execution(self):
@@ -229,7 +248,21 @@ class TestReActAgentLoop:
             chunks.append(chunk)
         assert len(chunks) > 0
         assert "1850" in "".join(chunks)
-        assert llm.call_count == 1
+        assert len(chunks) > 1
+        assert llm.call_count == 0
+        assert llm.stream_count == 1
+
+    @pytest.mark.asyncio
+    async def test_stream_with_tool_call_then_final_answer(self, registry):
+        llm = MockLLM(behavior="two_turn")
+        loop = ReActAgentLoop(llm, system_prompt="test", registry=registry, model="test")
+        chunks = []
+        async for chunk in loop.run_stream("茅台股价多少？"):
+            chunks.append(chunk)
+
+        assert "1850" in "".join(chunks)
+        assert len(chunks) > 1
+        assert llm.call_count == 2
         assert llm.stream_count == 0
 
     @pytest.mark.asyncio
