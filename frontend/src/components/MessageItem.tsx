@@ -4,14 +4,16 @@ import remarkGfm from 'remark-gfm';
 import rehypeHighlight from 'rehype-highlight';
 import { cn } from '@/lib/utils';
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import type { Message } from '@/types';
 
 interface MessageItemProps {
-  role: 'user' | 'assistant';
+  role: Message['role'];
   content: string;
 }
 
 export function MessageItem({ role, content }: MessageItemProps) {
   const isUser = role === 'user';
+  const avatarLabel = role === 'system' ? 'SYS' : isUser ? 'You' : 'AI';
   
   return (
     <div
@@ -25,7 +27,7 @@ export function MessageItem({ role, content }: MessageItemProps) {
         <div className={cn("flex flex-col relative shrink-0", isUser && "order-2")}>
           <Avatar className={cn("h-8 w-8", isUser ? "bg-[#10a37f]" : "bg-[#e69100]")}>
             <AvatarFallback className="text-white text-xs font-medium">
-              {isUser ? 'You' : 'AI'}
+              {avatarLabel}
             </AvatarFallback>
           </Avatar>
         </div>
