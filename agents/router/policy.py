@@ -15,6 +15,7 @@ ROUTE_TASKS: Dict[RouteType, Set[TaskType]] = {
     RouteType.CHAT: {
         TaskType.GREETING,
         TaskType.GENERAL_QA,
+        TaskType.DESCRIBE_SELF,
         TaskType.UNKNOWN,
     },
     RouteType.MARKET: {

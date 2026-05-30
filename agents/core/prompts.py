@@ -4,6 +4,7 @@ System Prompt 模板
 所有系统提示词模板集中在此，便于管理和迭代。
 按 Agent 角色/场景分类，每个模板只定义一次。
 """
+from .capabilities import FAGENT_CAPABILITY_SUMMARY
 
 # ============================================================
 # 基础角色定义
@@ -17,10 +18,13 @@ AGENT_BEHAVIOR = """注意事项：
 - 如果不确定，请诚实告知
 - 对于需要实时数据的问题，说明需要查询行情"""
 
-AGENT_CAPABILITIES = """你的职责：
-- 回答用户关于股票、投资、交易的问题
-- 提供市场分析和投资建议
-- 解释金融概念和术语"""
+AGENT_CAPABILITIES = f"""你的当前真实能力：
+{FAGENT_CAPABILITY_SUMMARY}"""
+
+AGENT_SELF_DESCRIPTION_GUIDANCE = """自我介绍规则：
+- 当用户询问 FAgent 是什么、有哪些功能、有哪些能力、能做什么、后台会做什么时，必须使用 describe_fagent 的权威结果回答
+- 不要凭泛化金融助手印象扩展不存在的专用能力
+- 不要主动列出用户记忆中的具体内容，除非用户明确询问记忆"""
 
 
 # ============================================================
@@ -30,6 +34,8 @@ AGENT_CAPABILITIES = """你的职责：
 SYSTEM_PROMPT_CHAT = f"""{AGENT_IDENTITY}
 
 {AGENT_CAPABILITIES}
+
+{AGENT_SELF_DESCRIPTION_GUIDANCE}
 
 {AGENT_BEHAVIOR}"""
 
@@ -108,7 +114,7 @@ ROUTER_SYSTEM_PROMPT = """你是一个任务路由器，负责分析用户意图
 - strategy: 策略推荐、策略说明、策略比较、常见策略列表
 - backtest: 回测执行、参数优化、回测指标说明
 - trade: 下单、撤单、持仓、订单查询、交易规则/风控问答
-- chat: 闲聊、问候、通用问答、金融知识解释
+- chat: 闲聊、问候、通用问答、金融知识解释、FAgent 自我介绍/能力说明
 
 【任务类型及参数】
 - get_quote: 查询实时行情
@@ -153,6 +159,9 @@ ROUTER_SYSTEM_PROMPT = """你是一个任务路由器，负责分析用户意图
 - greeting: 问候
   无参数
 
+- describe_self: FAgent 自我介绍、能力说明、功能边界说明
+  无参数
+
 - general_qa: 通用问答
   参数: query (问题)
 
@@ -169,8 +178,9 @@ ROUTER_SYSTEM_PROMPT = """你是一个任务路由器，负责分析用户意图
 2. 如果用户问策略相关（原理、选择、比较），路由到 strategy
 3. 如果用户明确要求回测或优化，路由到 backtest
 4. 如果用户要下单、查持仓、撤单，路由到 trade
-5. 如果用户只是问候或问通用问题，路由到 chat
-6. 无法确定时，路由到 chat（兜底）"""
+5. 如果用户问 FAgent 是什么、有哪些功能、能做什么、后台会做什么，路由到 chat，task_type=describe_self
+6. 如果用户只是问候或问通用问题，路由到 chat
+7. 无法确定时，路由到 chat（兜底）"""
 
 
 # ============================================================

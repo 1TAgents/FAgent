@@ -132,7 +132,8 @@ class TestToolRegistry:
         reg = ToolRegistry()
         register_builtin_tools(reg)
         schemas = reg.get_all_schemas()
-        assert len(schemas) == 11
+        assert len(schemas) == 12
+        assert any(s["name"] == "describe_fagent" for s in schemas)
         for s in schemas:
             assert "name" in s
             assert "description" in s
@@ -142,7 +143,8 @@ class TestToolRegistry:
         reg = ToolRegistry()
         register_builtin_tools(reg)
         summary = reg.summary()
-        assert summary["total"] == 11
+        assert summary["total"] == 12
+        assert "self" in summary["categories"]
         assert "market" in summary["categories"]
         assert "backtest" in summary["categories"]
         assert "trading" in summary["categories"]
@@ -159,7 +161,8 @@ class TestBuiltinTools:
     def test_all_tools_registered(self):
         reg = ToolRegistry()
         register_builtin_tools(reg)
-        assert reg.count == 11
+        assert reg.count == 12
+        assert reg.has("describe_fagent")
         assert reg.has("get_quote")
         assert reg.has("get_kline")
         assert reg.has("search_stock")

@@ -1,10 +1,14 @@
 """内置工具集合。
 
 按领域分组：
+- self: FAgent 自身能力说明
 - market: 行情查询工具
 - backtest: 回测与策略工具
 - trading: 模拟交易工具
 """
+from .self_info import (
+    DescribeFAgentTool,
+)
 from .market import (
     GetQuoteTool,
     GetKLineTool,
@@ -24,6 +28,7 @@ from .trading import (
 )
 
 __all__ = [
+    "DescribeFAgentTool",
     "GetQuoteTool",
     "GetKLineTool",
     "SearchStockTool",
@@ -43,10 +48,16 @@ def register_builtin_tools(registry=None):
     if registry is None:
         from ..registry import tool_registry as registry
 
+    from .self_info import get_self_info_tools
     from .market import get_market_tools
     from .backtest import get_backtest_tools
     from .trading import get_trading_tools
 
-    tools = get_market_tools() + get_backtest_tools() + get_trading_tools()
+    tools = (
+        get_self_info_tools()
+        + get_market_tools()
+        + get_backtest_tools()
+        + get_trading_tools()
+    )
     registry.register_all(tools)
     return tools

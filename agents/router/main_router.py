@@ -41,7 +41,7 @@ ROUTER_SYSTEM_PROMPT = """你是一个任务路由器，负责分析用户意图
 - strategy: 策略推荐、策略说明、策略比较、常见策略列表
 - backtest: 回测执行、参数优化、回测指标说明
 - trade: 下单、撤单、持仓、订单查询、交易规则/风控问答
-- chat: 闲聊、问候、通用问答、金融知识解释
+- chat: 闲聊、问候、通用问答、金融知识解释、FAgent 自我介绍/能力说明
 
 【任务类型及参数】
 - get_quote: 查询实时行情
@@ -85,6 +85,7 @@ ROUTER_SYSTEM_PROMPT = """你是一个任务路由器，负责分析用户意图
   参数: symbol (可选)
   
 - greeting: 问候（无需参数）
+- describe_self: FAgent 自我介绍、能力说明、功能边界说明（无需参数）
 - general_qa: 通用问答（无需参数）
 
 【重要】
@@ -95,11 +96,12 @@ ROUTER_SYSTEM_PROMPT = """你是一个任务路由器，负责分析用户意图
 5. “memory/历史偏好/过往结论”是辅助能力，不单独作为 route
 6. 策略设计/比较/推荐优先走 strategy；回测和参数优化优先走 backtest；真实交易动作优先走 trade
 7. 对“现在能不能买”“怎么看某策略”这类偏分析问题，不要误判为 place_order
+8. 用户问“你是谁 / FAgent 是什么 / 你有哪些功能能力 / 你能做什么 / 后台会做什么”时，route=chat 且 task_type=describe_self
 
 输出 JSON 格式：
 {
     "route": "market" | "strategy" | "backtest" | "trade" | "chat",
-    "task_type": "get_quote" | "get_kline" | "analyze_trend" | "search_stock" | "list_strategies" | "strategy_qa" | "run_backtest" | "optimize_backtest" | "backtest_qa" | "trade_qa" | "place_order" | "cancel_order" | "check_positions" | "greeting" | "general_qa",
+    "task_type": "get_quote" | "get_kline" | "analyze_trend" | "search_stock" | "list_strategies" | "strategy_qa" | "run_backtest" | "optimize_backtest" | "backtest_qa" | "trade_qa" | "place_order" | "cancel_order" | "check_positions" | "greeting" | "describe_self" | "general_qa",
     "query": "解析后的明确问题",
     "params": {"symbol": "600519", "period": "daily", "count": 5},
     "context_summary": "相关上下文（如有）",
@@ -229,6 +231,10 @@ class MainRouter:
 
         使用 LLM 分析意图并决定路由
         """
+        direct_decision = self._direct_route(user_message)
+        if direct_decision:
+            return direct_decision
+
         messages = context_builder.build_router_messages(
             system_prompt=ROUTER_SYSTEM_PROMPT,
             history=history,
@@ -323,6 +329,10 @@ class MainRouter:
         message_lower = message.lower()
 
         symbol = self._extract_symbol(message)
+
+        direct_decision = self._direct_route(message)
+        if direct_decision:
+            return direct_decision
 
         strategy_keywords = ["策略", "双均线", "macd", "rsi", "布林", "均线策略", "选股策略"]
         backtest_keywords = ["回测", "最大回撤", "夏普", "收益曲线", "收益率", "参数优化", "网格搜索"]
@@ -421,6 +431,61 @@ class MainRouter:
                 query=message,
             ),
             reasoning="无匹配关键词，默认 chat",
+        )
+
+    def _direct_route(self, message: str) -> Optional[RouteDecision]:
+        """Handle deterministic intents that should not spend a router LLM call."""
+        if not self._is_self_description_message(message):
+            return None
+
+        return RouteDecision(
+            route=RouteType.CHAT,
+            task_context=TaskContext(
+                task_type=TaskType.DESCRIBE_SELF,
+                query=message,
+            ),
+            reasoning="规则匹配 FAgent 自我介绍/能力说明意图",
+        )
+
+    def _is_self_description_message(self, message: str) -> bool:
+        """Recognize questions about FAgent's own capabilities."""
+        normalized = re.sub(r"\s+", "", message.lower())
+        exact_markers = [
+            "你是谁",
+            "你是做什么",
+            "你能做什么",
+            "你会什么",
+            "你有哪些功能",
+            "你有哪些能力",
+            "功能能力",
+            "能力介绍",
+            "介绍一下你",
+            "介绍一下fagent",
+            "fagent是什么",
+            "fagent有哪些",
+            "fagent有什么",
+            "这个agent有什么",
+            "这个agent能做",
+            "当前fagent能力",
+            "当前fagent功能",
+        ]
+        if any(marker in normalized for marker in exact_markers):
+            return True
+
+        subject_markers = ["fagent", "agent", "你", "你们", "系统", "后台"]
+        capability_markers = [
+            "功能",
+            "能力",
+            "能做",
+            "会做",
+            "支持什么",
+            "支持哪些",
+            "可以做什么",
+            "做什么事",
+        ]
+        return (
+            any(marker in normalized for marker in subject_markers)
+            and any(marker in normalized for marker in capability_markers)
         )
 
     def _extract_symbol(self, message: str) -> Optional[str]:

@@ -25,10 +25,11 @@ class TestReActRouter:
         tool_names = [t.name for t in tools]
         assert "get_quote" in tool_names
 
-    def test_chat_route_no_tools(self):
-        """验证 chat 路由不需要工具。"""
+    def test_chat_route_has_self_info_tool(self):
+        """验证 chat 路由包含 FAgent 自我介绍工具。"""
         tools = ROUTE_TOOLS[RouteType.CHAT]()
-        assert len(tools) == 0
+        tool_names = [t.name for t in tools]
+        assert tool_names == ["describe_fagent"]
 
     def test_registry_has_market_tools(self):
         """验证工具注册中心包含行情工具。"""
@@ -37,6 +38,7 @@ class TestReActRouter:
         assert tool_registry.has("get_quote")
         assert tool_registry.has("get_kline")
         assert tool_registry.has("search_stock")
+        assert tool_registry.has("describe_fagent")
 
     def test_react_router_init(self):
         router = ReActRouter()

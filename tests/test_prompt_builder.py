@@ -33,6 +33,7 @@ class TestSystemPromptBuilder:
         assert "任务路由器" in result
         assert "market" in result
         assert "chat" in result
+        assert "describe_self" in result
 
     def test_for_summary(self):
         builder = SystemPromptBuilder()

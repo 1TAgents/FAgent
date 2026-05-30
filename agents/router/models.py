@@ -23,6 +23,7 @@ class TaskType(Enum):
     # 通用对话
     GREETING = "greeting"                 # 问候
     GENERAL_QA = "general_qa"             # 通用问答
+    DESCRIBE_SELF = "describe_self"        # FAgent 自我介绍/能力说明
 
     # 行情相关
     GET_QUOTE = "get_quote"                 # 查询实时行情

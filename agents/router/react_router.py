@@ -22,11 +22,12 @@ from typing import AsyncIterator, List, Optional
 
 import asyncio
 
-from .models import TaskContext, RouteType
+from .models import TaskContext, RouteType, TaskType
 from ..services.llm import llm_service
 from ..services.memory_extractor import memory_extractor
 from ..tools.registry import ToolRegistry, tool_registry
 from ..tools.builtin import register_builtin_tools
+from ..tools.builtin.self_info import get_self_info_tools
 from ..tools.builtin.market import get_market_tools
 from ..tools.builtin.backtest import get_backtest_tools
 from ..tools.builtin.trading import get_trading_tools
@@ -47,7 +48,7 @@ logger = logging.getLogger(__name__)
 # 路由类型对应的工具集选择
 ROUTE_TOOLS: dict[RouteType, list] = {
     RouteType.MARKET: get_market_tools,
-    RouteType.CHAT: lambda: [],
+    RouteType.CHAT: get_self_info_tools,
     RouteType.STRATEGY: lambda: get_backtest_tools()[:2],  # list_strategies + get_strategy_info
     RouteType.BACKTEST: get_backtest_tools,                 # 全部回测工具
     RouteType.TRADE: get_trading_tools,                     # place_order + cancel_order + check_positions
@@ -102,6 +103,28 @@ class ReActRouter:
 
         # 启动会话
         session_state.start(cid, context.mid or 0)
+
+        if context.task_type == TaskType.DESCRIBE_SELF:
+            full_response = ""
+            try:
+                full_response = await self._run_self_description()
+                for chunk in self._chunk_text(full_response):
+                    yield chunk
+                    await asyncio.sleep(0)
+            except Exception:
+                session_state.set_error(cid)
+                raise
+            finally:
+                if not session_state.is_cancelled(cid):
+                    session_state.finish(cid)
+
+            duration = time.time() - start_time
+            log_router.done(
+                cid=cid,
+                duration=duration,
+                route=route.value,
+            )
+            return
 
         # 构建工具集
         tools = self._get_tools_for_route(route)
@@ -184,6 +207,30 @@ class ReActRouter:
             duration=duration,
             route=route.value,
         )
+
+    async def _run_self_description(self) -> str:
+        """Execute the authoritative self-description tool directly."""
+        for tool in get_self_info_tools():
+            tool_registry.register(tool)
+        result = await tool_registry.execute(
+            "describe_fagent",
+            detail_level="full",
+            include_limits=True,
+            include_examples=True,
+        )
+        return result.to_llm_content(max_chars=6000)
+
+    @staticmethod
+    def _chunk_text(text: str, chunk_size: int = 160) -> List[str]:
+        """Split deterministic tool text into stream-friendly chunks."""
+        chunks: List[str] = []
+        for line in text.splitlines(keepends=True):
+            if len(line) <= chunk_size:
+                chunks.append(line)
+                continue
+            for i in range(0, len(line), chunk_size):
+                chunks.append(line[i:i + chunk_size])
+        return chunks
 
     async def process(
         self,
