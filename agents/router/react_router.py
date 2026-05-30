@@ -104,86 +104,69 @@ class ReActRouter:
         # 启动会话
         session_state.start(cid, context.mid or 0)
 
-        if context.task_type == TaskType.DESCRIBE_SELF:
-            full_response = ""
-            try:
-                full_response = await self._run_self_description()
-                for chunk in self._chunk_text(full_response):
-                    yield chunk
-                    await asyncio.sleep(0)
-            except Exception:
-                session_state.set_error(cid)
-                raise
-            finally:
-                if not session_state.is_cancelled(cid):
-                    session_state.finish(cid)
-
-            duration = time.time() - start_time
-            log_router.done(
-                cid=cid,
-                duration=duration,
-                route=route.value,
-            )
-            return
-
-        # 构建工具集
-        tools = self._get_tools_for_route(route)
-
-        # 注册 load_skill 工具（让 LLM 可以按需加载技能内容）
-        skill_tools = get_skill_tools(skill_registry)
-        for st in skill_tools:
-            tool_registry.register(st)
-        allowed_tool_names = (
-            [tool.name for tool in tools]
-            + [tool.name for tool in skill_tools]
-        )
-
-        # 构建系统提示词（注入技能索引 + 记忆召回）
-        skill_index_text = skill_registry.get_index_for_route(route.value)
-        memories = memory_bridge.recall_all(limit_per_category=3)
-        memory_lines = [e.to_prompt_line() for e in memories] if memories else None
-        system_prompt = prompt_builder.build(
-            route=route.value,
-            tool_schemas=[t.schema for t in tools] if tools else None,
-            skill_index=skill_index_text if skill_index_text else None,
-            memories=memory_lines,
-        )
-
-        # 创建 ExecutionTrace
-        import time as _time
-        trace = ExecutionTrace(
-            trace_id=f"rid_{int(_time.time() * 1000)}",
-            cid=cid,
-            mid=context.mid or 0,
-            user_message=context.original_message or context.query,
-            route=route.value,
-            task_type=context.task_type.value,
-            started_at=time.time(),
-        )
-
-        # 根据路由类型设置权限
-        permissions = permissions_for_route(route.value)
-
-        # 创建 ReAct 循环
-        loop = ReActAgentLoop(
-            llm_service=llm_service,
-            system_prompt=system_prompt,
-            registry=tool_registry,
-            max_turns=8,
-            model=context.model,
-            use_memory=True,
-            trace=trace,
-            cid=cid,
-            permissions=permissions,
-            allowed_tool_names=allowed_tool_names,
-        )
-
-        # 执行 ReAct 循环
         full_response = ""
         try:
-            async for chunk in loop.run_stream(context.query, history):
-                full_response += chunk
-                yield chunk
+            if context.task_type in {TaskType.DESCRIBE_SELF, TaskType.CAPABILITY_QA}:
+                async for chunk in self._answer_with_self_context(context, history):
+                    full_response += chunk
+                    yield chunk
+            else:
+                # 构建工具集
+                tools = self._get_tools_for_route(route)
+
+                # 注册 load_skill 工具（让 LLM 可以按需加载技能内容）
+                skill_tools = get_skill_tools(skill_registry)
+                for st in skill_tools:
+                    tool_registry.register(st)
+                allowed_tool_names = (
+                    [tool.name for tool in tools]
+                    + [tool.name for tool in skill_tools]
+                )
+
+                # 构建系统提示词（注入技能索引 + 记忆召回）
+                skill_index_text = skill_registry.get_index_for_route(route.value)
+                memories = memory_bridge.recall_all(limit_per_category=3)
+                memory_lines = [e.to_prompt_line() for e in memories] if memories else None
+                system_prompt = prompt_builder.build(
+                    route=route.value,
+                    tool_schemas=[t.schema for t in tools] if tools else None,
+                    skill_index=skill_index_text if skill_index_text else None,
+                    memories=memory_lines,
+                )
+
+                # 创建 ExecutionTrace
+                import time as _time
+                trace = ExecutionTrace(
+                    trace_id=f"rid_{int(_time.time() * 1000)}",
+                    cid=cid,
+                    mid=context.mid or 0,
+                    user_message=context.original_message or context.query,
+                    route=route.value,
+                    task_type=context.task_type.value,
+                    started_at=time.time(),
+                )
+
+                # 根据路由类型设置权限
+                permissions = permissions_for_route(route.value)
+
+                # 创建 ReAct 循环
+                loop = ReActAgentLoop(
+                    llm_service=llm_service,
+                    system_prompt=system_prompt,
+                    registry=tool_registry,
+                    max_turns=8,
+                    model=context.model,
+                    use_memory=True,
+                    trace=trace,
+                    cid=cid,
+                    permissions=permissions,
+                    allowed_tool_names=allowed_tool_names,
+                )
+
+                # 执行 ReAct 循环
+                async for chunk in loop.run_stream(context.query, history):
+                    full_response += chunk
+                    yield chunk
         except Exception as e:
             session_state.set_error(cid)
             raise
@@ -208,29 +191,68 @@ class ReActRouter:
             route=route.value,
         )
 
-    async def _run_self_description(self) -> str:
-        """Execute the authoritative self-description tool directly."""
+    async def _answer_with_self_context(
+        self,
+        context: TaskContext,
+        history: Optional[List[dict]] = None,
+    ) -> AsyncIterator[str]:
+        """Use describe_fagent as context, then let the model answer the user."""
         for tool in get_self_info_tools():
             tool_registry.register(tool)
+
+        log_subagent.tool_call("describe_fagent", {"detail_level": "full"})
         result = await tool_registry.execute(
             "describe_fagent",
             detail_level="full",
             include_limits=True,
             include_examples=True,
         )
-        return result.to_llm_content(max_chars=6000)
+        log_subagent.tool_result(
+            result.tool_name,
+            result.success,
+            data=result.to_llm_content()[:300],
+            error=result.error,
+        )
 
-    @staticmethod
-    def _chunk_text(text: str, chunk_size: int = 160) -> List[str]:
-        """Split deterministic tool text into stream-friendly chunks."""
-        chunks: List[str] = []
-        for line in text.splitlines(keepends=True):
-            if len(line) <= chunk_size:
-                chunks.append(line)
-                continue
-            for i in range(0, len(line), chunk_size):
-                chunks.append(line[i:i + chunk_size])
-        return chunks
+        if not result.success:
+            yield f"抱歉，我暂时无法读取 FAgent 能力资料：{result.error}"
+            return
+
+        guidance = (
+            "你正在回答用户关于 FAgent 自身能力的问题。"
+            "下面的【权威能力资料】来自 describe_fagent 工具，只能作为依据，不能逐字照抄。"
+            "请根据用户当前问题组织自然回答。"
+            "不要编造资料中没有给出的具体数据延迟、数据供应商、覆盖范围或执行细节。"
+        )
+        if context.task_type == TaskType.CAPABILITY_QA:
+            guidance += (
+                "这是具体能力问答：先直接回答是否支持，再说明会怎么做、需要用户提供什么信息、有什么边界。"
+                "不要展开完整功能清单。"
+            )
+        else:
+            guidance += (
+                "这是整体能力介绍：可以概括核心能力，但要比工具原文更口语、更有重点，避免机械清单。"
+            )
+
+        messages: List[dict] = [
+            {
+                "role": "system",
+                "content": (
+                    f"{guidance}\n\n"
+                    f"【权威能力资料】\n{result.to_llm_content(max_chars=6000)}"
+                ),
+            }
+        ]
+        if history:
+            messages.extend([dict(m) for m in history[-6:]])
+        messages.append({"role": "user", "content": context.query})
+
+        async for chunk in llm_service.chat_completion_stream(
+            messages=messages,
+            temperature=0.3,
+            model=context.model,
+        ):
+            yield chunk
 
     async def process(
         self,

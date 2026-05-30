@@ -34,6 +34,7 @@ class TestSystemPromptBuilder:
         assert "market" in result
         assert "chat" in result
         assert "describe_self" in result
+        assert "capability_qa" in result
 
     def test_for_summary(self):
         builder = SystemPromptBuilder()

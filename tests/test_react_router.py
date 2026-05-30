@@ -59,3 +59,35 @@ class TestReActRouter:
         )
         assert ctx.task_type == TaskType.GET_QUOTE
         assert ctx.params["symbol"] == "600519"
+
+    @pytest.mark.asyncio
+    async def test_self_description_is_synthesized_from_tool_context(self, monkeypatch):
+        """自我介绍类问题应先取工具资料，再由 LLM 组织最终回答。"""
+        captured = {}
+
+        async def fake_stream(messages, temperature=0.7, model=None, **kw):
+            captured["messages"] = messages
+            for chunk in ["可以查询行情，", "也支持回测。"]:
+                yield chunk
+
+        monkeypatch.setattr("agents.router.react_router.llm_service.chat_completion_stream", fake_stream)
+
+        router = ReActRouter()
+        ctx = TaskContext(
+            task_type=TaskType.CAPABILITY_QA,
+            query="你现在能查询最新数据行情吗？",
+            cid=9901,
+            mid=1,
+            model="test",
+        )
+
+        chunks = []
+        async for chunk in router.process_stream(RouteType.CHAT, ctx, history=[]):
+            chunks.append(chunk)
+
+        assert "".join(chunks) == "可以查询行情，也支持回测。"
+        system_text = captured["messages"][0]["content"]
+        assert "权威能力资料" in system_text
+        assert "describe_fagent" in system_text
+        assert "不能逐字照抄" in system_text
+        assert "不要编造" in system_text

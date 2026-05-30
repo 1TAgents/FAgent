@@ -22,7 +22,10 @@ AGENT_CAPABILITIES = f"""你的当前真实能力：
 {FAGENT_CAPABILITY_SUMMARY}"""
 
 AGENT_SELF_DESCRIPTION_GUIDANCE = """自我介绍规则：
-- 当用户询问 FAgent 是什么、有哪些功能、有哪些能力、能做什么、后台会做什么时，必须使用 describe_fagent 的权威结果回答
+- 当用户询问 FAgent 是什么、有哪些功能、有哪些能力、能做什么时，必须先使用 describe_fagent 的权威结果，再组织成自然回答
+- 当用户询问某个具体能力是否支持、后台会怎么做、能力边界是什么时，也要基于 describe_fagent 的结果回答，但只回答当前问题，不要展开完整清单
+- 不要逐字照抄 describe_fagent 的工具输出
+- 不要编造 describe_fagent 没有给出的具体数据延迟、数据供应商、覆盖范围或执行细节
 - 不要凭泛化金融助手印象扩展不存在的专用能力
 - 不要主动列出用户记忆中的具体内容，除非用户明确询问记忆"""
 
@@ -162,6 +165,9 @@ ROUTER_SYSTEM_PROMPT = """你是一个任务路由器，负责分析用户意图
 - describe_self: FAgent 自我介绍、能力说明、功能边界说明
   无参数
 
+- capability_qa: FAgent 某个具体能力是否支持、后台流程、能力边界问答
+  参数: query (问题)
+
 - general_qa: 通用问答
   参数: query (问题)
 
@@ -178,9 +184,10 @@ ROUTER_SYSTEM_PROMPT = """你是一个任务路由器，负责分析用户意图
 2. 如果用户问策略相关（原理、选择、比较），路由到 strategy
 3. 如果用户明确要求回测或优化，路由到 backtest
 4. 如果用户要下单、查持仓、撤单，路由到 trade
-5. 如果用户问 FAgent 是什么、有哪些功能、能做什么、后台会做什么，路由到 chat，task_type=describe_self
-6. 如果用户只是问候或问通用问题，路由到 chat
-7. 无法确定时，路由到 chat（兜底）"""
+5. 如果用户问 FAgent 是什么、有哪些功能、能做什么这类完整能力总览，路由到 chat，task_type=describe_self
+6. 如果用户问某个具体能力是否支持或后台流程，例如“能查询最新行情吗”“支持回测吗”“均线策略筛选后台会做什么”，路由到 chat，task_type=capability_qa
+7. 如果用户只是问候或问通用问题，路由到 chat
+8. 无法确定时，路由到 chat（兜底）"""
 
 
 # ============================================================

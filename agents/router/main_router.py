@@ -86,6 +86,7 @@ ROUTER_SYSTEM_PROMPT = """你是一个任务路由器，负责分析用户意图
   
 - greeting: 问候（无需参数）
 - describe_self: FAgent 自我介绍、能力说明、功能边界说明（无需参数）
+- capability_qa: FAgent 某个具体能力是否支持、后台流程、能力边界问答（无需参数）
 - general_qa: 通用问答（无需参数）
 
 【重要】
@@ -96,12 +97,13 @@ ROUTER_SYSTEM_PROMPT = """你是一个任务路由器，负责分析用户意图
 5. “memory/历史偏好/过往结论”是辅助能力，不单独作为 route
 6. 策略设计/比较/推荐优先走 strategy；回测和参数优化优先走 backtest；真实交易动作优先走 trade
 7. 对“现在能不能买”“怎么看某策略”这类偏分析问题，不要误判为 place_order
-8. 用户问“你是谁 / FAgent 是什么 / 你有哪些功能能力 / 你能做什么 / 后台会做什么”时，route=chat 且 task_type=describe_self
+8. 用户问“你是谁 / FAgent 是什么 / 你有哪些功能能力 / 你能做什么”这类完整能力总览时，route=chat 且 task_type=describe_self
+9. 用户问某个具体能力是否支持或后台流程，例如“你现在能查询最新数据行情吗”“支持回测吗”“均线策略筛选后台会做什么”，route=chat 且 task_type=capability_qa，不要误判为 describe_self
 
 输出 JSON 格式：
 {
     "route": "market" | "strategy" | "backtest" | "trade" | "chat",
-    "task_type": "get_quote" | "get_kline" | "analyze_trend" | "search_stock" | "list_strategies" | "strategy_qa" | "run_backtest" | "optimize_backtest" | "backtest_qa" | "trade_qa" | "place_order" | "cancel_order" | "check_positions" | "greeting" | "describe_self" | "general_qa",
+    "task_type": "get_quote" | "get_kline" | "analyze_trend" | "search_stock" | "list_strategies" | "strategy_qa" | "run_backtest" | "optimize_backtest" | "backtest_qa" | "trade_qa" | "place_order" | "cancel_order" | "check_positions" | "greeting" | "describe_self" | "capability_qa" | "general_qa",
     "query": "解析后的明确问题",
     "params": {"symbol": "600519", "period": "daily", "count": 5},
     "context_summary": "相关上下文（如有）",
@@ -290,8 +292,18 @@ class MainRouter:
             except ValueError:
                 task_type = TaskType.GENERAL_QA
 
-            normalized_route = normalize_route_for_task(route, task_type)
             reasoning = data.get("reasoning", "")
+            if (
+                task_type == TaskType.DESCRIBE_SELF
+                and not self._is_broad_self_description_message(original_message)
+                and self._is_specific_capability_question(original_message)
+            ):
+                task_type = TaskType.CAPABILITY_QA
+                route = RouteType.CHAT
+                suffix = "task normalized from describe_self to capability_qa for specific capability question"
+                reasoning = f"{reasoning} | {suffix}" if reasoning else suffix
+
+            normalized_route = normalize_route_for_task(route, task_type)
             if normalized_route != route:
                 suffix = (
                     f"route normalized from {route.value} to "
@@ -435,20 +447,30 @@ class MainRouter:
 
     def _direct_route(self, message: str) -> Optional[RouteDecision]:
         """Handle deterministic intents that should not spend a router LLM call."""
-        if not self._is_self_description_message(message):
-            return None
+        if self._is_broad_self_description_message(message):
+            return RouteDecision(
+                route=RouteType.CHAT,
+                task_context=TaskContext(
+                    task_type=TaskType.DESCRIBE_SELF,
+                    query=message,
+                ),
+                reasoning="规则匹配 FAgent 自我介绍/能力说明意图",
+            )
 
-        return RouteDecision(
-            route=RouteType.CHAT,
-            task_context=TaskContext(
-                task_type=TaskType.DESCRIBE_SELF,
-                query=message,
-            ),
-            reasoning="规则匹配 FAgent 自我介绍/能力说明意图",
-        )
+        if self._is_specific_capability_question(message):
+            return RouteDecision(
+                route=RouteType.CHAT,
+                task_context=TaskContext(
+                    task_type=TaskType.CAPABILITY_QA,
+                    query=message,
+                ),
+                reasoning="规则匹配 FAgent 具体能力问答意图",
+            )
 
-    def _is_self_description_message(self, message: str) -> bool:
-        """Recognize questions about FAgent's own capabilities."""
+        return None
+
+    def _is_broad_self_description_message(self, message: str) -> bool:
+        """Recognize broad questions about FAgent's overall capabilities."""
         normalized = re.sub(r"\s+", "", message.lower())
         exact_markers = [
             "你是谁",
@@ -472,20 +494,61 @@ class MainRouter:
         if any(marker in normalized for marker in exact_markers):
             return True
 
+        return (
+            any(marker in normalized for marker in ["fagent", "agent", "你", "你们", "系统"])
+            and any(marker in normalized for marker in ["功能", "能力"])
+            and any(marker in normalized for marker in ["介绍", "总览", "全部", "整体", "有哪些", "有什么"])
+        )
+
+    def _is_specific_capability_question(self, message: str) -> bool:
+        """Recognize focused questions about whether/how FAgent supports one capability."""
+        normalized = re.sub(r"\s+", "", message.lower())
+
+        if any(token in normalized for token in ["能不能买", "可以买吗", "能买吗", "要不要买", "值得买"]):
+            return False
+
         subject_markers = ["fagent", "agent", "你", "你们", "系统", "后台"]
-        capability_markers = [
-            "功能",
-            "能力",
-            "能做",
-            "会做",
-            "支持什么",
-            "支持哪些",
-            "可以做什么",
-            "做什么事",
+        support_markers = [
+            "能查询",
+            "能查",
+            "可以查询",
+            "可以查",
+            "会查询",
+            "会查",
+            "是否支持",
+            "支不支持",
+            "能不能",
+            "可不可以",
+            "会不会",
+            "支持",
+            "后台会做",
+            "后台做",
         ]
+        domain_markers = [
+            "行情",
+            "最新数据",
+            "实时数据",
+            "数据",
+            "股价",
+            "k线",
+            "趋势",
+            "股票",
+            "策略",
+            "回测",
+            "参数优化",
+            "模拟交易",
+            "下单",
+            "持仓",
+            "撤单",
+            "记忆",
+            "流式",
+            "均线",
+        ]
+
         return (
             any(marker in normalized for marker in subject_markers)
-            and any(marker in normalized for marker in capability_markers)
+            and any(marker in normalized for marker in support_markers)
+            and any(marker in normalized for marker in domain_markers)
         )
 
     def _extract_symbol(self, message: str) -> Optional[str]:

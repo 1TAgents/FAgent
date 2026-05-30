@@ -23,6 +23,12 @@ def test_normalize_route_for_self_description():
     assert route == RouteType.CHAT
 
 
+def test_normalize_route_for_capability_qa():
+    route = normalize_route_for_task(RouteType.MARKET, TaskType.CAPABILITY_QA)
+
+    assert route == RouteType.CHAT
+
+
 def test_parse_route_response_repairs_route_task_mismatch():
     router = MainRouter()
     content = json.dumps(
@@ -62,6 +68,45 @@ def test_parse_route_response_accepts_describe_self():
     assert decision.task_context.task_type == TaskType.DESCRIBE_SELF
 
 
+def test_parse_route_response_accepts_capability_qa():
+    router = MainRouter()
+    content = json.dumps(
+        {
+            "route": "chat",
+            "task_type": "capability_qa",
+            "query": "你现在能查询最新数据行情吗？",
+            "params": {},
+            "reasoning": "用户询问具体行情能力",
+        },
+        ensure_ascii=False,
+    )
+
+    decision = router._parse_route_response(content, "你现在能查询最新数据行情吗？")
+
+    assert decision.route == RouteType.CHAT
+    assert decision.task_context.task_type == TaskType.CAPABILITY_QA
+
+
+def test_parse_route_response_repairs_overbroad_describe_self():
+    router = MainRouter()
+    content = json.dumps(
+        {
+            "route": "chat",
+            "task_type": "describe_self",
+            "query": "你现在能查询最新数据行情吗？",
+            "params": {},
+            "reasoning": "模型误把具体能力问题当成完整自我介绍",
+        },
+        ensure_ascii=False,
+    )
+
+    decision = router._parse_route_response(content, "你现在能查询最新数据行情吗？")
+
+    assert decision.route == RouteType.CHAT
+    assert decision.task_context.task_type == TaskType.CAPABILITY_QA
+    assert "capability_qa" in decision.reasoning
+
+
 def test_fallback_routes_self_description_to_chat():
     router = MainRouter()
 
@@ -70,6 +115,16 @@ def test_fallback_routes_self_description_to_chat():
     assert decision.route == RouteType.CHAT
     assert decision.task_context.task_type == TaskType.DESCRIBE_SELF
     assert "自我介绍" in decision.reasoning
+
+
+def test_fallback_routes_specific_capability_to_capability_qa():
+    router = MainRouter()
+
+    decision = router._fallback_route("你现在能查询最新数据行情吗？")
+
+    assert decision.route == RouteType.CHAT
+    assert decision.task_context.task_type == TaskType.CAPABILITY_QA
+    assert "具体能力" in decision.reasoning
 
 
 def test_strategy_feature_question_is_not_self_description():
