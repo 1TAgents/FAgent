@@ -16,7 +16,7 @@ export function useChat() {
       // 假设后端返回的数据结构匹配，或者需要适配
       const list = data.conversations.map((c: any) => ({
         id: c.cid.toString(),
-        title: c.title || `Conversation ${c.cid}`,
+        title: c.title || `会话 ${c.cid}`,
         messages: [],
         createdAt: c.created_at ? new Date(c.created_at).getTime() : Date.now(),
         updatedAt: c.updated_at ? new Date(c.updated_at).getTime() : Date.now(),
@@ -111,7 +111,7 @@ export function useChat() {
         // Optimistically add new session to list
         const newSession: ChatSession = {
           id: currentCid.toString(),
-          title: 'New Chat',
+          title: '新对话',
           messages: [],
           createdAt: Date.now(),
           updatedAt: Date.now()
@@ -168,7 +168,7 @@ export function useChat() {
         console.error('Failed to send message:', error);
         setMessages(prev => prev.map(msg => 
           msg.id === aiMsgId 
-            ? { ...msg, content: msg.content + '\n[Error: Failed to generate response]' }
+            ? { ...msg, content: msg.content + '\n[错误：生成回复失败]' }
             : msg
         ));
       }

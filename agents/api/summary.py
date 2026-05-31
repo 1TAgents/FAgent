@@ -52,7 +52,7 @@ async def generate_summary(request: GenerateSummaryRequest):
     try:
         messages = [{"role": msg.role, "content": msg.content} for msg in request.messages]
         
-        title = summary_service.generate_summary(
+        title = await summary_service.generate_summary(
             messages=messages,
             max_messages=request.max_messages
         )
