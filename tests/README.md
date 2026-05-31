@@ -19,6 +19,7 @@
 ### 3. 场景与报告脚本
 
 - `tests/test_runner.py` + `tests/test_cases.json`：JSON 驱动的场景执行器
+- `tests/badcases.json` + `tests/test_badcases_log.py`：用户实测 badcase 数据集、回放元数据和字段校验
 - `tests/run_automated_tests.py`
 - `tests/run_enhanced_tests.py`
 - `tests/test_roadshow_multi_turn.py`：生成路演/演示报告
@@ -62,6 +63,13 @@ python tests/test_multi_turn.py
 python tests/test_runner.py --list
 python tests/test_runner.py --suite market_service
 python tests/test_runner.py --tag smoke
+```
+
+### Badcase 回归数据
+
+```bash
+python -m pytest tests/test_badcases_log.py -q
+python .cursor/skills/fagent-badcase-replay/scripts/run_badcase_eval.py --list
 ```
 
 ### 路演报告

@@ -66,6 +66,8 @@ backend/data/
 !frontend/tsconfig.node.json
 !tests/test_cases.json
 !tests/test_cases.schema.json
+!tests/badcases.json
+!tests/badcases.schema.json
 *.parquet
 *.pkl
 *.pickle
@@ -134,8 +136,6 @@ site/
 # docs/ 默认忽略，白名单放行
 docs/*
 !docs/README.md
-!docs/badcases.json
-!docs/badcases.schema.json
 !docs/FEATURE_SPECS.md
 !docs/REQUIREMENTS_LOG.md
 !docs/memory/

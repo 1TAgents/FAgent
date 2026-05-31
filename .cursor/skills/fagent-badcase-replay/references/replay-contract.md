@@ -2,7 +2,7 @@
 
 ## Data Source
 
-Canonical file: `docs/badcases.json`.
+Canonical file: `tests/badcases.json`.
 
 Each replayable case should contain:
 

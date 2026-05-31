@@ -13,7 +13,7 @@
 - [agents/README.md](../agents/README.md)：Agents 路由、行情工具、Mock 模式
 - [frontend/README.md](../frontend/README.md)：前端开发与代理配置
 - [tests/README.md](../tests/README.md)：测试分层与常用命令
-- [badcases.json](badcases.json)：用户实测发现的问题、期望回答、根因、修复和回归验证记录
+- [tests/badcases.json](../tests/badcases.json)：用户实测发现的问题、期望回答、根因、修复和回归验证数据集
 
 ## Memory 相关
 

@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://fagent.local/docs/badcases.schema.json",
+  "$id": "https://fagent.local/tests/badcases.schema.json",
   "title": "FAgent Badcase Log",
   "type": "object",
   "required": ["version", "updated_at", "badcases"],

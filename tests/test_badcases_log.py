@@ -3,7 +3,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-BADCASES_PATH = ROOT / "docs" / "badcases.json"
+BADCASES_PATH = ROOT / "tests" / "badcases.json"
 
 
 def test_badcases_have_query_and_expected_answer():

@@ -3,7 +3,7 @@
 Claude Code should follow the canonical repository rules in `AGENTS.md`.
 
 Important shared workflow:
-- User-reported badcases are recorded in `docs/badcases.json`.
+- User-reported badcases are recorded in `tests/badcases.json`.
 - When a user says a tested question, answer, route, tool call, UI flow, or API
   behavior is wrong, decide whether it is a real badcase and append or update
   the log entry before finishing the fix.

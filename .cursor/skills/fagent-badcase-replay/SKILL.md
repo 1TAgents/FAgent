@@ -1,13 +1,13 @@
 ---
 name: fagent-badcase-replay
-description: FAgent badcase replay and evaluation workflow. Use when Codex or Claude needs to replay entries from docs/badcases.json, validate multi-turn badcases with cid/message_id, start or check local FAgent services, compare actual answers against expected_answer, diagnose whether a failure is caused by the evaluator, an unreasonable expected answer, or an unfixed FAgent service bug, or improve the badcase regression loop.
+description: FAgent badcase replay and evaluation workflow. Use when Codex or Claude needs to replay entries from tests/badcases.json, validate multi-turn badcases with cid/message_id, start or check local FAgent services, compare actual answers against expected_answer, diagnose whether a failure is caused by the evaluator, an unreasonable expected answer, or an unfixed FAgent service bug, or improve the badcase regression loop.
 ---
 
 # FAgent Badcase Replay
 
 ## Overview
 
-Use this skill to turn user-reported FAgent badcases into repeatable regression checks. The canonical data source is `docs/badcases.json`; exact multi-turn replay uses the `replay.cid` and `replay.message_id` fields recorded on each case.
+Use this skill to turn user-reported FAgent badcases into repeatable regression checks. The canonical data source is `tests/badcases.json`; exact multi-turn replay uses the `replay.cid` and `replay.message_id` fields recorded on each case.
 
 ## Core Rule
 
@@ -34,7 +34,7 @@ Use `--judge-mode llm` for real pass/fail evaluation. It needs `BADCASE_EVAL_API
 
 ## Workflow
 
-1. Inspect the target badcase in `docs/badcases.json`.
+1. Inspect the target badcase in `tests/badcases.json`.
 2. Confirm it has a `replay` object for exact replay. If absent, add replay metadata only when the local DB still has the original turn.
 3. Start or verify local services with the script when the user asks for runnable validation.
 4. Replay through `POST /agent/chat/router/stream` using `cid`, `message_id`, `query`, `history_limit`, and `model`.

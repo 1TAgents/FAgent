@@ -81,13 +81,13 @@ This workflow applies to feature work, bug fixes, refactors, and test updates.
 
 ## Badcase Logging Rule
 
-User-reported product test failures must be recorded in the fixed badcase log:
-`docs/badcases.json`.
+User-reported product test failures must be recorded in the fixed badcase test
+dataset: `tests/badcases.json`.
 
 Rules:
 - If the user reports that a tested question, UI flow, API behavior, routing
   decision, tool call, or answer is wrong, first decide whether it is a real
-  badcase. If it is, append or update an entry in `docs/badcases.json`.
+  badcase. If it is, append or update an entry in `tests/badcases.json`.
 - Every entry must include `id`, `query`, and `expected_answer`.
 - For multi-turn badcases, `query` should be only the problematic user turn,
   not the full conversation transcript.

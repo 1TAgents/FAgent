@@ -1,4 +1,4 @@
 interface:
   display_name: "FAgent Badcase Replay"
-  short_description: "Replay and evaluate FAgent badcases from docs/badcases.json."
-  default_prompt: "Replay FAgent badcases from docs/badcases.json and evaluate the result against expected_answer."
+  short_description: "Replay and evaluate FAgent badcases from tests/badcases.json."
+  default_prompt: "Replay FAgent badcases from tests/badcases.json and evaluate the result against expected_answer."

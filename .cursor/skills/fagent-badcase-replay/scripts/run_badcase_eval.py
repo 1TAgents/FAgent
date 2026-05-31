@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Replay and evaluate FAgent badcases from docs/badcases.json."""
+"""Replay and evaluate FAgent badcases from tests/badcases.json."""
 
 from __future__ import annotations
 
@@ -21,7 +21,7 @@ from typing import Any
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 DEFAULT_REPO = SCRIPT_DIR.parents[3]
-DEFAULT_BADCASES = "docs/badcases.json"
+DEFAULT_BADCASES = "tests/badcases.json"
 
 
 def load_dotenv(path: Path) -> None:
