@@ -209,7 +209,10 @@ class ReActAgentLoop:
             else:
                 # LLM 返回最终回复（无 tool_calls）
                 turn.final_response = assistant_content
-                result.content = assistant_content or "抱歉，我没有得到有效的回复。"
+                result.content = self._apply_final_response_guards(
+                    assistant_content or "抱歉，我没有得到有效的回复。",
+                    messages,
+                )
                 result.turns.append(turn)
                 log_subagent.done("ReActAgent", turn.latency_ms / 1000)
                 self._finalize_trace(result, user_message)
@@ -323,7 +326,10 @@ class ReActAgentLoop:
                 ))
                 # 继续循环
             else:
-                response_text = assistant_content or "抱歉，我没有得到有效的回复。"
+                response_text = self._apply_final_response_guards(
+                    assistant_content or "抱歉，我没有得到有效的回复。",
+                    messages,
+                )
                 if not assistant_content:
                     yield response_text
 
@@ -421,7 +427,11 @@ class ReActAgentLoop:
                     "reasoning_content": self._extract_assistant_reasoning_content(response),
                 }
             else:
-                async for event in self._iter_text_delta_events(assistant_content or ""):
+                guarded_content = self._apply_final_response_guards(
+                    assistant_content or "",
+                    messages,
+                )
+                async for event in self._iter_text_delta_events(guarded_content):
                     yield event
             yield {"type": "done"}
             return
@@ -444,9 +454,69 @@ class ReActAgentLoop:
         else:
             yield {
                 "type": "content_delta",
-                "content": assistant_content or "",
+                "content": self._apply_final_response_guards(
+                    assistant_content or "",
+                    messages,
+                ),
             }
         yield {"type": "done"}
+
+    def _apply_final_response_guards(self, response_text: str, messages: List[dict]) -> str:
+        """Apply deterministic final-answer guards derived from tool results."""
+        return self._ensure_market_data_scope(response_text, messages)
+
+    def _ensure_market_data_scope(self, response_text: str, messages: List[dict]) -> str:
+        """Ensure market K-line answers expose query scope and fetched fields."""
+        scope = self._extract_latest_market_scope(messages)
+        if not scope:
+            return response_text
+
+        has_data_scope = all(
+            marker in response_text
+            for marker in ["后台查询", "实际数据范围", "数据源"]
+        )
+        has_field_scope = any(
+            marker in response_text
+            for marker in ["获取字段", "使用字段", "返回字段"]
+        )
+        if has_data_scope and has_field_scope:
+            return response_text
+
+        block_lines = ["> **后台数据口径**"]
+        if scope.get("query"):
+            block_lines.append(f"> - 后台查询：{scope['query']}")
+        if scope.get("range"):
+            block_lines.append(f"> - 实际数据范围：{scope['range']}")
+        if scope.get("source"):
+            block_lines.append(f"> - 数据源：{scope['source']}")
+        if scope.get("fields"):
+            block_lines.append(f"> - 获取字段：{scope['fields']}")
+
+        return "\n".join(block_lines) + "\n\n" + response_text.lstrip()
+
+    def _extract_latest_market_scope(self, messages: List[dict]) -> dict:
+        """Extract market data scope lines from the latest tool result."""
+        for message in reversed(messages):
+            if message.get("role") != "tool":
+                continue
+            content = str(message.get("content") or "")
+            if "后台查询：" not in content or "返回字段：" not in content:
+                continue
+            return {
+                "query": self._extract_prefixed_line(content, "后台查询："),
+                "range": self._extract_prefixed_line(content, "实际数据范围："),
+                "source": self._extract_prefixed_line(content, "数据源："),
+                "fields": self._extract_prefixed_line(content, "返回字段："),
+            }
+        return {}
+
+    @staticmethod
+    def _extract_prefixed_line(text: str, prefix: str) -> str:
+        for line in text.splitlines():
+            stripped = line.strip()
+            if stripped.startswith(prefix):
+                return stripped[len(prefix):].strip().rstrip("。")
+        return ""
 
     @staticmethod
     def _split_text_for_stream(text: str, chunk_size: int = 8) -> List[str]:

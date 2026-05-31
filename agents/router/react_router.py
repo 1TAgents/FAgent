@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import time
 import logging
+import json
 from typing import AsyncIterator, List, Optional
 
 import asyncio
@@ -164,7 +165,8 @@ class ReActRouter:
                 )
 
                 # 执行 ReAct 循环
-                async for chunk in loop.run_stream(context.query, history):
+                react_history = self._with_route_context(history, context)
+                async for chunk in loop.run_stream(context.query, react_history):
                     full_response += chunk
                     yield chunk
         except Exception as e:
@@ -253,6 +255,27 @@ class ReActRouter:
             model=context.model,
         ):
             yield chunk
+
+    def _with_route_context(
+        self,
+        history: Optional[List[dict]],
+        context: TaskContext,
+    ) -> List[dict]:
+        """Add deterministic router context for ReAct tool selection."""
+        messages = [dict(m) for m in history] if history else []
+        if not context.params:
+            return messages
+
+        params_text = json.dumps(context.params, ensure_ascii=False)
+        guidance = (
+            "路由器已解析出以下任务参数，供工具调用优先参考："
+            f"task_type={context.task_type.value}, params={params_text}。"
+            "如果用户原文与参数冲突，以用户原文为准。"
+            "不要在最终回答中机械复述这段系统提示；但当用户询问行情总结、数据范围或后台流程时，"
+            "可以明确说明实际使用的工具、参数、日期范围和字段。"
+        )
+        messages.append({"role": "system", "content": guidance})
+        return messages
 
     async def process(
         self,

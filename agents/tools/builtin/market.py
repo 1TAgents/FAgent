@@ -78,7 +78,7 @@ class GetKLineTool(BaseTool):
                 },
                 "count": {
                     "type": "integer",
-                    "description": "返回K线条数",
+                    "description": "返回K线条数。A股“最近一周/近一周”默认使用最近5个交易日，即 count=5",
                     "default": 30,
                 },
                 "market": {
@@ -99,7 +99,7 @@ class GetKLineTool(BaseTool):
             return ToolResult.ok(
                 self.name,
                 data=kline.to_dict(),
-                text=kline.summary(),
+                text=_format_kline_tool_text(kline, symbol=symbol, period=period, requested_count=count),
             )
         return ToolResult.fail(self.name, error=f"未能获取 {symbol} 的K线数据")
 
@@ -201,6 +201,11 @@ class AnalyzeTrendTool(BaseTool):
             f"MA5={ma5:.2f}，MA10={ma10:.2f}，MA20={ma20:.2f}。"
             f"趋势判断：{trend}。"
         )
+        if kline.data:
+            summary = (
+                f"{summary} 均线基于最近 {len(kline.data)} 条日K线计算，"
+                f"数据范围 {kline.data[0]['date']} 至 {kline.data[-1]['date']}。"
+            )
         if signal:
             summary += f"信号：{signal}。"
 
@@ -208,6 +213,50 @@ class AnalyzeTrendTool(BaseTool):
 
 
 # ---------- 内部辅助函数（复用 MarketSubAgent 中的逻辑） ----------
+
+def _format_kline_tool_text(kline, symbol: str, period: str, requested_count: int) -> str:
+    """Build an LLM-facing K-line summary with explicit query scope and fields."""
+    data = list(kline.data or [])
+    if not data:
+        return kline.summary()
+
+    start_date = data[0].get("date")
+    end_date = data[-1].get("date")
+    source = getattr(kline, "source", None) or "live"
+    as_of_date = getattr(kline, "as_of_date", None) or end_date
+    note = getattr(kline, "note", None)
+    fields = (
+        "date, open, high, low, close, "
+        "volume(原始成交量，单位以数据源为准，不要改写成手/万手), "
+        "amount(成交额，元；这是金额，不是成交量), change_percent"
+    )
+    recent_days = min(5, len(data))
+
+    lines = [
+        kline.summary(recent_days=recent_days),
+        (
+            "后台查询："
+            f"工具=get_kline，symbol={symbol}，period={period}，count={requested_count}；"
+            f"实际返回={len(data)}条日K线。"
+        ),
+        f"实际数据范围：{start_date} 至 {end_date}；as_of_date={as_of_date}。",
+        f"数据源：{source}；{'说明：' + note if note else '说明：未标记为离线数据时按在线行情结果处理。'}",
+        f"返回字段：{fields}。",
+        "逐日明细：",
+    ]
+    for row in data[-min(len(data), 10):]:
+        amount = float(row.get("amount") or 0)
+        amount_text = f"{amount / 1e8:.2f}亿元" if amount else "N/A"
+        change = row.get("change_percent")
+        change_text = f"{float(change):+.2f}%" if change is not None else "N/A"
+        lines.append(
+            f"- {row.get('date')}: 开{float(row.get('open') or 0):.2f} "
+            f"高{float(row.get('high') or 0):.2f} 低{float(row.get('low') or 0):.2f} "
+            f"收{float(row.get('close') or 0):.2f} 原始成交量{int(float(row.get('volume') or 0))} "
+            f"成交额{amount_text} 涨跌幅{change_text}"
+        )
+    return "\n".join(lines)
+
 
 def _calc_ma(prices: list, period: int) -> float:
     if len(prices) < period:

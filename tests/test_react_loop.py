@@ -393,6 +393,52 @@ class TestReActAgentLoop:
         assert loop._tool_call_signature(first) == loop._tool_call_signature(second)
         assert loop._tool_call_signature(first) != loop._tool_call_signature(different_args)
 
+    def test_market_scope_guard_prepends_missing_field_scope(self):
+        loop = ReActAgentLoop(MockLLM(), system_prompt="test", registry=ToolRegistry())
+        messages = [
+            {
+                "role": "tool",
+                "content": "\n".join([
+                    "后台查询：工具=get_kline，symbol=600519，period=daily，count=5；实际返回=5条日K线。",
+                    "实际数据范围：2026-04-20 至 2026-04-24；as_of_date=2026-04-24。",
+                    "数据源：local:stock_data.db；说明：本地离线日线数据，不是实时行情。",
+                    "返回字段：date, open, high, low, close, volume(原始成交量), amount(成交额), change_percent。",
+                ]),
+            }
+        ]
+
+        result = loop._apply_final_response_guards("## 行情总结\n短期反弹。", messages)
+
+        assert result.startswith("> **后台数据口径**")
+        assert "后台查询：工具=get_kline，symbol=600519" in result
+        assert "实际数据范围：2026-04-20 至 2026-04-24" in result
+        assert "数据源：local:stock_data.db" in result
+        assert "获取字段：date, open, high, low, close" in result
+        assert "## 行情总结" in result
+
+    def test_market_scope_guard_keeps_existing_scope(self):
+        loop = ReActAgentLoop(MockLLM(), system_prompt="test", registry=ToolRegistry())
+        messages = [
+            {
+                "role": "tool",
+                "content": "\n".join([
+                    "后台查询：工具=get_kline，symbol=600519，period=daily，count=5；实际返回=5条日K线。",
+                    "实际数据范围：2026-04-20 至 2026-04-24；as_of_date=2026-04-24。",
+                    "数据源：local:stock_data.db；说明：本地离线日线数据，不是实时行情。",
+                    "返回字段：date, open, high, low, close, volume, amount, change_percent。",
+                ]),
+            }
+        ]
+        response = (
+            "后台查询：工具=get_kline，symbol=600519，period=daily，count=5\n"
+            "实际数据范围：2026-04-20 至 2026-04-24\n"
+            "数据源：local:stock_data.db\n"
+            "使用字段：date, open, high, low, close, volume, amount, change_percent\n"
+            "走势偏强。"
+        )
+
+        assert loop._apply_final_response_guards(response, messages) == response
+
     def test_extract_tool_calls(self):
         llm = MockLLM()
         reg = ToolRegistry()

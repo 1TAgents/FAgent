@@ -60,6 +60,21 @@ class TestReActRouter:
         assert ctx.task_type == TaskType.GET_QUOTE
         assert ctx.params["symbol"] == "600519"
 
+    def test_route_context_is_added_for_tool_selection(self):
+        router = ReActRouter()
+        ctx = TaskContext(
+            task_type=TaskType.GET_KLINE,
+            query="介绍下贵州茅台最近一周的行情",
+            params={"symbol": "600519", "period": "daily", "count": 5},
+        )
+
+        history = router._with_route_context([], ctx)
+
+        assert len(history) == 1
+        assert "task_type=get_kline" in history[0]["content"]
+        assert '"count": 5' in history[0]["content"]
+        assert "工具、参数、日期范围和字段" in history[0]["content"]
+
     @pytest.mark.asyncio
     async def test_self_description_is_synthesized_from_tool_context(self, monkeypatch):
         """自我介绍类问题应先取工具资料，再由 LLM 组织最终回答。"""

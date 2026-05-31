@@ -41,6 +41,14 @@ class TestSystemPromptBuilder:
         result = builder.for_summary()
         assert "标题" in result
 
+    def test_market_prompt_requires_data_scope_and_no_position_guess(self):
+        builder = SystemPromptBuilder()
+        result = builder.for_route("market")
+        assert "实际返回的日期范围" in result
+        assert "不要擅自换算成交量单位" in result
+        assert "不要推断用户持有某股票" in result
+        assert "不要把“50 亿成交额”写成“50 亿成交量”" in result
+
     def test_default_is_chat_prompt(self):
         builder = SystemPromptBuilder()
         assert builder.default() == builder.for_route("chat")
