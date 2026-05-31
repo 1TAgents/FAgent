@@ -134,12 +134,14 @@ site/
 # docs/ 默认忽略，白名单放行
 docs/*
 !docs/README.md
+!docs/BADCASES.md
 !docs/FEATURE_SPECS.md
 !docs/REQUIREMENTS_LOG.md
 !docs/memory/
 
 # AI 工具项目配置（本地）
 CLAUDE.md
+!CLAUDE.md
 AGENTS.md
 !AGENTS.md
 
