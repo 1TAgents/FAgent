@@ -134,7 +134,8 @@ site/
 # docs/ 默认忽略，白名单放行
 docs/*
 !docs/README.md
-!docs/BADCASES.md
+!docs/badcases.json
+!docs/badcases.schema.json
 !docs/FEATURE_SPECS.md
 !docs/REQUIREMENTS_LOG.md
 !docs/memory/

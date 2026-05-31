@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fagent.local/docs/badcases.schema.json",
+  "title": "FAgent Badcase Log",
+  "type": "object",
+  "required": ["version", "updated_at", "badcases"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "version": { "type": "string" },
+    "description": { "type": "string" },
+    "updated_at": { "type": "string" },
+    "badcases": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/badcase" }
+    }
+  },
+  "$defs": {
+    "badcase": {
+      "type": "object",
+      "required": [
+        "id",
+        "date",
+        "status",
+        "area",
+        "title",
+        "query",
+        "expected_answer",
+        "actual_answer"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^BC-[0-9]{8}-[0-9]{3}$"
+        },
+        "date": { "type": "string" },
+        "status": {
+          "type": "string",
+          "enum": ["open", "fixed", "wont_fix"]
+        },
+        "area": {
+          "type": "array",
+          "items": { "type": "string" },
+          "minItems": 1
+        },
+        "title": { "type": "string" },
+        "query": { "type": "string" },
+        "expected_answer": { "type": "string" },
+        "actual_answer": { "type": "string" },
+        "root_cause": { "type": "string" },
+        "fix": { "type": "string" },
+        "verification": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "commit": {
+          "type": "object",
+          "properties": {
+            "hash": { "type": "string" },
+            "subject": { "type": "string" }
+          },
+          "additionalProperties": false
+        },
+        "regression_tests": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "tags": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

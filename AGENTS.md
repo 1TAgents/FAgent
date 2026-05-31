@@ -82,21 +82,23 @@ This workflow applies to feature work, bug fixes, refactors, and test updates.
 ## Badcase Logging Rule
 
 User-reported product test failures must be recorded in the fixed badcase log:
-`docs/BADCASES.md`.
+`docs/badcases.json`.
 
 Rules:
 - If the user reports that a tested question, UI flow, API behavior, routing
   decision, tool call, or answer is wrong, first decide whether it is a real
-  badcase. If it is, append or update an entry in `docs/BADCASES.md`.
-- Record the original user prompt or action, expected behavior, actual behavior,
-  root cause when known, affected area, verification, status, and fix commit
-  when available.
+  badcase. If it is, append or update an entry in `docs/badcases.json`.
+- Every entry must include `id`, `query`, and `expected_answer`.
+- Record actual behavior, root cause when known, affected area, verification,
+  status, and fix commit when available.
 - Keep entries chronological and stable. Do not delete resolved badcases; mark
   them as fixed and link the resolving commit.
 - Do not paste secrets, private logs, full database rows, API keys, or personal
   data into the log. Summarize sensitive evidence.
 - A fix for a badcase should usually include a regression test or a documented
   reason why no useful automated test exists.
+- After editing the log, run the badcase JSON validation test:
+  `python -m pytest tests/test_badcases_log.py -q`.
 
 ## Module-Aware Verification
 

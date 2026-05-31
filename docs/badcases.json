@@ -1,0 +1,58 @@
+{
+  "$schema": "./badcases.schema.json",
+  "version": "1.0",
+  "description": "User-reported FAgent badcases. Keep entries chronological and do not delete fixed cases.",
+  "updated_at": "2026-05-31",
+  "badcases": [
+    {
+      "id": "BC-20260531-001",
+      "date": "2026-05-31",
+      "status": "fixed",
+      "area": ["agents", "routing"],
+      "title": "Self-introduction answer returned raw capability text",
+      "query": "你有哪些功能？",
+      "expected_answer": "FAgent should use authoritative capability data as context, then synthesize a natural answer. It can summarize market analysis, strategy research, backtesting, optimization, and local paper trading, but must not simply stream the raw describe_fagent tool output.",
+      "actual_answer": "The response was the full describe_fagent capability text, streamed almost directly as the final answer.",
+      "root_cause": "ReActRouter.process_stream() special-cased TaskType.DESCRIBE_SELF and returned _run_self_description() directly, bypassing model synthesis.",
+      "fix": "Use describe_fagent as an authoritative context source, then let the model write the final answer.",
+      "verification": [
+        "python -m pytest -q passed",
+        "API smoke test confirmed the query now returns a synthesized overview"
+      ],
+      "commit": {
+        "hash": "c3166dd",
+        "subject": "fix(agent): synthesize self capability answers"
+      },
+      "regression_tests": [
+        "tests/test_react_router.py::TestReActRouter::test_self_description_is_synthesized_from_tool_context"
+      ],
+      "tags": ["self-description", "tool-output", "answer-quality"]
+    },
+    {
+      "id": "BC-20260531-002",
+      "date": "2026-05-31",
+      "status": "fixed",
+      "area": ["agents", "routing"],
+      "title": "Specific market-capability question repeated full self-introduction",
+      "query": "你现在能查询最新数据行情吗？",
+      "expected_answer": "FAgent should directly answer that it can query stock market data when given a stock name or code, explain the relevant quote/K-line/trend-analysis flow, and mention data-source/cache limits without repeating the complete capability overview.",
+      "actual_answer": "The response was effectively the same full capability description returned for 你有哪些功能？.",
+      "root_cause": "The router could classify focused capability questions as describe_self. There was no separate task type for concrete ability or boundary questions, and direct passthrough of describe_fagent made the duplicate answer obvious.",
+      "fix": "Add TaskType.CAPABILITY_QA for concrete capability questions, normalize overbroad describe_self decisions to capability_qa, and instruct the model not to invent details absent from the authoritative capability data.",
+      "verification": [
+        "python -m pytest -q passed",
+        "API smoke test confirmed the query now answers only the market-data capability question",
+        "API smoke test confirmed no unsupported concrete latency claim was added"
+      ],
+      "commit": {
+        "hash": "c3166dd",
+        "subject": "fix(agent): synthesize self capability answers"
+      },
+      "regression_tests": [
+        "tests/test_router_policy.py::test_parse_route_response_repairs_overbroad_describe_self",
+        "tests/test_router_policy.py::test_fallback_routes_specific_capability_to_capability_qa"
+      ],
+      "tags": ["capability-qa", "routing", "market-data"]
+    }
+  ]
+}
