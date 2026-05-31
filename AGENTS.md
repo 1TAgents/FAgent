@@ -109,6 +109,8 @@ Rules:
   data into the log. Summarize sensitive evidence.
 - A fix for a badcase should usually include a regression test or a documented
   reason why no useful automated test exists.
+- For replaying and evaluating badcases, use the project skill at
+  `.cursor/skills/fagent-badcase-replay/`.
 - After editing the log, run the badcase JSON validation test:
   `python -m pytest tests/test_badcases_log.py -q`.
 
