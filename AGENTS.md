@@ -89,6 +89,18 @@ Rules:
   decision, tool call, or answer is wrong, first decide whether it is a real
   badcase. If it is, append or update an entry in `docs/badcases.json`.
 - Every entry must include `id`, `query`, and `expected_answer`.
+- For multi-turn badcases, `query` should be only the problematic user turn,
+  not the full conversation transcript.
+- When the local conversation database still contains the test session, add a
+  `replay` object with `cid` and `message_id`. `message_id` is the user turn
+  `mid` stored in the `messages` table. If useful, also record
+  `assistant_message_id`, `history_limit`, `model`, and `endpoint`.
+- Exact replay of a stored turn should call the Agents router endpoint with the
+  recorded `cid`, `message_id`, `user_message`, `history_limit`, and `model`.
+  Calling the Backend send endpoint creates a new user message and is therefore
+  an end-to-end rerun, not an exact replay of the stored turn.
+- Keep `query` and `expected_answer` even when replay metadata exists, because
+  the database is local runtime state and is not a portable regression artifact.
 - Record actual behavior, root cause when known, affected area, verification,
   status, and fix commit when available.
 - Keep entries chronological and stable. Do not delete resolved badcases; mark

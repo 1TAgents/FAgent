@@ -46,6 +46,20 @@
         "query": { "type": "string" },
         "expected_answer": { "type": "string" },
         "actual_answer": { "type": "string" },
+        "replay": {
+          "type": "object",
+          "required": ["cid", "message_id"],
+          "properties": {
+            "cid": { "type": "integer", "minimum": 1 },
+            "message_id": { "type": "integer", "minimum": 1 },
+            "assistant_message_id": { "type": "integer", "minimum": 1 },
+            "history_limit": { "type": ["integer", "null"], "minimum": 1 },
+            "model": { "type": "string" },
+            "endpoint": { "type": "string" },
+            "notes": { "type": "string" }
+          },
+          "additionalProperties": false
+        },
         "root_cause": { "type": "string" },
         "fix": { "type": "string" },
         "verification": {

@@ -20,3 +20,16 @@ def test_badcases_have_query_and_expected_answer():
         assert case["expected_answer"].strip()
         assert case["actual_answer"].strip()
         assert case["status"] in {"open", "fixed", "wont_fix"}
+
+        replay = case.get("replay")
+        if replay:
+            assert replay["cid"] > 0
+            assert replay["message_id"] > 0
+            assert replay.get("assistant_message_id", 1) > 0
+
+            history_limit = replay.get("history_limit")
+            assert history_limit is None or history_limit > 0
+
+            endpoint = replay.get("endpoint")
+            if endpoint:
+                assert endpoint.startswith(("GET ", "POST "))
