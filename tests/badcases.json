@@ -71,6 +71,34 @@
         "tests/test_router_policy.py::test_fallback_routes_specific_capability_to_capability_qa"
       ],
       "tags": ["capability-qa", "routing", "market-data"]
+    },
+    {
+      "id": "BC-20260531-003",
+      "date": "2026-05-31",
+      "status": "open",
+      "area": ["agents", "market", "data"],
+      "title": "Market data date question did not use offline fallback",
+      "query": "那你能查询得到贵州茅台最近的行情数据是什么时候的呢？",
+      "expected_answer": "When live market data tools fail, FAgent should fall back to the local QuantMInd offline daily dataset for A-share daily data. For 贵州茅台/600519, it should answer that the latest locally available trading date is 2026-04-24, clearly state this is offline stale daily data rather than realtime data, and optionally summarize the latest available K-line/recent daily range.",
+      "actual_answer": "FAgent said all prior live market tool calls failed and therefore it had no returned data and could not know the last successful market data date.",
+      "replay": {
+        "cid": 50,
+        "message_id": 162,
+        "assistant_message_id": 163,
+        "history_limit": 10,
+        "model": "deepseek-v4-pro",
+        "endpoint": "POST /agent/chat/router/stream",
+        "notes": "message_id is the user turn mid. Exact replay requires the local conversations database to retain this cid."
+      },
+      "root_cause": "The market tools currently rely on live AKShare/DatasetManager paths for quote, K-line, trend, and search. BacktestDataLoader already knows how to read QuantMInd feature snapshots, but MarketService does not yet use that offline source as a fallback.",
+      "fix": "Pending. Add a shared offline QuantMInd daily-data provider and wire it into market quote/K-line/trend/search fallback paths.",
+      "verification": [
+        "Inspected latest local conversation cid=50 messages 160-163",
+        "Confirmed QuantMInd qlib_data contains sh600519 daily data through 2026-04-24",
+        "Confirmed QuantMInd feature_snapshots contains SH600519 rows from 2016-01-04 through 2026-04-24",
+        "BacktestDataLoader loaded 5 SH600519 rows for 2026-04-20 through 2026-04-24 from QuantMInd"
+      ],
+      "tags": ["market-data", "offline-fallback", "quantmind", "kline"]
     }
   ]
 }
