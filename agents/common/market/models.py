@@ -63,6 +63,9 @@ class StockQuote:
     timestamp: datetime      # 数据获取时间
     market: Market = Market.A_SHARE
     trade_date: Optional[date] = None  # 交易日期（如果能获取）
+    source: Optional[str] = None
+    is_realtime: bool = True
+    note: Optional[str] = None
     
     def to_dict(self) -> dict:
         return {
@@ -80,6 +83,9 @@ class StockQuote:
             "timestamp": self.timestamp.isoformat(),
             "market": self.market.value,
             "trade_date": self.trade_date.isoformat() if self.trade_date else None,
+            "source": self.source,
+            "is_realtime": self.is_realtime,
+            "note": self.note,
         }
     
     def summary(self) -> str:
@@ -91,11 +97,22 @@ class StockQuote:
         if self.trade_date:
             date_str = f"（{self.trade_date.strftime('%Y-%m-%d')}）"
         
+        prefix = ""
+        if not self.is_realtime:
+            prefix = "离线历史数据"
+            if self.source:
+                prefix += f"（{self.source}）"
+            prefix += "："
+
+        suffix = f"。{self.note}" if self.note else ""
+
         return (
+            prefix +
             f"{self.name}({self.symbol}){date_str} "
             f"价格 {self.price:.2f} 元，"
             f"{direction} {abs(self.change_pct):.2f}%，"
             f"成交额 {self.amount / 1e8:.2f} 亿元"
+            f"{suffix}"
         )
 
 
@@ -105,6 +122,9 @@ class KLineData:
     symbol: str              # 股票代码
     period: KLinePeriod      # K线周期
     data: List[dict] = field(default_factory=list)  # K线数据列表
+    source: Optional[str] = None
+    as_of_date: Optional[str] = None
+    note: Optional[str] = None
     # 每条数据包含: date, open, high, low, close, volume, amount
     
     def to_dict(self) -> dict:
@@ -113,6 +133,9 @@ class KLineData:
             "period": self.period.value,
             "count": len(self.data),
             "data": self.data,
+            "source": self.source,
+            "as_of_date": self.as_of_date,
+            "note": self.note,
         }
     
     def summary(self, recent_days: int = 5) -> str:
@@ -133,9 +156,19 @@ class KLineData:
         else:
             period_change = 0
         
+        prefix = ""
+        if self.source:
+            prefix = f"数据源 {self.source}"
+            if self.as_of_date:
+                prefix += f"，截至 {self.as_of_date}"
+            prefix += "："
+
+        suffix = f"。{self.note}" if self.note else ""
+
         return (
+            prefix +
             f"{self.symbol} 最近 {len(recent)} 个交易日，"
             f"累计涨跌幅 {period_change:.2f}%，"
             f"最新收盘价 {recent[-1].get('close', 0):.2f} 元"
+            f"{suffix}"
         )
-

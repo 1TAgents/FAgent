@@ -99,6 +99,7 @@ ROUTER_SYSTEM_PROMPT = """你是一个任务路由器，负责分析用户意图
 7. 对“现在能不能买”“怎么看某策略”这类偏分析问题，不要误判为 place_order
 8. 用户问“你是谁 / FAgent 是什么 / 你有哪些功能能力 / 你能做什么”这类完整能力总览时，route=chat 且 task_type=describe_self
 9. 用户问某个具体能力是否支持或后台流程，例如“你现在能查询最新数据行情吗”“支持回测吗”“均线策略筛选后台会做什么”，route=chat 且 task_type=capability_qa，不要误判为 describe_self
+10. 用户提到具体股票并询问行情、K 线、最近数据、最新数据日期时，route=market，不要误判为 capability_qa
 
 输出 JSON 格式：
 {
@@ -293,6 +294,14 @@ class MainRouter:
                 task_type = TaskType.GENERAL_QA
 
             reasoning = data.get("reasoning", "")
+            concrete_market_decision = self._direct_market_route(original_message)
+            if concrete_market_decision and task_type == TaskType.CAPABILITY_QA:
+                suffix = "task normalized from capability_qa to market for concrete stock market data question"
+                concrete_market_decision.reasoning = (
+                    f"{reasoning} | {suffix}" if reasoning else suffix
+                )
+                return concrete_market_decision
+
             if (
                 task_type == TaskType.DESCRIBE_SELF
                 and not self._is_broad_self_description_message(original_message)
@@ -457,6 +466,10 @@ class MainRouter:
                 reasoning="规则匹配 FAgent 自我介绍/能力说明意图",
             )
 
+        market_decision = self._direct_market_route(message)
+        if market_decision:
+            return market_decision
+
         if self._is_specific_capability_question(message):
             return RouteDecision(
                 route=RouteType.CHAT,
@@ -468,6 +481,64 @@ class MainRouter:
             )
 
         return None
+
+    def _direct_market_route(self, message: str) -> Optional[RouteDecision]:
+        """Route concrete stock market-data questions before capability QA rules."""
+        symbol = self._extract_symbol(message)
+        if not symbol:
+            return None
+
+        normalized = re.sub(r"\s+", "", message.lower())
+        market_markers = [
+            "行情",
+            "股价",
+            "报价",
+            "k线",
+            "走势",
+            "趋势",
+            "最新数据",
+            "最近数据",
+            "行情数据",
+            "收盘",
+            "开盘",
+            "成交",
+        ]
+        if not any(marker in normalized for marker in market_markers):
+            return None
+
+        params: Dict[str, Any] = {"symbol": symbol}
+        task_type = TaskType.GET_QUOTE
+
+        kline_markers = [
+            "k线",
+            "日k",
+            "周k",
+            "月k",
+            "最近一周",
+            "近一周",
+            "走势",
+            "最近的行情数据",
+            "行情数据是什么时候",
+            "最新数据日期",
+            "最近数据日期",
+            "最近行情",
+        ]
+        if any(marker in normalized for marker in kline_markers):
+            task_type = TaskType.GET_KLINE
+            params["period"] = "daily"
+            params["count"] = self._infer_kline_count(message)
+        elif "趋势" in normalized or "分析" in normalized:
+            task_type = TaskType.ANALYZE_TREND
+
+        return RouteDecision(
+            route=RouteType.MARKET,
+            task_context=TaskContext(
+                task_type=task_type,
+                query=message,
+                params=params,
+            ),
+            reasoning="规则匹配具体股票行情查询",
+        )
 
     def _is_broad_self_description_message(self, message: str) -> bool:
         """Recognize broad questions about FAgent's overall capabilities."""

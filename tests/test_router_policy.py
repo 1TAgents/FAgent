@@ -87,6 +87,27 @@ def test_parse_route_response_accepts_capability_qa():
     assert decision.task_context.task_type == TaskType.CAPABILITY_QA
 
 
+def test_parse_route_response_repairs_concrete_market_question_from_capability_qa():
+    router = MainRouter()
+    content = json.dumps(
+        {
+            "route": "chat",
+            "task_type": "capability_qa",
+            "query": "那你能查询得到贵州茅台最近的行情数据是什么时候的呢？",
+            "params": {},
+            "reasoning": "模型误把具体行情查询当成能力问答",
+        },
+        ensure_ascii=False,
+    )
+
+    decision = router._parse_route_response(content, "那你能查询得到贵州茅台最近的行情数据是什么时候的呢？")
+
+    assert decision.route == RouteType.MARKET
+    assert decision.task_context.task_type == TaskType.GET_KLINE
+    assert decision.task_context.params["symbol"] == "600519"
+    assert "capability_qa to market" in decision.reasoning
+
+
 def test_parse_route_response_repairs_overbroad_describe_self():
     router = MainRouter()
     content = json.dumps(
@@ -125,6 +146,18 @@ def test_fallback_routes_specific_capability_to_capability_qa():
     assert decision.route == RouteType.CHAT
     assert decision.task_context.task_type == TaskType.CAPABILITY_QA
     assert "具体能力" in decision.reasoning
+
+
+def test_direct_route_concrete_stock_market_date_question_to_kline():
+    router = MainRouter()
+
+    decision = router._direct_route("那你能查询得到贵州茅台最近的行情数据是什么时候的呢？")
+
+    assert decision is not None
+    assert decision.route == RouteType.MARKET
+    assert decision.task_context.task_type == TaskType.GET_KLINE
+    assert decision.task_context.params["symbol"] == "600519"
+    assert decision.task_context.params["period"] == "daily"
 
 
 def test_strategy_feature_question_is_not_self_description():

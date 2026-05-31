@@ -9,6 +9,7 @@ Market Client - 行情数据源客户端
 """
 
 import logging
+import os
 from datetime import datetime, date, timedelta
 from typing import Optional, List, Dict, Any
 
@@ -22,6 +23,7 @@ from .models import (
 )
 from .cache import market_cache
 from .dataset_manager import get_dataset_manager
+from .offline_provider import OfflineMarketDataProvider
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +42,11 @@ class AKShareClient:
     def __init__(self):
         self._ak = None
         self._last_trade_date: Optional[date] = None
+        self.offline_provider = OfflineMarketDataProvider()
+        self.data_mode = os.getenv("FAGENT_MARKET_DATA_MODE", "hybrid").strip().lower() or "hybrid"
+        if self.data_mode not in {"live", "offline", "hybrid"}:
+            logger.warning("未知行情数据模式 %s，回退到 hybrid", self.data_mode)
+            self.data_mode = "hybrid"
         self._init_akshare()
     
     def _init_akshare(self):
@@ -50,14 +57,22 @@ class AKShareClient:
             logger.info("AKShare 初始化成功")
         except ImportError:
             logger.error("AKShare 未安装，请执行: pip install akshare")
-            raise ImportError("请安装 akshare: pip install akshare")
+            self._ak = None
     
     @property
     def ak(self):
         """获取 akshare 模块"""
         if self._ak is None:
             self._init_akshare()
+        if self._ak is None:
+            raise ImportError("请安装 akshare: pip install akshare")
         return self._ak
+
+    def _use_live(self) -> bool:
+        return self.data_mode in {"live", "hybrid"}
+
+    def _use_offline(self) -> bool:
+        return self.data_mode in {"offline", "hybrid"}
 
     def _trace_api_call(self, name: str, **params: Any):
         log_chain_event(
@@ -95,6 +110,11 @@ class AKShareClient:
         if self._last_trade_date:
             return self._last_trade_date
         
+        if self.data_mode == "offline":
+            offline_date = self.offline_provider.get_last_trade_date()
+            if offline_date:
+                return datetime.strptime(offline_date, "%Y-%m-%d").date()
+
         try:
             # 获取最近一个交易日的 K 线来确定日期
             # 使用一个流通性好的股票
@@ -124,6 +144,11 @@ class AKShareClient:
         except Exception as e:
             self._trace_api_result("ak.stock_zh_a_hist", success=False, error=str(e))
             logger.warning(f"获取最近交易日失败 | error={e}")
+
+        if self._use_offline():
+            offline_date = self.offline_provider.get_last_trade_date()
+            if offline_date:
+                return datetime.strptime(offline_date, "%Y-%m-%d").date()
         
         # 回退：使用简单推断
         today = date.today()
@@ -164,14 +189,20 @@ class AKShareClient:
             StockQuote 或 None
         """
         # 1. 检查单股票缓存
-        cache_key = f"quote:{symbol}"
+        cache_key = f"quote:{symbol}:{self.data_mode}:{self.offline_provider.as_of_date or ''}"
         if use_cache:
             cached = market_cache.get(cache_key)
             if cached:
                 return cached
-        
-        # 2. 从全市场数据获取（有缓存）
-        quote = self._get_quote_from_all(symbol, use_cache)
+
+        quote = None
+        if self._use_live():
+            quote = self._get_quote_from_all(symbol, use_cache)
+        if quote is None and self._use_offline():
+            quote = self.offline_provider.get_quote(symbol)
+            if quote:
+                logger.info(f"使用本地离线行情 | symbol={symbol} | as_of={quote.trade_date}")
+
         if quote:
             market_cache.set(cache_key, quote, cache_type="quote")
         return quote
@@ -261,12 +292,21 @@ class AKShareClient:
             KLineData 或 None
         """
         # 检查缓存
-        cache_key = f"kline:{symbol}:{period.value}:{count}"
+        cache_key = (
+            f"kline:v2:{symbol}:{period.value}:{count}:"
+            f"{start_date or ''}:{end_date or ''}:{self.data_mode}:{self.offline_provider.as_of_date or ''}"
+        )
         if use_cache:
             cached = market_cache.get(cache_key)
             if cached:
                 return cached
-        
+
+        if self.data_mode == "offline" and self._use_offline():
+            offline = self.offline_provider.get_kline(symbol, period, count, start_date, end_date)
+            if offline:
+                market_cache.set(cache_key, offline, cache_type="kline")
+                return offline
+
         try:
             # 日K线
             if period == KLinePeriod.DAILY:
@@ -308,6 +348,8 @@ class AKShareClient:
                 )
             else:
                 logger.warning(f"暂不支持的 K 线周期: {period}")
+                if self._use_offline():
+                    return self.offline_provider.get_kline(symbol, period, count, start_date, end_date)
                 return None
             
             if df.empty:
@@ -316,6 +358,12 @@ class AKShareClient:
                     success=True,
                     result="miss",
                 )
+                if self._use_offline():
+                    offline = self.offline_provider.get_kline(symbol, period, count, start_date, end_date)
+                    if offline:
+                        logger.info(f"使用本地离线 K 线 | symbol={symbol} | count={len(offline.data)}")
+                        market_cache.set(cache_key, offline, cache_type="kline")
+                        return offline
                 return None
             
             # 只取最近 count 条
@@ -355,6 +403,12 @@ class AKShareClient:
                 error=str(e),
             )
             logger.error(f"获取 A 股 K 线失败 | symbol={symbol} | error={e}")
+            if self._use_offline():
+                offline = self.offline_provider.get_kline(symbol, period, count, start_date, end_date)
+                if offline:
+                    logger.info(f"使用本地离线 K 线 | symbol={symbol} | count={len(offline.data)}")
+                    market_cache.set(cache_key, offline, cache_type="kline")
+                    return offline
             return None
     
     def search_a_share(self, keyword: str, limit: int = 10, use_cache: bool = True) -> List[StockInfo]:
@@ -370,12 +424,17 @@ class AKShareClient:
             StockInfo 列表
         """
         # 检查缓存
-        cache_key = f"search:{keyword}:{limit}"
+        cache_key = f"search:{keyword}:{limit}:{self.data_mode}"
         if use_cache:
             cached = market_cache.get(cache_key)
             if cached:
                 return cached
-        
+
+        if self.data_mode == "offline" and self._use_offline():
+            results = self.offline_provider.search(keyword, limit)
+            market_cache.set(cache_key, results, cache_type="search")
+            return results
+
         try:
             # 使用全市场数据（有缓存）
             cache_key_all = "quote_all:a_share"
@@ -410,6 +469,11 @@ class AKShareClient:
         except Exception as e:
             self._trace_api_result("ak.stock_zh_a_spot_em", success=False, error=str(e))
             logger.error(f"搜索 A 股失败 | keyword={keyword} | error={e}")
+            if self._use_offline():
+                results = self.offline_provider.search(keyword, limit)
+                if results:
+                    market_cache.set(cache_key, results, cache_type="search")
+                return results
             return []
     
     # ==================== 美股 ====================

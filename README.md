@@ -104,8 +104,34 @@ LLM_MODEL=qwen3.5-plus
 
 - `AGENTS_BASE_URL=http://localhost:8001`
 - `RQDATAC_CONF=...`：需要接 RQData 时再配置
+- `FAGENT_MARKET_DATA_MODE=hybrid`：行情数据模式，支持 `live` / `offline` / `hybrid`
+- `FAGENT_MARKET_AS_OF_DATE=2026-04-24`：离线模式下用固定交易日模拟当前日期
+- `FAGENT_MARKET_DB_PATH=data/stock_data.db`：项目本地行情库路径
+- `QUANTMIND_DATA_DIR=data/QuantMInd`：QuantMInd 原始数据目录或软链接
 - `JWT_SECRET=...`
 - `DATABASE_PATH=data/conversations.db`
+
+### 本地离线行情数据
+
+为了稳定测试“最近行情”“策略验证”等能力，可以把 QuantMInd 数据导入项目本地 SQLite 库。原始数据和生成的数据库都放在 `data/` 下，该目录已被 `.gitignore` 忽略，不进入版本管理。
+
+推荐先把原始数据迁移到项目目录，数据量较大时可以使用软链接：
+
+```bash
+ln -s ~/Learning/quant_repos/data/QuantMInd data/QuantMInd
+```
+
+导入到项目本地行情库：
+
+```bash
+python scripts/import_quantmind_to_stock_db.py \
+  --source data/QuantMInd \
+  --db data/stock_data.db \
+  --as-of-date 2026-04-24 \
+  --replace
+```
+
+本机当前 QuantMInd 日线数据截止到 `2026-04-24`。在 `offline` 或 `hybrid` 模式下，FAgent 会按 `FAGENT_MARKET_AS_OF_DATE` 查询本地日线数据；以后接入更新或实时数据时，主要替换导入/同步层即可。
 
 ### 5. 启动服务
 

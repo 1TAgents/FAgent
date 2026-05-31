@@ -43,6 +43,7 @@ agents/
 │   ├── client.py
 │   ├── dataset_manager.py
 │   ├── models.py
+│   ├── offline_provider.py
 │   └── service.py
 └── services/
     ├── llm.py
@@ -63,6 +64,10 @@ uvicorn agents.api.main:app --reload --host 0.0.0.0 --port 8001
 - `OPENROUTER_BASE_URL`：默认 `https://openrouter.ai/api/v1`
 - `LLM_MODEL`：默认模型
 - `RQDATAC_CONF`：可选，用于部分 RQData 数据脚本/能力
+- `FAGENT_MARKET_DATA_MODE`：行情数据模式，支持 `live` / `offline` / `hybrid`，默认 `hybrid`
+- `FAGENT_MARKET_AS_OF_DATE`：离线模式固定查询日期，例如 `2026-04-24`
+- `FAGENT_MARKET_DB_PATH`：本地行情库路径，默认 `data/stock_data.db`
+- `QUANTMIND_DATA_DIR`：QuantMInd 原始数据目录，导入脚本默认优先读取 `data/QuantMInd`
 - `BACKTEST_QUANTMIND_DATA_DIR`：可选，指向 QuantMInd 根目录或 `feature_snapshots` 目录，用于回测本地 parquet 数据源
 
 ## 路由模式
@@ -139,7 +144,9 @@ uvicorn agents.api.main:app --reload --host 0.0.0.0 --port 8001
 
 ## 数据说明
 
-- 行情能力默认走 `agents/common/market/` 下的服务和缓存
+- 行情能力默认走 `agents/common/market/` 下的服务和缓存；`hybrid` 模式会在线数据失败后回退到项目本地 SQLite 行情库
+- 本地行情库通过 `scripts/import_quantmind_to_stock_db.py` 从 QuantMInd qlib 日线数据生成，默认路径为 `data/stock_data.db`
+- `data/` 下的原始数据和数据库不进入 git；本机当前 QuantMInd 日线数据截止到 `2026-04-24`
 - 回测数据加载顺序为本地数据库、QuantMInd parquet 快照、RQData、AKShare；本机默认会自动发现 `~/Learning/quant_repos/data/QuantMInd/feature_snapshots`
 - 独立的数据预热能力请看 [data_sync/README.md](data_sync/README.md)
 - 如果需要更细的接口示例，优先查看 `/docs` 自动生成文档
