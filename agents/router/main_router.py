@@ -484,6 +484,9 @@ class MainRouter:
 
     def _direct_market_route(self, message: str) -> Optional[RouteDecision]:
         """Route concrete stock market-data questions before capability QA rules."""
+        if self._is_explicit_order_message(message):
+            return None
+
         symbol = self._extract_symbol(message)
         if not symbol:
             return None
